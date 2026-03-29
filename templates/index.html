@@ -1,0 +1,912 @@
+<!DOCTYPE html>
+<html lang="vi" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Image Crawler</title>
+  <style>
+    /* ── CSS Variables ─────────────────────────────────────────────────── */
+    :root {
+      --bg:           #0d1117;
+      --surface:      #161b22;
+      --surface2:     #1c2230;
+      --border:       #30363d;
+      --text:         #e6edf3;
+      --text-muted:   #7d8590;
+      --accent:       #58a6ff;
+      --accent-dim:   rgba(88,166,255,.15);
+      --green:        #3fb950;
+      --green-dim:    rgba(63,185,80,.15);
+      --red:          #f85149;
+      --red-dim:      rgba(248,81,73,.15);
+      --yellow:       #d29922;
+      --yellow-dim:   rgba(210,153,34,.15);
+      --cyan:         #39d353;
+      --radius:       10px;
+      --mono:         'Cascadia Code','Fira Code','Consolas',monospace;
+    }
+    [data-theme="light"] {
+      --bg:           #f6f8fa;
+      --surface:      #ffffff;
+      --surface2:     #f0f3f6;
+      --border:       #d0d7de;
+      --text:         #1f2328;
+      --text-muted:   #656d76;
+      --accent:       #0969da;
+      --accent-dim:   rgba(9,105,218,.1);
+      --green:        #1a7f37;
+      --green-dim:    rgba(26,127,55,.1);
+      --red:          #cf222e;
+      --red-dim:      rgba(207,34,46,.1);
+      --yellow:       #9a6700;
+      --yellow-dim:   rgba(154,103,0,.1);
+    }
+
+    /* ── Reset ──────────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 16px 20px 32px;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    a { color: var(--accent); }
+
+    /* ── Header ─────────────────────────────────────────────────────────── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    .brand-icon {
+      width: 32px; height: 32px;
+      background: var(--accent-dim);
+      border: 1px solid var(--accent);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+    }
+    .brand-accent { color: var(--accent); }
+    .header-right { display: flex; align-items: center; gap: 10px; }
+    .badge-version {
+      font-size: 0.72rem;
+      padding: 2px 8px;
+      border-radius: 99px;
+      background: var(--surface2);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+    .btn-theme {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: 5px 12px;
+      cursor: pointer;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      transition: all .15s;
+      font-family: inherit;
+    }
+    .btn-theme:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* ── Layout ─────────────────────────────────────────────────────────── */
+    .layout {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 16px;
+      max-width: 1300px;
+      margin: 0 auto;
+      align-items: start;
+    }
+    @media (max-width: 860px) {
+      .layout { grid-template-columns: 1fr; }
+      .log-panel { min-height: 360px; }
+    }
+
+    /* ── Card ───────────────────────────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .card-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .card-body { padding: 16px; }
+
+    /* ── Form ───────────────────────────────────────────────────────────── */
+    .field { margin-bottom: 12px; }
+    .field:last-child { margin-bottom: 0; }
+    .field label {
+      display: block;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 5px;
+    }
+    .field input {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 11px;
+      color: var(--text);
+      font-size: 0.88rem;
+      outline: none;
+      transition: border-color .15s, box-shadow .15s;
+      font-family: inherit;
+    }
+    .field input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-dim);
+    }
+    .field input::placeholder { color: var(--text-muted); opacity: .55; }
+    .field input[type="number"] { font-variant-numeric: tabular-nums; }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px;
+    }
+    .field-hint {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    /* ── Divider ────────────────────────────────────────────────────────── */
+    .divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
+
+    /* ── Preset chips ───────────────────────────────────────────────────── */
+    .presets { display: flex; gap: 7px; flex-wrap: wrap; }
+    .chip {
+      font-size: 0.75rem;
+      padding: 4px 12px;
+      border-radius: 99px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all .15s;
+      font-family: inherit;
+    }
+    .chip:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+
+    /* ── Buttons ────────────────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      border-radius: 7px;
+      border: 1px solid transparent;
+      cursor: pointer;
+      font-size: 0.85rem;
+      font-weight: 600;
+      transition: all .15s;
+      font-family: inherit;
+      white-space: nowrap;
+    }
+    .btn:disabled { opacity: .4; cursor: not-allowed; pointer-events: none; }
+    .btn-primary  { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .btn-primary:hover:not(:disabled)  { filter: brightness(1.12); }
+    .btn-danger   { background: var(--red);    color: #fff; border-color: var(--red); }
+    .btn-danger:hover:not(:disabled)   { filter: brightness(1.1); }
+    .btn-ghost    { background: transparent; border-color: var(--border); color: var(--text-muted); }
+    .btn-ghost:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+
+    .action-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+    /* ── Progress ───────────────────────────────────────────────────────── */
+    .progress-wrap { margin-top: 16px; }
+    .prog-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.78rem;
+      margin-bottom: 6px;
+    }
+    .prog-label { color: var(--text-muted); }
+    .prog-pct   { font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+    .prog-track {
+      height: 5px;
+      background: var(--surface2);
+      border-radius: 99px;
+      overflow: hidden;
+    }
+    .prog-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--green));
+      border-radius: 99px;
+      width: 0%;
+      transition: width .35s ease;
+    }
+    .stats-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+    .stat-pill {
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 3px 10px;
+      border-radius: 99px;
+      font-variant-numeric: tabular-nums;
+    }
+    .stat-blue   { background: var(--accent-dim);  color: var(--accent); }
+    .stat-green  { background: var(--green-dim);   color: var(--green);  }
+    .stat-red    { background: var(--red-dim);     color: var(--red);    }
+
+    /* ── Status badge ───────────────────────────────────────────────────── */
+    .status-row { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--text-muted);
+      flex-shrink: 0;
+    }
+    .status-dot.running  { background: var(--green);  animation: blink 1.2s infinite; }
+    .status-dot.done     { background: var(--green); }
+    .status-dot.error    { background: var(--red); }
+    .status-dot.stopped  { background: var(--yellow); }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.25} }
+    .status-text { font-size: 0.82rem; color: var(--text-muted); }
+
+    /* ── Log panel ──────────────────────────────────────────────────────── */
+    .log-panel { display: flex; flex-direction: column; min-height: 520px; }
+    .log-body {
+      flex: 1;
+      background: #010409;
+      padding: 12px 14px;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      line-height: 1.7;
+      overflow-y: auto;
+      min-height: 460px;
+      max-height: 72vh;
+    }
+    .log-line { white-space: pre-wrap; word-break: break-all; color: #8b949e; }
+    .log-line.ok     { color: #3fb950; }
+    .log-line.fail   { color: #f85149; }
+    .log-line.warn   { color: #d29922; }
+    .log-line.done   { color: #58a6ff; font-weight: 600; }
+    .log-line.sep    { color: #21262d; }
+    .log-line.info   { color: #58a6ff; }
+    .log-line.skip   { color: #6e7681; font-style: italic; }
+    .log-empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 200px;
+      color: var(--text-muted);
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      opacity: .5;
+      gap: 6px;
+    }
+
+    /* ── Folder row ─────────────────────────────────────────────────────── */
+    .folder-row { display: flex; gap: 6px; align-items: stretch; }
+    .folder-row input { flex: 1; min-width: 0; }
+    .btn-browse { padding: 7px 12px; font-size: 0.82rem; flex-shrink: 0; }
+
+    /* ── Folder browser modal ───────────────────────────────────────────── */
+    .fb-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.55);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(2px);
+    }
+    .fb-overlay.open { display: flex; }
+    .fb-dialog {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      width: min(580px, 96vw);
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 24px 64px rgba(0,0,0,.5);
+      overflow: hidden;
+    }
+    .fb-header {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+    .fb-title { font-weight: 700; font-size: 0.9rem; }
+    .fb-close {
+      background: none; border: none; cursor: pointer;
+      color: var(--text-muted); font-size: 1.1rem; line-height: 1;
+      padding: 2px 6px; border-radius: 4px;
+    }
+    .fb-close:hover { background: var(--surface2); color: var(--text); }
+    .fb-breadcrumb {
+      padding: 8px 14px;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      background: var(--surface2);
+      font-family: var(--mono);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      flex-shrink: 0;
+    }
+    .fb-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 6px 0;
+    }
+    .fb-entry {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 7px 14px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      border-bottom: 1px solid transparent;
+      transition: background .1s;
+      user-select: none;
+    }
+    .fb-entry:hover { background: var(--surface2); }
+    .fb-entry .fb-icon { font-size: 1rem; flex-shrink: 0; }
+    .fb-entry .fb-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .fb-entry .fb-arrow { color: var(--text-muted); font-size: 0.72rem; }
+    .fb-entry.fb-up { color: var(--text-muted); }
+    .fb-empty {
+      text-align: center;
+      padding: 32px;
+      color: var(--text-muted);
+      font-size: 0.82rem;
+    }
+    .fb-loading {
+      text-align: center;
+      padding: 32px;
+      color: var(--text-muted);
+      font-size: 0.82rem;
+    }
+    .fb-footer {
+      padding: 12px 14px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+      background: var(--surface2);
+    }
+    .fb-selected-path {
+      flex: 1;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      color: var(--accent);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Folder browser modal ────────────────────────────────────────────── -->
+<div class="fb-overlay" id="fbOverlay" onclick="fbOverlayClick(event)">
+  <div class="fb-dialog">
+    <div class="fb-header">
+      <span class="fb-title">📁 Chọn thư mục lưu ảnh</span>
+      <button class="fb-close" onclick="closeFolderBrowser()">✕</button>
+    </div>
+    <div class="fb-breadcrumb" id="fbBreadcrumb">—</div>
+    <div class="fb-body" id="fbBody">
+      <div class="fb-loading">Đang tải…</div>
+    </div>
+    <div class="fb-footer">
+      <span class="fb-selected-path" id="fbSelectedPath">Chưa chọn thư mục</span>
+      <button class="btn btn-ghost" onclick="closeFolderBrowser()">Hủy</button>
+      <button class="btn btn-primary" id="fbConfirmBtn" onclick="confirmFolder()">✔ Chọn thư mục này</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Header ──────────────────────────────────────────────────────────── -->
+<header>
+  <div class="brand">
+    <div class="brand-icon">🕷</div>
+    Image <span class="brand-accent">Crawler</span>
+  </div>
+  <div class="header-right">
+    <span class="badge-version">v2.0 web</span>
+    <button class="btn-theme" id="themeBtn" onclick="toggleTheme()">☀ Sáng</button>
+  </div>
+</header>
+
+<!-- ── Main layout ─────────────────────────────────────────────────────── -->
+<div class="layout">
+
+  <!-- ── Left: Config ──────────────────────────────────────────────────── -->
+  <div class="left-col">
+
+    <!-- URL -->
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-header">Nguồn crawl</div>
+      <div class="card-body">
+        <div class="field">
+          <label>URL trang web</label>
+          <input type="url" id="urlInput" placeholder="https://example.com/gallery"
+                 oninput="onUrlChange()" />
+          <div class="field-hint" id="urlHint"></div>
+        </div>
+        <div class="field">
+          <label>Thư mục lưu ảnh</label>
+          <div class="folder-row">
+            <input type="text" id="folderInput" value="output"
+                   placeholder="output  hoặc  D:\Ảnh\crawl" />
+            <button class="btn btn-ghost btn-browse" onclick="openFolderBrowser()" title="Chọn thư mục trên máy">
+              📁 Chọn…
+            </button>
+          </div>
+          <div class="field-hint">Đường dẫn tuyệt đối hoặc tương đối từ nơi chạy script.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Options -->
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-header">Tùy chọn nâng cao</div>
+      <div class="card-body">
+        <div class="grid-3">
+          <div class="field">
+            <label>Delay (s)</label>
+            <input type="number" id="delayInput" value="0.3" min="0" max="10" step="0.1" />
+          </div>
+          <div class="field">
+            <label>Luồng tải</label>
+            <input type="number" id="workersInput" value="4" min="1" max="32" step="1" />
+          </div>
+          <div class="field">
+            <label>Timeout (s)</label>
+            <input type="number" id="timeoutInput" value="20" min="5" max="300" step="1" />
+          </div>
+        </div>
+
+        <hr class="divider" />
+
+        <div class="field" style="margin-bottom:0">
+          <label>Cài đặt nhanh</label>
+          <div class="presets">
+            <button class="chip" onclick="applyPreset('fast')" title="delay=0.1s, 8 luồng, timeout=15s">⚡ Nhanh</button>
+            <button class="chip" onclick="applyPreset('safe')" title="delay=1.0s, 2 luồng, timeout=30s">🛡 An toàn</button>
+            <button class="chip" onclick="applyPreset('heavy')" title="delay=0.2s, 12 luồng, timeout=20s">💪 Mạnh</button>
+            <button class="chip" onclick="applyPreset('lazy')" title="delay=2.0s, 1 luồng, timeout=60s">🐢 Nhẹ nhàng</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Actions & Progress -->
+    <div class="card">
+      <div class="card-body">
+        <div class="action-row">
+          <button class="btn btn-primary"  id="startBtn" onclick="startCrawl()">▶ Bắt đầu</button>
+          <button class="btn btn-danger"   id="stopBtn"  onclick="stopCrawl()" disabled>■ Dừng</button>
+          <button class="btn btn-ghost"    onclick="saveConfig()" title="Lưu cấu hình vào trình duyệt">💾 Lưu</button>
+          <button class="btn btn-ghost"    onclick="resetConfig()" title="Khôi phục mặc định">↺</button>
+        </div>
+
+        <div class="progress-wrap" id="progressWrap" style="display:none">
+          <hr class="divider" />
+          <div class="prog-header">
+            <span class="prog-label" id="progLabel">Đang tải…</span>
+            <span class="prog-pct"   id="progPct">0%</span>
+          </div>
+          <div class="prog-track">
+            <div class="prog-fill" id="progFill"></div>
+          </div>
+          <div class="stats-row">
+            <span class="stat-pill stat-blue"  id="statTotal">Tổng: 0</span>
+            <span class="stat-pill stat-green" id="statOk">✓ 0</span>
+            <span class="stat-pill stat-red"   id="statFail">✗ 0</span>
+          </div>
+        </div>
+
+        <div class="status-row">
+          <div class="status-dot" id="statusDot"></div>
+          <span class="status-text" id="statusText">Sẵn sàng</span>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- end left -->
+
+  <!-- ── Right: Log ────────────────────────────────────────────────────── -->
+  <div class="right-col">
+    <div class="card log-panel">
+      <div class="card-header">
+        <span>Nhật ký thời gian thực</span>
+        <button class="btn btn-ghost" style="padding:3px 10px;font-size:.75rem" onclick="clearLog()">🗑 Xóa</button>
+      </div>
+      <div class="log-body" id="logBox">
+        <div class="log-empty">
+          <span>▋</span>
+          <span>Nhập URL và nhấn ▶ Bắt đầu</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- end layout -->
+
+<!-- ── JavaScript ──────────────────────────────────────────────────────── -->
+<script>
+"use strict";
+
+// ── Presets ──────────────────────────────────────────────────────────────────
+const PRESETS = {
+  fast:  { delay: 0.1, workers: 8,  timeout: 15,  label: "Nhanh"      },
+  safe:  { delay: 1.0, workers: 2,  timeout: 30,  label: "An toàn"    },
+  heavy: { delay: 0.2, workers: 12, timeout: 20,  label: "Mạnh"       },
+  lazy:  { delay: 2.0, workers: 1,  timeout: 60,  label: "Nhẹ nhàng"  },
+};
+
+const DEFAULT_CONFIG = { delay: 0.3, workers: 4, timeout: 20, folder: "output" };
+
+function applyPreset(name) {
+  const p = PRESETS[name];
+  if (!p) return;
+  setVal("delayInput",   p.delay);
+  setVal("workersInput", p.workers);
+  setVal("timeoutInput", p.timeout);
+  addLog(`⚙  Preset "${p.label}": delay=${p.delay}s  workers=${p.workers}  timeout=${p.timeout}s`, "info");
+}
+
+// ── Config persistence ────────────────────────────────────────────────────────
+function saveConfig() {
+  const cfg = {
+    url:     getVal("urlInput"),
+    folder:  getVal("folderInput"),
+    delay:   getVal("delayInput"),
+    workers: getVal("workersInput"),
+    timeout: getVal("timeoutInput"),
+  };
+  localStorage.setItem("crawlerConfig", JSON.stringify(cfg));
+  addLog("💾  Cấu hình đã lưu vào trình duyệt.", "info");
+}
+
+function loadConfig() {
+  try {
+    const saved = JSON.parse(localStorage.getItem("crawlerConfig") || "{}");
+    if (saved.url)     setVal("urlInput",     saved.url);
+    if (saved.folder)  setVal("folderInput",  saved.folder);
+    if (saved.delay   != null) setVal("delayInput",   saved.delay);
+    if (saved.workers != null) setVal("workersInput", saved.workers);
+    if (saved.timeout != null) setVal("timeoutInput", saved.timeout);
+  } catch {}
+}
+
+function resetConfig() {
+  setVal("delayInput",   DEFAULT_CONFIG.delay);
+  setVal("workersInput", DEFAULT_CONFIG.workers);
+  setVal("timeoutInput", DEFAULT_CONFIG.timeout);
+  setVal("folderInput",  DEFAULT_CONFIG.folder);
+  addLog("↺  Cấu hình đã khôi phục về mặc định.", "info");
+}
+
+// ── Theme ─────────────────────────────────────────────────────────────────────
+function toggleTheme() {
+  const html  = document.documentElement;
+  const isDark = html.dataset.theme === "dark";
+  html.dataset.theme = isDark ? "light" : "dark";
+  document.getElementById("themeBtn").textContent = isDark ? "🌙 Tối" : "☀ Sáng";
+  localStorage.setItem("theme", html.dataset.theme);
+}
+function loadTheme() {
+  const t = localStorage.getItem("theme");
+  if (t) {
+    document.documentElement.dataset.theme = t;
+    document.getElementById("themeBtn").textContent = t === "dark" ? "☀ Sáng" : "🌙 Tối";
+  }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const $  = (id) => document.getElementById(id);
+const getVal = (id)    => $(id).value;
+const setVal = (id, v) => { $(id).value = v; };
+
+// ── URL hint ──────────────────────────────────────────────────────────────────
+function onUrlChange() {
+  const v = getVal("urlInput").trim();
+  const hint = $("urlHint");
+  if (!v) { hint.textContent = ""; return; }
+  if (!v.startsWith("http://") && !v.startsWith("https://")) {
+    hint.style.color = "var(--red)";
+    hint.textContent = "URL phải bắt đầu bằng http:// hoặc https://";
+  } else {
+    hint.style.color = "var(--green)";
+    hint.textContent = "✓ URL hợp lệ";
+  }
+}
+
+// ── Log ───────────────────────────────────────────────────────────────────────
+const logBox = $("logBox");
+
+function addLog(msg, cls) {
+  // Remove empty placeholder
+  const empty = logBox.querySelector(".log-empty");
+  if (empty) empty.remove();
+
+  const line  = document.createElement("div");
+  line.className = "log-line" + (cls ? " " + cls : "");
+  line.textContent = msg;
+  logBox.appendChild(line);
+  logBox.scrollTop = logBox.scrollHeight;
+}
+
+function clearLog() {
+  logBox.innerHTML = "";
+}
+
+function classifyLog(msg) {
+  if (!msg) return "";
+  if (msg.includes("[OK"))            return "ok";
+  if (msg.includes("[FAIL"))          return "fail";
+  if (msg.includes("[skip]"))         return "skip";
+  if (msg.includes("✘") || msg.includes("Lỗi")) return "fail";
+  if (msg.includes("⚠"))             return "warn";
+  if (msg.includes("✔") || msg.includes("Hoàn thành")) return "done";
+  if (/^─+$/.test(msg.trim()))        return "sep";
+  if (msg.startsWith("Đang tải") || msg.startsWith("Tìm thấy")) return "info";
+  if (msg.startsWith("URL") || msg.startsWith("Folder") || msg.startsWith("Config")) return "info";
+  return "";
+}
+
+// ── Status ────────────────────────────────────────────────────────────────────
+function setStatus(text, type) {
+  $("statusText").textContent = text;
+  $("statusDot").className    = "status-dot" + (type ? " " + type : "");
+}
+
+// ── Progress ──────────────────────────────────────────────────────────────────
+function showProgress(done, total) {
+  $("progressWrap").style.display = "";
+  const pct = total > 0 ? Math.round(done / total * 100) : 0;
+  $("progFill").style.width   = pct + "%";
+  $("progPct").textContent    = pct + "%";
+  $("progLabel").textContent  = `Đang tải… ${done} / ${total}`;
+  $("statTotal").textContent  = `Tổng: ${total}`;
+}
+
+function showStats(ok, fail) {
+  $("statOk").textContent   = `✓ ${ok}`;
+  $("statFail").textContent  = `✗ ${fail}`;
+}
+
+// ── Crawl UI state ────────────────────────────────────────────────────────────
+function setCrawling(on) {
+  $("startBtn").disabled = on;
+  $("stopBtn").disabled  = !on;
+}
+
+// ── Polling ───────────────────────────────────────────────────────────────────
+let _cursor      = 0;
+let _pollTimer   = null;
+let _crawling    = false;
+
+function startPolling() {
+  if (_pollTimer) return;
+  _pollTimer = setInterval(poll, 400);
+}
+
+function stopPolling() {
+  clearInterval(_pollTimer);
+  _pollTimer = null;
+}
+
+async function poll() {
+  let data;
+  try {
+    const res = await fetch(`/api/logs?from=${_cursor}`);
+    if (!res.ok) return;
+    data = await res.json();
+  } catch { return; }
+
+  for (const entry of data.logs) {
+    switch (entry.type) {
+      case "log":
+        addLog(entry.msg, classifyLog(entry.msg));
+        break;
+      case "progress":
+        showProgress(entry.done, entry.total);
+        break;
+      case "done":
+        showStats(entry.success, entry.failed);
+        $("progLabel").textContent = `Hoàn thành! ${entry.success + entry.failed} ảnh xử lý`;
+        $("progFill").style.width  = "100%";
+        $("progPct").textContent   = "100%";
+        break;
+    }
+  }
+  _cursor = data.total;
+
+  // Check terminal state
+  if (!data.state.running && _crawling) {
+    _crawling = false;
+    setCrawling(false);
+    stopPolling();
+    const s = data.state.status;
+    if (s === "done") {
+      setStatus(`Xong: ${data.state.success} OK, ${data.state.failed} lỗi`, "done");
+    } else if (s === "error") {
+      setStatus("Lỗi khi crawl", "error");
+    } else if (s === "stopped") {
+      setStatus("Đã dừng", "stopped");
+    }
+  }
+}
+
+// ── Start / Stop ──────────────────────────────────────────────────────────────
+async function startCrawl() {
+  const url     = getVal("urlInput").trim();
+  const folder  = getVal("folderInput").trim();
+  const delay   = parseFloat(getVal("delayInput"));
+  const workers = parseInt(getVal("workersInput"), 10);
+  const timeout = parseInt(getVal("timeoutInput"), 10);
+
+  if (!url) {
+    addLog("⚠  Vui lòng nhập URL.", "warn"); return;
+  }
+  if (!url.startsWith("http://") && !url.startsWith("https://")) {
+    addLog("⚠  URL phải bắt đầu bằng http:// hoặc https://", "warn"); return;
+  }
+
+  // Reset UI
+  _cursor   = 0;
+  _crawling = true;
+  clearLog();
+  $("progressWrap").style.display = "";
+  showProgress(0, 0);
+  showStats(0, 0);
+  setStatus("Đang crawl…", "running");
+  setCrawling(true);
+  startPolling();
+
+  let res, json;
+  try {
+    res  = await fetch("/api/start", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ url, folder, delay, workers, timeout }),
+    });
+    json = await res.json();
+  } catch (e) {
+    addLog(`⚠  Không kết nối được server: ${e}`, "fail");
+    setCrawling(false); stopPolling(); _crawling = false; return;
+  }
+
+  if (!res.ok) {
+    addLog(`⚠  ${json.error || "Lỗi không xác định"}`, "warn");
+    setStatus("Lỗi", "error");
+    setCrawling(false); stopPolling(); _crawling = false;
+  }
+}
+
+async function stopCrawl() {
+  try { await fetch("/api/stop", { method: "POST" }); } catch {}
+  setStatus("Đang dừng…", "stopped");
+}
+
+// ── Folder Browser ───────────────────────────────────────────────────────────
+let _fbCurrentPath = "";
+
+async function openFolderBrowser() {
+  document.getElementById("fbOverlay").classList.add("open");
+  // Start at current folder input value, or root
+  const cur = getVal("folderInput").trim();
+  await fbNavigate(cur || "");
+}
+
+function closeFolderBrowser() {
+  document.getElementById("fbOverlay").classList.remove("open");
+}
+
+function fbOverlayClick(e) {
+  if (e.target === document.getElementById("fbOverlay")) closeFolderBrowser();
+}
+
+function confirmFolder() {
+  if (_fbCurrentPath) {
+    setVal("folderInput", _fbCurrentPath);
+    closeFolderBrowser();
+  }
+}
+
+async function fbNavigate(path) {
+  const body         = document.getElementById("fbBody");
+  const breadcrumb   = document.getElementById("fbBreadcrumb");
+  const selectedPath = document.getElementById("fbSelectedPath");
+
+  body.innerHTML = '<div class="fb-loading">⏳ Đang tải…</div>';
+
+  let data;
+  try {
+    const res = await fetch("/api/fs?path=" + encodeURIComponent(path));
+    data = await res.json();
+  } catch (e) {
+    body.innerHTML = `<div class="fb-empty">⚠ Không tải được: ${escHtml(String(e))}</div>`;
+    return;
+  }
+
+  if (data.error) {
+    body.innerHTML = `<div class="fb-empty">⚠ ${escHtml(data.error)}</div>`;
+    return;
+  }
+
+  _fbCurrentPath = data.path || "";
+  breadcrumb.textContent   = _fbCurrentPath || "Ổ đĩa";
+  selectedPath.textContent = _fbCurrentPath ? `📁 ${_fbCurrentPath}` : "Chọn thư mục bên dưới";
+
+  // Xây dựng bằng DOM để tránh lỗi escape với đường dẫn Windows
+  body.innerHTML = "";
+
+  function makeEntry(icon, label, targetPath, extraClass) {
+    const div  = document.createElement("div");
+    div.className = "fb-entry" + (extraClass ? " " + extraClass : "");
+    div.innerHTML = `<span class="fb-icon">${icon}</span>`
+                  + `<span class="fb-name">${escHtml(label)}</span>`
+                  + `<span class="fb-arrow">▶</span>`;
+    div.addEventListener("click", () => fbNavigate(targetPath));
+    return div;
+  }
+
+  // Nút lên thư mục cha
+  if (data.parent !== null && data.parent !== undefined) {
+    body.appendChild(makeEntry("⬆", ".. (lên trên)", data.parent, "fb-up"));
+  } else if (_fbCurrentPath) {
+    body.appendChild(makeEntry("💻", "Danh sách ổ đĩa", "", "fb-up"));
+  }
+
+  if (data.entries.length === 0 && body.children.length === 0) {
+    body.innerHTML = '<div class="fb-empty">Thư mục trống hoặc không có quyền truy cập</div>';
+    return;
+  }
+
+  for (const entry of data.entries) {
+    const icon = entry.path.match(/^[A-Za-z]:\\$/) ? "💾" : "📁";
+    body.appendChild(makeEntry(icon, entry.name, entry.path, ""));
+  }
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+loadTheme();
+loadConfig();
+</script>
+</body>
+</html>
