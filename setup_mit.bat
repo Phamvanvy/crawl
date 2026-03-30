@@ -111,7 +111,25 @@ if errorlevel 1 (
 
 )
 
-mit_venv\Scripts\pip install "git+https://github.com/zyddnys/manga-image-translator.git" --quiet
+echo   Clone manga-image-translator tu GitHub...
+
+if exist "_mit_tmp" rmdir /s /q "_mit_tmp"
+
+git clone --depth=1 https://github.com/zyddnys/manga-image-translator.git _mit_tmp
+
+if errorlevel 1 goto errclone
+
+echo   Cai cac thu vien phu thuoc...
+
+mit_venv\Scripts\pip install -r _mit_tmp\requirements.txt --quiet
+
+echo   Sao chep goi vao mit_venv...
+
+if exist "mit_venv\Lib\site-packages\manga_translator" rmdir /s /q "mit_venv\Lib\site-packages\manga_translator"
+
+xcopy /E /I /Q "_mit_tmp\manga_translator" "mit_venv\Lib\site-packages\manga_translator" >nul
+
+rmdir /s /q "_mit_tmp"
 
 if errorlevel 1 goto errinstall
 
@@ -154,6 +172,22 @@ exit /b 0
 color 0C
 
 echo   [LOI] Khong tao duoc mit_venv!
+
+echo.
+
+pause
+
+exit /b 1
+
+:errclone
+
+color 0C
+
+echo.
+
+echo   [LOI] Clone that bai! Kiem tra git va ket noi mang.
+
+echo   Git phai duoc cai dat: https://git-scm.com/download/win
 
 echo.
 

@@ -552,40 +552,55 @@ def _find_mit_python() -> str | None:
     Tìm Python có manga_translator đã cài.
     Ưu tiên: mit_venv trong thư mục project → fallback py.exe -3.11.
     Trả về đường dẫn python hoặc None nếu không tìm thấy.
+    Dùng file-existence check thay vì subprocess import (tránh timeout vì
+    torch/cv2 import rất chậm lần đầu, ~30-60s).
     """
     import subprocess
+
+    def _has_manga_translator(python_exe: Path) -> bool:
+        """Kiểm tra manga_translator bằng cách tìm file trong site-packages."""
+        # Thử Windows (Scripts/) và Linux (bin/)
+        for sp_root in [
+            python_exe.parent.parent / "Lib" / "site-packages",
+            python_exe.parent.parent / "lib" / "site-packages",
+        ]:
+            if (sp_root / "manga_translator" / "__init__.py").exists():
+                return True
+        # Fallback: hỏi Python chính xác site-packages (nhanh, không load torch)
+        try:
+            r = subprocess.run(
+                [str(python_exe), "-c",
+                 "import sysconfig; print(sysconfig.get_path('purelib'))"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if r.returncode == 0:
+                sp = Path(r.stdout.strip())
+                if (sp / "manga_translator" / "__init__.py").exists():
+                    return True
+        except Exception:
+            pass
+        return False
+
     candidates = [
         # mit_venv trong cùng thư mục project
         Path(__file__).parent / "mit_venv" / "Scripts" / "python.exe",
         Path(__file__).parent / "mit_venv" / "bin" / "python",
     ]
     for path in candidates:
-        if path.exists():
-            try:
-                r = subprocess.run(
-                    [str(path), "-c", "import manga_translator"],
-                    capture_output=True, timeout=8,
-                )
-                if r.returncode == 0:
-                    return str(path)
-            except Exception:
-                pass
+        if path.exists() and _has_manga_translator(path):
+            return str(path)
+
     # Thử py launcher (Windows py.exe)
     for py_flag in ["-3.11", "-3.10"]:
         try:
             r = subprocess.run(
-                ["py", py_flag, "-c", "import manga_translator"],
-                capture_output=True, timeout=8,
+                ["py", py_flag, "-c", "import sys; print(sys.executable)"],
+                capture_output=True, text=True, timeout=8,
             )
             if r.returncode == 0:
-                # Lấy path thực của python đó
-                r2 = subprocess.run(
-                    ["py", py_flag, "-c", "import sys; print(sys.executable)"],
-                    capture_output=True, text=True, timeout=5,
-                )
-                exe = r2.stdout.strip()
-                if exe:
-                    return exe
+                exe = Path(r.stdout.strip())
+                if exe.exists() and _has_manga_translator(exe):
+                    return str(exe)
         except Exception:
             pass
     return None
@@ -671,28 +686,38 @@ class MITImageTranslator:
         self._log(f"  Translator : {self.translator}  →  {self.target_lang}")
         self.on_progress(0, total)
 
-        cmd = [
-            self.python_path, "-m", "manga_translator",
-            "--target-lang", self.target_lang,
-            "--translator",  self.translator,
-        ]
+        # Phiên bản mới dùng config file thay vì CLI flags cho translator/inpainter/...
+        import json, tempfile, os
+        cfg: dict = {
+            "translator": {
+                "translator": self.translator,
+                "target_lang": self.target_lang,
+            },
+        }
+        if self.inpainter:
+            cfg["inpainter"] = {"inpainter": self.inpainter}
+        if self.detector:
+            cfg["detector"] = {"detector": self.detector}
+        if self.detection_size:
+            cfg.setdefault("detector", {})["detection_size"] = int(self.detection_size)
+        if self.upscale_ratio:
+            cfg["upscale"] = {"upscale_ratio": int(self.upscale_ratio)}
+        if self.font_size_offset:
+            cfg["render"] = {"font_size_offset": int(self.font_size_offset)}
+
+        tf = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False, encoding="utf-8"
+        )
+        json.dump(cfg, tf, ensure_ascii=False)
+        tf.close()
+        cfg_path = tf.name
+
+        cmd = [self.python_path, "-m", "manga_translator"]
         if self.use_gpu:
             cmd.append("--use-gpu")
         if self.verbose:
             cmd.append("--verbose")
-        if self.detector:
-            cmd += ["--detector", self.detector]
-        if self.inpainter:
-            cmd += ["--inpainter", self.inpainter]
-        if self.upscale_ratio:
-            cmd += ["--upscale-ratio", str(self.upscale_ratio)]
-        if self.detection_size:
-            cmd += ["--detection-size", str(self.detection_size)]
-        if self.mask_dilation_offset:
-            cmd += ["--mask-dilation-offset", str(self.mask_dilation_offset)]
-        if self.font_size_offset:
-            cmd += ["--font-size-offset", str(self.font_size_offset)]
-        cmd += ["local", "-i", str(inp), "-o", str(out)]
+        cmd += ["local", "-i", str(inp), "-o", str(out), "--config-file", cfg_path]
         if self.skip_no_text:
             cmd.append("--skip-no-text")
         if self.overwrite:
@@ -744,6 +769,10 @@ class MITImageTranslator:
         finally:
             _stop_watch.set()
             wt.join(timeout=2)
+            try:
+                os.unlink(cfg_path)
+            except Exception:
+                pass
 
         ok = sum(
             1 for f in out.rglob("*")
