@@ -78,7 +78,8 @@ def unique_path(folder: Path, filename: str) -> Path:
 class ImageDownloader:
     def __init__(self, output_folder: str, delay: float = 0.3,
                  max_workers: int = 4, timeout: int = 20,
-                 on_progress=None, on_log=None):
+                 on_progress=None, on_log=None,
+                 stop_event: threading.Event | None = None):
         self.output_folder = Path(output_folder)
         self.output_folder.mkdir(parents=True, exist_ok=True)
         self.delay = delay
@@ -86,7 +87,9 @@ class ImageDownloader:
         self.timeout = timeout
         self.on_progress = on_progress or (lambda done, total: None)
         self.on_log = on_log or print
+        self.stop_event = stop_event or threading.Event()
         self._lock = threading.Lock()
+        self._claimed: set[Path] = set()  # paths đã được claim bởi threads khác
         self._semaphore = threading.Semaphore(max_workers)
         self.success = 0
         self.failed = 0
@@ -94,10 +97,26 @@ class ImageDownloader:
     def _get_session(self, referer: str) -> requests.Session:
         return make_session(referer=referer)
 
+    def _claim_path(self, filename: str) -> Path:
+        """Thread-safe: reserve unique dest path trước khi ghi."""
+        stem, suffix = os.path.splitext(filename)
+        with self._lock:
+            candidate = self.output_folder / filename
+            counter = 0
+            while candidate.exists() or candidate in self._claimed:
+                counter += 1
+                candidate = self.output_folder / f"{stem}_{counter}{suffix}"
+            self._claimed.add(candidate)
+        return candidate
+
     def _download_one(self, url: str, index: int, total: int, referer: str):
+        if self.stop_event.is_set():
+            return
         with self._semaphore:
+            if self.stop_event.is_set():
+                return
             filename = url_to_filename(url, index)
-            dest = unique_path(self.output_folder, filename)
+            dest = self._claim_path(filename)  # thread-safe reservation
             try:
                 session = self._get_session(referer)
                 resp = session.get(url, timeout=self.timeout, stream=True)
@@ -126,6 +145,8 @@ class ImageDownloader:
         total = len(image_urls)
         threads = []
         for i, url in enumerate(image_urls, start=1):
+            if self.stop_event.is_set():
+                break
             t = threading.Thread(
                 target=self._download_one,
                 args=(url, i, total, referer),
@@ -249,7 +270,8 @@ def fetch_page(url: str, timeout: int = 20,
 
 def crawl(url: str, output_folder: str, delay: float = 0.3,
           max_workers: int = 4, timeout: int = 20,
-          on_progress=None, on_log=None) -> tuple[int, int]:
+          on_progress=None, on_log=None,
+          stop_event: threading.Event | None = None) -> tuple[int, int]:
     """
     Crawl ảnh từ `url` → lưu vào `output_folder`.
     Trả về (số ảnh thành công, số ảnh lỗi).
@@ -272,6 +294,7 @@ def crawl(url: str, output_folder: str, delay: float = 0.3,
         timeout=timeout,
         on_progress=on_progress,
         on_log=log,
+        stop_event=stop_event,
     )
     return downloader.download_all(image_urls, referer=url)
 

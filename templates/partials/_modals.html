@@ -1,0 +1,24 @@
+<!-- ── Lightbox ─────────────────────────────────────────────────────────── -->
+<div class="lightbox" id="lightbox" onclick="closeLightbox()">
+  <button class="lightbox-close" onclick="closeLightbox()">✕</button>
+  <img id="lightboxImg" src="" alt="" />
+</div>
+
+<!-- ── Folder browser modal ────────────────────────────────────────────── -->
+<div class="fb-overlay" id="fbOverlay" onclick="fbOverlayClick(event)">
+  <div class="fb-dialog">
+    <div class="fb-header">
+      <span class="fb-title">📁 Chọn thư mục lưu ảnh</span>
+      <button class="fb-close" onclick="closeFolderBrowser()">✕</button>
+    </div>
+    <div class="fb-breadcrumb" id="fbBreadcrumb">—</div>
+    <div class="fb-body" id="fbBody">
+      <div class="fb-loading">Đang tải…</div>
+    </div>
+    <div class="fb-footer">
+      <span class="fb-selected-path" id="fbSelectedPath">Chưa chọn thư mục</span>
+      <button class="btn btn-ghost" onclick="closeFolderBrowser()">Hủy</button>
+      <button class="btn btn-primary" id="fbConfirmBtn" onclick="confirmFolder()">✔ Chọn thư mục này</button>
+    </div>
+  </div>
+</div>

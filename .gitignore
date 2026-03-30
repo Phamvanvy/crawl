@@ -1,0 +1,35 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+.venv/
+venv/
+env/
+ENV/
+
+.mit_venv/
+mit_venv/
+
+# VSCode
+.vscode/
+
+# Logs
+*.log
+
+# Environment variables
+.env
+
+# Flask
+instance/
+.webassets-cache
+
+# Build / dist
+build/
+dist/
+*.egg-info/
+
+# OS files
+.DS_Store
+Thumbs.db

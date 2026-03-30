@@ -1,0 +1,622 @@
+<script>
+"use strict";
+
+// ── Presets ──────────────────────────────────────────────────────────────────
+const PRESETS = {
+  fast:  { delay: 0.1, workers: 8,  timeout: 15,  label: "Nhanh"      },
+  safe:  { delay: 1.0, workers: 2,  timeout: 30,  label: "An toàn"    },
+  heavy: { delay: 0.2, workers: 12, timeout: 20,  label: "Mạnh"       },
+  lazy:  { delay: 2.0, workers: 1,  timeout: 60,  label: "Nhẹ nhàng"  },
+};
+
+const DEFAULT_CONFIG = { delay: 0.3, workers: 4, timeout: 20, folder: "output" };
+
+function applyPreset(name) {
+  const p = PRESETS[name];
+  if (!p) return;
+  setVal("delayInput",   p.delay);
+  setVal("workersInput", p.workers);
+  setVal("timeoutInput", p.timeout);
+  addLog(`⚙  Preset "${p.label}": delay=${p.delay}s  workers=${p.workers}  timeout=${p.timeout}s`, "info");
+}
+
+// ── Config persistence ────────────────────────────────────────────────────────
+function saveConfig() {
+  const cfg = {
+    url:     getVal("urlInput"),
+    folder:  getVal("folderInput"),
+    delay:   getVal("delayInput"),
+    workers: getVal("workersInput"),
+    timeout: getVal("timeoutInput"),
+  };
+  localStorage.setItem("crawlerConfig", JSON.stringify(cfg));
+  addLog("💾  Cấu hình đã lưu vào trình duyệt.", "info");
+}
+
+function loadConfig() {
+  try {
+    const saved = JSON.parse(localStorage.getItem("crawlerConfig") || "{}");
+    if (saved.url)     setVal("urlInput",     saved.url);
+    if (saved.folder)  setVal("folderInput",  saved.folder);
+    if (saved.delay   != null) setVal("delayInput",   saved.delay);
+    if (saved.workers != null) setVal("workersInput", saved.workers);
+    if (saved.timeout != null) setVal("timeoutInput", saved.timeout);
+  } catch {}
+}
+
+function resetConfig() {
+  setVal("delayInput",   DEFAULT_CONFIG.delay);
+  setVal("workersInput", DEFAULT_CONFIG.workers);
+  setVal("timeoutInput", DEFAULT_CONFIG.timeout);
+  setVal("folderInput",  DEFAULT_CONFIG.folder);
+  addLog("↺  Cấu hình đã khôi phục về mặc định.", "info");
+}
+
+// ── Theme ─────────────────────────────────────────────────────────────────────
+function toggleTheme() {
+  const html  = document.documentElement;
+  const isDark = html.dataset.theme === "dark";
+  html.dataset.theme = isDark ? "light" : "dark";
+  document.getElementById("themeBtn").textContent = isDark ? "🌙 Tối" : "☀ Sáng";
+  localStorage.setItem("theme", html.dataset.theme);
+}
+function loadTheme() {
+  const t = localStorage.getItem("theme");
+  if (t) {
+    document.documentElement.dataset.theme = t;
+    document.getElementById("themeBtn").textContent = t === "dark" ? "☀ Sáng" : "🌙 Tối";
+  }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const $  = (id) => document.getElementById(id);
+const getVal = (id)    => $(id).value;
+const setVal = (id, v) => { $(id).value = v; };
+
+// ── Clear URL ──────────────────────────────────────────────────────────────────
+function clearUrl() {
+  setVal('urlInput', '');
+  $('urlHint').textContent = '';
+  $('urlInput').focus();
+}
+
+// ── URL hint ──────────────────────────────────────────────────────────────────
+function onUrlChange() {
+  const v = getVal("urlInput").trim();
+  const hint = $("urlHint");
+  if (!v) { hint.textContent = ""; return; }
+  if (!v.startsWith("http://") && !v.startsWith("https://")) {
+    hint.style.color = "var(--red)";
+    hint.textContent = "URL phải bắt đầu bằng http:// hoặc https://";
+  } else {
+    hint.style.color = "var(--green)";
+    hint.textContent = "✓ URL hợp lệ";
+  }
+}
+
+// ── Log ───────────────────────────────────────────────────────────────────────
+const logBox = $("logBox");
+
+function addLog(msg, cls) {
+  const empty = logBox.querySelector(".log-empty");
+  if (empty) empty.remove();
+  const line  = document.createElement("div");
+  line.className = "log-line" + (cls ? " " + cls : "");
+  line.textContent = msg;
+  logBox.appendChild(line);
+  logBox.scrollTop = logBox.scrollHeight;
+}
+
+function clearLog() {
+  logBox.innerHTML = "";
+}
+
+function classifyLog(msg) {
+  if (!msg) return "";
+  if (msg.includes("[OK"))            return "ok";
+  if (msg.includes("[FAIL"))          return "fail";
+  if (msg.includes("[skip]"))         return "skip";
+  if (msg.includes("✘") || msg.includes("Lỗi")) return "fail";
+  if (msg.includes("⚠"))             return "warn";
+  if (msg.includes("✔") || msg.includes("Hoàn thành")) return "done";
+  if (/^─+$/.test(msg.trim()))        return "sep";
+  if (msg.startsWith("Đang tải") || msg.startsWith("Tìm thấy")) return "info";
+  if (msg.startsWith("URL") || msg.startsWith("Folder") || msg.startsWith("Config")) return "info";
+  return "";
+}
+
+// ── Status ────────────────────────────────────────────────────────────────────
+function setStatus(text, type) {
+  $("statusText").textContent = text;
+  $("statusDot").className    = "status-dot" + (type ? " " + type : "");
+}
+
+// ── Progress ──────────────────────────────────────────────────────────────────
+function showProgress(done, total) {
+  $("progressWrap").style.display = "";
+  const pct = total > 0 ? Math.round(done / total * 100) : 0;
+  $("progFill").style.width   = pct + "%";
+  $("progPct").textContent    = pct + "%";
+  $("progLabel").textContent  = `Đang tải… ${done} / ${total}`;
+  $("statTotal").textContent  = `Tổng: ${total}`;
+}
+
+function showStats(ok, fail) {
+  $("statOk").textContent   = `✓ ${ok}`;
+  $("statFail").textContent  = `✗ ${fail}`;
+}
+
+// ── Crawl UI state ────────────────────────────────────────────────────────────
+function setCrawling(on) {
+  $("startBtn").disabled = on;
+  $("stopBtn").disabled  = !on;
+}
+
+// ── Polling ───────────────────────────────────────────────────────────────────
+let _cursor      = 0;
+let _pollTimer   = null;
+let _crawling    = false;
+
+function startPolling() {
+  if (_pollTimer) return;
+  _pollTimer = setInterval(poll, 400);
+}
+
+function stopPolling() {
+  clearInterval(_pollTimer);
+  _pollTimer = null;
+}
+
+async function poll() {
+  let data;
+  try {
+    const res = await fetch(`/api/logs?from=${_cursor}`);
+    if (!res.ok) return;
+    data = await res.json();
+  } catch { return; }
+
+  for (const entry of data.logs) {
+    switch (entry.type) {
+      case "log":
+        addLog(entry.msg, classifyLog(entry.msg));
+        break;
+      case "progress":
+        showProgress(entry.done, entry.total);
+        break;
+      case "done":
+        showStats(entry.success, entry.failed);
+        $("progLabel").textContent = `Hoàn thành! ${entry.success + entry.failed} ảnh xử lý`;
+        $("progFill").style.width  = "100%";
+        $("progPct").textContent   = "100%";
+        break;
+    }
+  }
+  _cursor = data.total;
+
+  if (!data.state.running && _crawling) {
+    _crawling = false;
+    setCrawling(false);
+    stopPolling();
+    const s = data.state.status;
+    if (s === "done") {
+      setStatus(`Xong: ${data.state.success} OK, ${data.state.failed} lỗi`, "done");
+    } else if (s === "error") {
+      setStatus("Lỗi khi crawl", "error");
+    } else if (s === "stopped") {
+      setStatus("Đã dừng", "stopped");
+    }
+  }
+}
+
+// ── Start / Stop crawl ────────────────────────────────────────────────────────
+async function startCrawl() {
+  const url     = getVal("urlInput").trim();
+  const folder  = getVal("folderInput").trim();
+  const delay   = parseFloat(getVal("delayInput"));
+  const workers = parseInt(getVal("workersInput"), 10);
+  const timeout = parseInt(getVal("timeoutInput"), 10);
+
+  if (!url) {
+    addLog("⚠  Vui lòng nhập URL.", "warn"); return;
+  }
+  if (!url.startsWith("http://") && !url.startsWith("https://")) {
+    addLog("⚠  URL phải bắt đầu bằng http:// hoặc https://", "warn"); return;
+  }
+
+  _cursor   = 0;
+  _crawling = true;
+  clearLog();
+  $("progressWrap").style.display = "";
+  showProgress(0, 0);
+  showStats(0, 0);
+  setStatus("Đang crawl…", "running");
+  setCrawling(true);
+  startPolling();
+
+  let res, json;
+  try {
+    res  = await fetch("/api/start", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ url, folder, delay, workers, timeout }),
+    });
+    json = await res.json();
+  } catch (e) {
+    addLog(`⚠  Không kết nối được server: ${e}`, "fail");
+    setCrawling(false); stopPolling(); _crawling = false; return;
+  }
+
+  if (!res.ok) {
+    addLog(`⚠  ${json.error || "Lỗi không xác định"}`, "warn");
+    setStatus("Lỗi", "error");
+    setCrawling(false); stopPolling(); _crawling = false;
+  }
+}
+
+async function stopCrawl() {
+  try { await fetch("/api/stop", { method: "POST" }); } catch {}
+  setStatus("Đang dừng…", "stopped");
+}
+
+// ── Folder Browser ───────────────────────────────────────────────────────────
+let _fbCurrentPath = "";
+let _fbTargetId    = "folderInput";
+
+async function openFolderBrowser(targetId) {
+  _fbTargetId = targetId || "folderInput";
+  document.getElementById("fbOverlay").classList.add("open");
+  const cur = getVal(_fbTargetId).trim();
+  await fbNavigate(cur || "");
+}
+
+function closeFolderBrowser() {
+  document.getElementById("fbOverlay").classList.remove("open");
+}
+
+function fbOverlayClick(e) {
+  if (e.target === document.getElementById("fbOverlay")) closeFolderBrowser();
+}
+
+function confirmFolder() {
+  if (_fbCurrentPath) {
+    setVal(_fbTargetId, _fbCurrentPath);
+    closeFolderBrowser();
+  }
+}
+
+async function fbNavigate(path) {
+  const body         = document.getElementById("fbBody");
+  const breadcrumb   = document.getElementById("fbBreadcrumb");
+  const selectedPath = document.getElementById("fbSelectedPath");
+
+  body.innerHTML = '<div class="fb-loading">⏳ Đang tải…</div>';
+
+  let data;
+  try {
+    const res = await fetch("/api/fs?path=" + encodeURIComponent(path));
+    data = await res.json();
+  } catch (e) {
+    body.innerHTML = `<div class="fb-empty">⚠ Không tải được: ${escHtml(String(e))}</div>`;
+    return;
+  }
+
+  if (data.error) {
+    body.innerHTML = `<div class="fb-empty">⚠ ${escHtml(data.error)}</div>`;
+    return;
+  }
+
+  _fbCurrentPath = data.path || "";
+  breadcrumb.textContent   = _fbCurrentPath || "Ổ đĩa";
+  selectedPath.textContent = _fbCurrentPath ? `📁 ${_fbCurrentPath}` : "Chọn thư mục bên dưới";
+
+  body.innerHTML = "";
+
+  function makeEntry(icon, label, targetPath, extraClass) {
+    const div  = document.createElement("div");
+    div.className = "fb-entry" + (extraClass ? " " + extraClass : "");
+    div.innerHTML = `<span class="fb-icon">${icon}</span>`
+                  + `<span class="fb-name">${escHtml(label)}</span>`
+                  + `<span class="fb-arrow">▶</span>`;
+    div.addEventListener("click", () => fbNavigate(targetPath));
+    return div;
+  }
+
+  if (data.parent !== null && data.parent !== undefined) {
+    body.appendChild(makeEntry("⬆", ".. (lên trên)", data.parent, "fb-up"));
+  } else if (_fbCurrentPath) {
+    body.appendChild(makeEntry("💻", "Danh sách ổ đĩa", "", "fb-up"));
+  }
+
+  if (data.entries.length === 0 && body.children.length === 0) {
+    body.innerHTML = '<div class="fb-empty">Thư mục trống hoặc không có quyền truy cập</div>';
+    return;
+  }
+
+  for (const entry of data.entries) {
+    const icon = entry.path.match(/^[A-Za-z]:\\$/) ? "💾" : "📁";
+    body.appendChild(makeEntry(icon, entry.name, entry.path, ""));
+  }
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+// ── Tab switcher ──────────────────────────────────────────────────────────────
+function switchTab(name) {
+  $('tab-crawl').style.display     = name === 'crawl'     ? '' : 'none';
+  $('tab-translate').style.display = name === 'translate' ? '' : 'none';
+  $('tabBtnCrawl').classList.toggle('active',     name === 'crawl');
+  $('tabBtnTranslate').classList.toggle('active', name === 'translate');
+  if (name === 'translate') runCheck();
+}
+
+// ── Dependency check ──────────────────────────────────────────────────────────
+function setCk(id, ok, val) {
+  const el = $(id);
+  el.className = 'check-item ' + (ok ? 'ok' : 'bad');
+  el.querySelector('.ci-val').textContent = val || '';
+}
+
+async function runCheck() {
+  let data;
+  try {
+    const res = await fetch('/api/translate/check');
+    data = await res.json();
+  } catch { return; }
+  setCk('ck-torch',     !!data.torch,      data.torch      || 'pip install torch');
+  setCk('ck-cuda',      data.cuda,         data.gpu        || (data.cuda ? 'OK' : 'No GPU'));
+  setCk('ck-paddleocr', data.paddleocr,    data.paddleocr  ? 'OK' : 'pip install paddlepaddle paddleocr');
+  setCk('ck-easyocr',   data.easyocr,      data.easyocr    ? 'OK (fallback)' : 'optional');
+  setCk('ck-ollama',    data.ollama,       data.ollama     ? 'running' : (data.ollama_error || 'not running'));
+  setCk('ck-mit',       data.mit,          data.mit        ? (data.mit_python || 'OK') : (data.mit_error || 'mit_venv không tìm thấy'));
+  const sel = $('tModelSelect');
+  while (sel.options.length > 1) sel.remove(1);
+  for (const m of (data.ollama_models || [])) {
+    const opt = document.createElement('option');
+    opt.value = opt.textContent = m;
+    sel.appendChild(opt);
+  }
+}
+
+// ── Translate log helpers ─────────────────────────────────────────────────────
+const tLogBox = () => $('tLogBox');
+
+function tAddLog(msg, cls) {
+  const box   = tLogBox();
+  const empty = box.querySelector('.log-empty');
+  if (empty) empty.remove();
+  const line  = document.createElement('div');
+  line.className = 'log-line' + (cls ? ' ' + cls : '');
+  line.textContent = msg;
+  box.appendChild(line);
+  box.scrollTop = box.scrollHeight;
+}
+
+function tClearLog() { tLogBox().innerHTML = ''; }
+
+function tClassify(msg) {
+  if (!msg) return '';
+  if (msg.includes('[OK'))                              return 'ok';
+  if (msg.includes('[FAIL]'))                           return 'fail';
+  if (msg.includes('[SKIP]'))                           return 'skip';
+  if (msg.includes('[TRANS]') || msg.includes('[OCR]')) return 'info';
+  if (msg.includes('✔') || msg.includes('Xong'))       return 'done';
+  if (msg.includes('⚠') || msg.includes('✘'))          return 'warn';
+  if (/^─+$/.test(msg.trim()))                          return 'sep';
+  return '';
+}
+
+function tSetStatus(text, type) {
+  $('tStatusText').textContent = text;
+  $('tStatusDot').className    = 'status-dot' + (type ? ' ' + type : '');
+}
+
+function tShowProgress(done, total) {
+  $('tProgressWrap').style.display = '';
+  const pct = total > 0 ? Math.round(done / total * 100) : 0;
+  $('tProgFill').style.width  = pct + '%';
+  $('tProgPct').textContent   = pct + '%';
+  $('tProgLabel').textContent = `Đang dịch… ${done} / ${total}`;
+  $('tStatTotal').textContent = `Tổng: ${total}`;
+}
+
+function tShowStats(ok, fail) {
+  $('tStatOk').textContent   = `✓ ${ok}`;
+  $('tStatFail').textContent = `✗ ${fail}`;
+}
+
+function tSetCrawling(on) {
+  $('tStartBtn').disabled = on;
+  $('tStopBtn').disabled  = !on;
+}
+
+// ── Translate polling ─────────────────────────────────────────────────────────
+let _tCursor    = 0;
+let _tPollTimer = null;
+let _tRunning   = false;
+let _tOutputDir = '';
+
+function tStartPolling() {
+  if (_tPollTimer) return;
+  _tPollTimer = setInterval(tPoll, 500);
+}
+
+function tStopPolling() {
+  clearInterval(_tPollTimer);
+  _tPollTimer = null;
+}
+
+async function tPoll() {
+  let data;
+  try {
+    const res = await fetch(`/api/translate/logs?from=${_tCursor}`);
+    if (!res.ok) return;
+    data = await res.json();
+  } catch { return; }
+
+  for (const entry of data.logs) {
+    if (entry.type === 'log')      tAddLog(entry.msg, tClassify(entry.msg));
+    if (entry.type === 'progress') tShowProgress(entry.done, entry.total);
+    if (entry.type === 'done') {
+      tShowStats(entry.success, entry.failed);
+      $('tProgFill').style.width  = '100%';
+      $('tProgPct').textContent   = '100%';
+      $('tProgLabel').textContent = `Xong! ${entry.success + entry.failed} ảnh`;
+      if (entry.output_dir) { _tOutputDir = entry.output_dir; tRefreshPreview(); }
+    }
+  }
+  _tCursor = data.total;
+
+  if (!data.state.running && _tRunning) {
+    _tRunning = false;
+    tSetCrawling(false);
+    tStopPolling();
+    const s = data.state.status;
+    if (s === 'done')    tSetStatus(`Xong: ${data.state.success} OK, ${data.state.failed} lỗi`, 'done');
+    if (s === 'error')   tSetStatus('Lỗi khi dịch', 'error');
+    if (s === 'stopped') tSetStatus('Đã dừng', 'stopped');
+  }
+}
+
+// ── MIT API key hints ─────────────────────────────────────────────────────────
+const MIT_API_KEYS = {
+  deepl:        'Cần env: DEEPL_AUTH_KEY=xxx  (DeepL Pro hoặc Free)',
+  openai:       'Cần env: OPENAI_API_KEY=sk-xxx  |  OPENAI_MODEL=chatgpt-4o-latest (tùy chọn)',
+  deepseek:     'Cần env: DEEPSEEK_API_KEY=xxx  |  DEEPSEEK_MODEL=deepseek-chat',
+  gemini:       'Cần env: GEMINI_API_KEY=xxx  |  GEMINI_MODEL=gemini-1.5-flash-002',
+  youdao:       'Cần env: YOUDAO_APP_KEY=xxx  YOUDAO_SECRET_KEY=xxx',
+  baidu:        'Cần env: BAIDU_APP_ID=xxx  BAIDU_SECRET_KEY=xxx',
+  caiyun:       'Cần env: CAIYUN_TOKEN=xxx',
+  groq:         'Cần env: GROQ_API_KEY=xxx  |  GROQ_MODEL=mixtral-8x7b-32768',
+  sakura:       'Cần env: SAKURA_API_BASE=http://127.0.0.1:8080/v1',
+  custom_openai:'Cần env: CUSTOM_OPENAI_API_BASE=http://localhost:11434/v1  CUSTOM_OPENAI_MODEL=qwen2.5:7b',
+};
+
+function onMITTranslatorChange() {
+  const val  = getVal('tMITTranslator');
+  const hint = $('mitApiKeyHint');
+  if (MIT_API_KEYS[val]) {
+    hint.textContent = '🔑 ' + MIT_API_KEYS[val];
+    hint.classList.add('visible');
+  } else {
+    hint.classList.remove('visible');
+  }
+}
+
+function onBackendChange() {
+  const isMIT = document.querySelector('input[name="tBackend"]:checked').value === 'mit';
+  $('tMITOptions').style.display    = isMIT ? '' : 'none';
+  $('tOllamaOptions').style.display = isMIT ? 'none' : '';
+}
+
+// ── Start / Stop translate ────────────────────────────────────────────────────
+async function tStart() {
+  const input_dir        = getVal('tInputDir').trim();
+  const output_dir       = getVal('tOutputDir').trim();
+  const model            = getVal('tModel').trim() || 'qwen2.5:7b';
+  const use_gpu          = $('tUseGpu').checked;
+  const src_lang         = getVal('tSrcLang');
+  const backend          = document.querySelector('input[name="tBackend"]:checked').value;
+  const mit_translator   = getVal('tMITTranslator');
+  const mit_target_lang  = getVal('tMITTargetLang');
+  const mit_detector     = getVal('tMITDetector');
+  const mit_inpainter    = getVal('tMITInpainter');
+  const mit_upscale      = getVal('tMITUpscale');
+  const mit_det_size     = getVal('tMITDetSize');
+  const mit_mask_dil     = $('tMITMaskDil').value;
+  const mit_font_ofs     = $('tMITFontOfs').value;
+  const mit_verbose      = $('tMITVerbose').checked;
+  const mit_skip_no_text = $('tMITSkipNoText').checked;
+  const mit_overwrite    = $('tMITOverwrite').checked;
+
+  if (!input_dir) { tAddLog('⚠  Vui lòng chọn thư mục ảnh nguồn.', 'warn'); return; }
+
+  _tCursor    = 0;
+  _tRunning   = true;
+  _tOutputDir = output_dir;
+  tClearLog();
+  $('tProgressWrap').style.display = '';
+  tShowProgress(0, 0);
+  tShowStats(0, 0);
+  tSetStatus('Đang khởi động…', 'running');
+  tSetCrawling(true);
+  tStartPolling();
+
+  let res, json;
+  try {
+    res  = await fetch('/api/translate/start', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        input_dir, output_dir, model, use_gpu, src_lang, backend,
+        mit_translator, mit_target_lang,
+        mit_detector, mit_inpainter, mit_upscale, mit_det_size,
+        mit_mask_dil, mit_font_ofs,
+        mit_verbose, mit_skip_no_text, mit_overwrite,
+      }),
+    });
+    json = await res.json();
+  } catch (e) {
+    tAddLog(`⚠  Không kết nối server: ${e}`, 'fail');
+    tSetCrawling(false); tStopPolling(); _tRunning = false; return;
+  }
+
+  if (!res.ok) {
+    tAddLog(`⚠  ${json.error || 'Lỗi không xác định'}`, 'warn');
+    tSetStatus('Lỗi', 'error');
+    tSetCrawling(false); tStopPolling(); _tRunning = false;
+  } else if (json.output_dir) {
+    _tOutputDir = json.output_dir;
+  }
+}
+
+async function tStop() {
+  try { await fetch('/api/translate/stop', { method: 'POST' }); } catch {}
+  tSetStatus('Đang dừng…', 'stopped');
+}
+
+// ── Preview ───────────────────────────────────────────────────────────────────
+async function tRefreshPreview() {
+  const folder = _tOutputDir || getVal('tOutputDir').trim();
+  if (!folder) return;
+  let data;
+  try {
+    const res = await fetch('/api/translate/preview?folder=' + encodeURIComponent(folder));
+    data = await res.json();
+  } catch { return; }
+
+  const grid = $('tPreviewGrid');
+  if (!data.images || data.images.length === 0) {
+    grid.innerHTML = '<div class="log-empty" style="height:120px;grid-column:1/-1"><span>🖼</span><span>Chưa có ảnh</span></div>';
+    return;
+  }
+  grid.innerHTML = '';
+  for (const img of data.images) {
+    const card = document.createElement('div');
+    card.className = 'preview-card';
+    const src = '/api/translate/image?path=' + encodeURIComponent(img.path);
+    card.innerHTML = `<img src="${src}" loading="lazy" alt="" />`
+                   + `<div class="pc-name">${escHtml(img.name)}</div>`;
+    card.addEventListener('click', () => openLightbox(src));
+    grid.appendChild(card);
+  }
+}
+
+// ── Lightbox ──────────────────────────────────────────────────────────────────
+function openLightbox(src) {
+  $('lightboxImg').src = src;
+  $('lightbox').classList.add('open');
+}
+function closeLightbox() {
+  $('lightbox').classList.remove('open');
+  $('lightboxImg').src = '';
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeLightbox(); closeFolderBrowser(); }
+});
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+loadTheme();
+loadConfig();
+</script>

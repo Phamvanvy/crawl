@@ -1,0 +1,118 @@
+<!-- ── Crawl tab ───────────────────────────────────────────────────────── -->
+<div id="tab-crawl" class="layout">
+
+  <!-- ── Left: Config ──────────────────────────────────────────────────── -->
+  <div class="left-col">
+
+    <!-- URL -->
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-header">Nguồn crawl</div>
+      <div class="card-body">
+        <div class="field">
+          <label>URL trang web</label>
+          <div class="folder-row">
+            <input type="url" id="urlInput" placeholder="https://example.com/gallery"
+                   oninput="onUrlChange()" />
+            <button class="btn btn-ghost btn-browse" onclick="clearUrl()" title="Xóa URL">✕ Xóa</button>
+          </div>
+          <div class="field-hint" id="urlHint"></div>
+        </div>
+        <div class="field">
+          <label>Thư mục lưu ảnh</label>
+          <div class="folder-row">
+            <input type="text" id="folderInput" value="output"
+                   placeholder="output  hoặc  D:\Ảnh\crawl" />
+            <button class="btn btn-ghost btn-browse" onclick="openFolderBrowser('folderInput')" title="Chọn thư mục trên máy">
+              📁 Chọn…
+            </button>
+          </div>
+          <div class="field-hint">Đường dẫn tuyệt đối hoặc tương đối từ nơi chạy script.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Options -->
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-header">Tùy chọn nâng cao</div>
+      <div class="card-body">
+        <div class="grid-3">
+          <div class="field">
+            <label>Delay (s)</label>
+            <input type="number" id="delayInput" value="0.3" min="0" max="10" step="0.1" />
+          </div>
+          <div class="field">
+            <label>Luồng tải</label>
+            <input type="number" id="workersInput" value="4" min="1" max="32" step="1" />
+          </div>
+          <div class="field">
+            <label>Timeout (s)</label>
+            <input type="number" id="timeoutInput" value="20" min="5" max="300" step="1" />
+          </div>
+        </div>
+
+        <hr class="divider" />
+
+        <div class="field" style="margin-bottom:0">
+          <label>Cài đặt nhanh</label>
+          <div class="presets">
+            <button class="chip" onclick="applyPreset('fast')" title="delay=0.1s, 8 luồng, timeout=15s">⚡ Nhanh</button>
+            <button class="chip" onclick="applyPreset('safe')" title="delay=1.0s, 2 luồng, timeout=30s">🛡 An toàn</button>
+            <button class="chip" onclick="applyPreset('heavy')" title="delay=0.2s, 12 luồng, timeout=20s">💪 Mạnh</button>
+            <button class="chip" onclick="applyPreset('lazy')" title="delay=2.0s, 1 luồng, timeout=60s">🐢 Nhẹ nhàng</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Actions & Progress -->
+    <div class="card">
+      <div class="card-body">
+        <div class="action-row">
+          <button class="btn btn-primary"  id="startBtn" onclick="startCrawl()">▶ Bắt đầu</button>
+          <button class="btn btn-danger"   id="stopBtn"  onclick="stopCrawl()" disabled>■ Dừng</button>
+          <button class="btn btn-ghost"    onclick="saveConfig()" title="Lưu cấu hình vào trình duyệt">💾 Lưu</button>
+          <button class="btn btn-ghost"    onclick="resetConfig()" title="Khôi phục mặc định">↺</button>
+        </div>
+
+        <div class="progress-wrap" id="progressWrap" style="display:none">
+          <hr class="divider" />
+          <div class="prog-header">
+            <span class="prog-label" id="progLabel">Đang tải…</span>
+            <span class="prog-pct"   id="progPct">0%</span>
+          </div>
+          <div class="prog-track">
+            <div class="prog-fill" id="progFill"></div>
+          </div>
+          <div class="stats-row">
+            <span class="stat-pill stat-blue"  id="statTotal">Tổng: 0</span>
+            <span class="stat-pill stat-green" id="statOk">✓ 0</span>
+            <span class="stat-pill stat-red"   id="statFail">✗ 0</span>
+          </div>
+        </div>
+
+        <div class="status-row">
+          <div class="status-dot" id="statusDot"></div>
+          <span class="status-text" id="statusText">Sẵn sàng</span>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- end left -->
+
+  <!-- ── Right: Log ────────────────────────────────────────────────────── -->
+  <div class="right-col">
+    <div class="card log-panel">
+      <div class="card-header">
+        <span>Nhật ký thời gian thực</span>
+        <button class="btn btn-ghost" style="padding:3px 10px;font-size:.75rem" onclick="clearLog()">🗑 Xóa</button>
+      </div>
+      <div class="log-body" id="logBox">
+        <div class="log-empty">
+          <span>▋</span>
+          <span>Nhập URL và nhấn ▶ Bắt đầu</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- end crawl tab -->
