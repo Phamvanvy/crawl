@@ -6,41 +6,45 @@
 
     <!-- Folders -->
     <div class="card" style="margin-bottom:12px">
-      <div class="card-header">Thư mục ảnh</div>
+      <div class="card-header" data-i18n="t.folders.header">Thư mục ảnh</div>
       <div class="card-body">
         <div class="field">
-          <label>Thư mục nguồn (ảnh cần dịch)</label>
+          <label data-i18n="t.src_dir.label">Thư mục nguồn (ảnh cần dịch)</label>
           <div class="folder-row">
-            <input type="text" id="tInputDir" placeholder="D:\ảnh\chapters" />
-            <button class="btn btn-ghost btn-browse" onclick="openFolderBrowser('tInputDir')">📁 Chọn…</button>
+            <input type="text" id="tInputDir" placeholder="D:\ảnh\chapters"
+                   data-i18n-ph="t.src_dir.ph" />
+            <button class="btn btn-ghost btn-browse" onclick="openFolderBrowser('tInputDir')"
+                    data-i18n="btn.browse">📁 Chọn…</button>
           </div>
         </div>
         <div class="field">
-          <label>Thư mục xuất (ảnh đã dịch)</label>
+          <label data-i18n="t.out_dir.label">Thư mục xuất (ảnh đã dịch)</label>
           <div class="folder-row">
-            <input type="text" id="tOutputDir" placeholder="Để trống → tự tạo thư mục _vi" />
-            <button class="btn btn-ghost btn-browse" onclick="openFolderBrowser('tOutputDir')">📁 Chọn…</button>
+            <input type="text" id="tOutputDir" placeholder="Để trống → tự tạo thư mục _vi"
+                   data-i18n-ph="t.out_dir.ph" />
+            <button class="btn btn-ghost btn-browse" onclick="openFolderBrowser('tOutputDir')"
+                    data-i18n="btn.browse">📁 Chọn…</button>
           </div>
-          <div class="field-hint">Nếu để trống, kết quả lưu vào &lt;nguồn&gt;_vi/</div>
+          <div class="field-hint" data-i18n="t.out_dir.hint">Nếu để trống, kết quả lưu vào &lt;nguồn&gt;_vi/</div>
         </div>
       </div>
     </div>
 
     <!-- Settings -->
     <div class="card" style="margin-bottom:12px">
-      <div class="card-header">Cài đặt dịch</div>
+      <div class="card-header" data-i18n="t.settings.header">Cài đặt dịch</div>
       <div class="card-body">
 
         <!-- ── Backend selector ───────────────────────────────────────── -->
         <div class="field">
-          <label>Backend dịch</label>
+          <label data-i18n="t.backend.label">Backend dịch</label>
           <div class="backend-selector">
             <label class="backend-option">
               <input type="radio" name="tBackend" id="tBackendDefault" value="default" checked onchange="onBackendChange()" />
               <div class="backend-card">
                 <span class="bc-icon">🔧</span>
                 <span class="bc-label">OCR + Ollama</span>
-                <span class="bc-sub">Tự động · offline</span>
+                <span class="bc-sub" data-i18n="t.backend.auto.sub">Tự động · offline</span>
               </div>
             </label>
             <label class="backend-option">
@@ -48,7 +52,7 @@
               <div class="backend-card">
                 <span class="bc-icon">🎌</span>
                 <span class="bc-label">manga-image-translator</span>
-                <span class="bc-sub">Chất lượng cao · nhiều model</span>
+                <span class="bc-sub" data-i18n="t.backend.mit.sub">Chất lượng cao · nhiều model</span>
               </div>
             </label>
           </div>
@@ -59,7 +63,7 @@
         <!-- ── OCR + Ollama options ───────────────────────────────────── -->
         <div id="tOllamaOptions">
           <div class="field">
-            <label>Ngôn ngữ nguồn</label>
+            <label data-i18n="t.src_lang.label">Ngôn ngữ nguồn</label>
             <select id="tSrcLang" class="field select">
               <option value="zh">🇨🇳 Tiếng Trung → Tiếng Việt (ZH→VI)</option>
               <option value="en">🇺🇸 Tiếng Anh → Tiếng Việt (EN→VI)</option>
@@ -75,7 +79,7 @@
                 <option value="">— models —</option>
               </select>
             </div>
-            <div class="field-hint">Qwen2.5:7b (~4.7GB) | Qwen2.5:3b (~2GB, nhanh hơn)</div>
+            <div class="field-hint" data-i18n="t.model.hint">Qwen2.5:7b (~4.7GB) | Qwen2.5:3b (~2GB, nhanh hơn)</div>
           </div>
         </div>
 
@@ -84,7 +88,7 @@
 
           <!-- Translator model -->
           <div class="field" style="margin-bottom:0">
-            <label>Model dịch</label>
+            <label data-i18n="t.mit.translator.label">Model dịch</label>
             <select id="tMITTranslator" class="field select" onchange="onMITTranslatorChange()">
               <optgroup label="─── Offline (không cần internet) ───">
                 <option value="m2m100" selected>M2M-100 — đa ngôn ngữ ✦ ZH→VI tốt</option>
@@ -119,7 +123,7 @@
 
           <!-- Target language -->
           <div class="field" style="margin-bottom:0">
-            <label>Ngôn ngữ đích</label>
+            <label data-i18n="t.mit.target.label">Ngôn ngữ đích</label>
             <select id="tMITTargetLang" class="field select">
               <option value="VIN" selected>🇻🇳 Tiếng Việt (VIN)</option>
               <option value="ENG">🇺🇸 Tiếng Anh (ENG)</option>
@@ -136,8 +140,8 @@
           <details>
             <summary class="adv-toggle">
               <span class="adv-arrow">▶</span>
-              ⚙ Cài đặt nâng cao
-              <span style="margin-left:auto;font-size:.68rem;font-weight:400;opacity:.7">Detector · Inpainter · Upscale…</span>
+              <span data-i18n="t.mit.adv">⚙ Cài đặt nâng cao</span>
+              <span style="margin-left:auto;font-size:.68rem;font-weight:400;opacity:.7" data-i18n="t.mit.adv.sub">Detector · Inpainter · Upscale…</span>
             </summary>
             <div style="margin-top:10px;display:flex;flex-direction:column;gap:10px">
 
@@ -165,7 +169,7 @@
                 <div class="field" style="margin-bottom:0">
                   <label>Upscale ×</label>
                   <select id="tMITUpscale" class="field select sm">
-                    <option value="">Tắt</option>
+                    <option value="" data-i18n="t.mit.upscale.off">Tắt</option>
                     <option value="1">×1</option>
                     <option value="2">×2</option>
                     <option value="3">×3</option>
@@ -206,11 +210,11 @@
                 </label>
                 <label class="cb-item">
                   <input type="checkbox" id="tMITSkipNoText" />
-                  ⏭ Bỏ qua ảnh trống
+                  <span data-i18n="t.mit.skip">⏭ Bỏ qua ảnh trống</span>
                 </label>
                 <label class="cb-item span2">
                   <input type="checkbox" id="tMITOverwrite" />
-                  ♻ Ghi đè ảnh đã dịch
+                  <span data-i18n="t.mit.overwrite">♻ Ghi đè ảnh đã dịch</span>
                 </label>
               </div>
 
@@ -224,7 +228,7 @@
         <!-- GPU toggle -->
         <label class="cb-item">
           <input type="checkbox" id="tUseGpu" checked />
-          ⚡ Dùng GPU (nhanh hơn ~5×)
+          <span data-i18n="t.gpu">⚡ Dùng GPU (nhanh hơn ~5×)</span>
         </label>
 
       </div>
@@ -233,8 +237,9 @@
     <!-- Dependency check -->
     <div class="card" style="margin-bottom:12px">
       <div class="card-header">
-        Kiểm tra hệ thống
-        <button class="btn btn-ghost" style="padding:3px 10px;font-size:.75rem" onclick="runCheck()">🔍 Kiểm tra</button>
+        <span data-i18n="t.sys.header">Kiểm tra hệ thống</span>
+        <button class="btn btn-ghost" style="padding:3px 10px;font-size:.75rem" onclick="runCheck()"
+                data-i18n="btn.check">🔍 Kiểm tra</button>
       </div>
       <div class="card-body" id="checkPanel">
         <div class="check-grid" id="checkGrid">
@@ -256,8 +261,8 @@
     <div class="card">
       <div class="card-body">
         <div class="action-row">
-          <button class="btn btn-primary" id="tStartBtn" onclick="tStart()">▶ Bắt đầu dịch</button>
-          <button class="btn btn-danger"  id="tStopBtn"  onclick="tStop()" disabled>■ Dừng</button>
+          <button class="btn btn-primary" id="tStartBtn" onclick="tStart()" data-i18n="btn.start_translate">▶ Bắt đầu dịch</button>
+          <button class="btn btn-danger"  id="tStopBtn"  onclick="tStop()" disabled data-i18n="btn.stop">■ Dừng</button>
         </div>
 
         <div class="progress-wrap" id="tProgressWrap" style="display:none">
@@ -276,7 +281,7 @@
 
         <div class="status-row">
           <div class="status-dot" id="tStatusDot"></div>
-          <span class="status-text" id="tStatusText">Sẵn sàng</span>
+          <span class="status-text" id="tStatusText" data-i18n="status.ready">Sẵn sàng</span>
         </div>
       </div>
     </div>
@@ -289,22 +294,24 @@
     <!-- Log -->
     <div class="card" style="flex:0 0 auto">
       <div class="card-header">
-        <span>Nhật ký</span>
-        <button class="btn btn-ghost" style="padding:3px 10px;font-size:.75rem" onclick="tClearLog()">🗑 Xóa</button>
+        <span data-i18n="t.log.header">Nhật ký</span>
+        <button class="btn btn-ghost" style="padding:3px 10px;font-size:.75rem" onclick="tClearLog()"
+                data-i18n="btn.clear_log">🗑 Xóa</button>
       </div>
       <div class="log-body" id="tLogBox" style="min-height:200px;max-height:35vh">
-        <div class="log-empty"><span>▋</span><span>Nhật ký dịch ảnh</span></div>
+        <div class="log-empty"><span>▋</span><span data-i18n="t.log.empty">Nhật ký dịch ảnh</span></div>
       </div>
     </div>
 
     <!-- Preview -->
     <div class="card" style="flex:1">
       <div class="card-header">
-        <span>Ảnh đã dịch</span>
-        <button class="btn btn-ghost" style="padding:3px 10px;font-size:.75rem" onclick="tRefreshPreview()">↺ Làm mới</button>
+        <span data-i18n="t.preview.header">Ảnh đã dịch</span>
+        <button class="btn btn-ghost" style="padding:3px 10px;font-size:.75rem" onclick="tRefreshPreview()"
+                data-i18n="btn.refresh">↺ Làm mới</button>
       </div>
       <div id="tPreviewGrid" class="preview-grid">
-        <div class="log-empty" style="height:120px;grid-column:1/-1"><span>🖼</span><span>Ảnh kết quả sẽ hiện ở đây</span></div>
+        <div class="log-empty" style="height:120px;grid-column:1/-1"><span>🖼</span><span data-i18n="t.preview.empty">Ảnh kết quả sẽ hiện ở đây</span></div>
       </div>
     </div>
 

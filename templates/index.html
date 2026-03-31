@@ -18,6 +18,13 @@
   </div>
   <div class="header-right">
     <span class="badge-version">v2.0 web</span>
+    <select id="langSelect" class="lang-select" onchange="applyLang(this.value)">
+      <option value="vi">🇻🇳 Tiếng Việt</option>
+      <option value="en">🇺🇸 English</option>
+      <option value="zh">🇨🇳 中文</option>
+      <option value="ja">🇯🇵 日本語</option>
+      <option value="ko">🇰🇷 한국어</option>
+    </select>
     <button class="btn-theme" id="themeBtn" onclick="toggleTheme()">☀ Sáng</button>
   </div>
 </header>

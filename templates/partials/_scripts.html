@@ -1,12 +1,361 @@
 <script>
 "use strict";
 
+// ── i18n ──────────────────────────────────────────────────────────────────────
+const TRANSLATIONS = {
+  vi: {
+    'theme.light':'☀ Sáng','theme.dark':'🌙 Tối',
+    'tab.crawl':'🕷 Crawl ảnh','tab.translate':'🌐 Dịch ảnh','tab.viewer':'📖 Xem ảnh',
+    'status.ready':'Sẵn sàng','status.crawling':'Đang crawl…','status.stopping':'Đang dừng…',
+    'status.stopped':'Đã dừng','status.error':'Lỗi khi crawl',
+    'status.done_fmt':(ok,fail)=>`Xong: ${ok} OK, ${fail} lỗi`,
+    'status.t.ready':'Sẵn sàng','status.t.running':'Đang dịch…','status.t.stopping':'Đang dừng…',
+    'status.t.stopped':'Đã dừng','status.t.error':'Lỗi khi dịch',
+    'status.t.done_fmt':(ok,fail)=>`Xong: ${ok} OK, ${fail} lỗi`,
+    'crawl.src.header':'Nguồn crawl','crawl.url.label':'URL trang web',
+    'crawl.url.clear':'✕ Xóa','crawl.url.clear.title':'Xóa URL',
+    'crawl.folder.label':'Thư mục lưu ảnh','crawl.folder.ph':'output  hoặc  D:\\Ảnh\\crawl',
+    'crawl.folder.hint':'Đường dẫn tuyệt đối hoặc tương đối từ nơi chạy script.',
+    'crawl.adv.header':'Tùy chọn nâng cao','crawl.workers.label':'Luồng tải',
+    'crawl.presets.label':'Cài đặt nhanh',
+    'preset.fast':'⚡ Nhanh','preset.fast.title':'delay=0.1s, 8 luồng, timeout=15s','preset.fast.label':'Nhanh',
+    'preset.safe':'🛡 An toàn','preset.safe.title':'delay=1.0s, 2 luồng, timeout=30s','preset.safe.label':'An toàn',
+    'preset.heavy':'💪 Mạnh','preset.heavy.title':'delay=0.2s, 12 luồng, timeout=20s','preset.heavy.label':'Mạnh',
+    'preset.lazy':'🐢 Nhẹ nhàng','preset.lazy.title':'delay=2.0s, 1 luồng, timeout=60s','preset.lazy.label':'Nhẹ nhàng',
+    'btn.browse':'📁 Chọn…','btn.browse.title':'Chọn thư mục trên máy',
+    'btn.start':'▶ Bắt đầu','btn.stop':'■ Dừng',
+    'btn.save_config':'💾 Lưu','btn.save_config.title':'Lưu cấu hình vào trình duyệt',
+    'btn.reset_config.title':'Khôi phục mặc định',
+    'btn.clear_log':'🗑 Xóa','crawl.log.header':'Nhật ký thời gian thực',
+    'crawl.log.empty':'Nhập URL và nhấn ▶ Bắt đầu',
+    't.folders.header':'Thư mục ảnh','t.src_dir.label':'Thư mục nguồn (ảnh cần dịch)',
+    't.src_dir.ph':'D:\\ảnh\\chapters','t.out_dir.label':'Thư mục xuất (ảnh đã dịch)',
+    't.out_dir.ph':'Để trống → tự tạo thư mục _vi',
+    't.out_dir.hint':'Nếu để trống, kết quả lưu vào <nguồn>_vi/',
+    't.settings.header':'Cài đặt dịch','t.backend.label':'Backend dịch',
+    't.backend.auto.sub':'Tự động · offline','t.backend.mit.sub':'Chất lượng cao · nhiều model',
+    't.src_lang.label':'Ngôn ngữ nguồn',
+    't.model.hint':'Qwen2.5:7b (~4.7GB) | Qwen2.5:3b (~2GB, nhanh hơn)',
+    't.mit.translator.label':'Model dịch','t.mit.target.label':'Ngôn ngữ đích',
+    't.mit.adv':'⚙ Cài đặt nâng cao','t.mit.adv.sub':'Detector · Inpainter · Upscale…',
+    't.mit.upscale.off':'Tắt','t.mit.skip':'⏭ Bỏ qua ảnh trống','t.mit.overwrite':'♻ Ghi đè ảnh đã dịch',
+    't.gpu':'⚡ Dùng GPU (nhanh hơn ~5×)','t.sys.header':'Kiểm tra hệ thống',
+    'btn.check':'🔍 Kiểm tra','btn.start_translate':'▶ Bắt đầu dịch','btn.refresh':'↺ Làm mới',
+    't.log.header':'Nhật ký','t.log.empty':'Nhật ký dịch ảnh',
+    't.preview.header':'Ảnh đã dịch','t.preview.empty':'Ảnh kết quả sẽ hiện ở đây',
+    'prog.loading':(d,t)=>`Đang tải… ${d} / ${t}`,'prog.done_crawl':n=>`Hoàn thành! ${n} ảnh xử lý`,
+    'prog.translating':(d,t)=>`Đang dịch… ${d} / ${t}`,'prog.done_translate':n=>`Xong! ${n} ảnh`,
+    'stat.total':n=>`Tổng: ${n}`,'stat.img_count':n=>`${n} ảnh`,
+    'alert.no_url':'⚠  Vui lòng nhập URL.','alert.bad_url':'⚠  URL phải bắt đầu bằng http:// hoặc https://',
+    'alert.bad_url_hint':'URL phải bắt đầu bằng http:// hoặc https://','alert.valid_url':'✓ URL hợp lệ',
+    'alert.no_conn':e=>`⚠  Không kết nối được server: ${e}`,
+    'alert.no_input_dir':'⚠  Vui lòng chọn thư mục ảnh nguồn.',
+    'alert.saved_config':'💾  Cấu hình đã lưu vào trình duyệt.','alert.reset_config':'↺  Cấu hình đã khôi phục về mặc định.',
+    'alert.preset':(lbl,d,w,t)=>`⚙  Preset "${lbl}": delay=${d}s  workers=${w}  timeout=${t}s`,
+    'alert.no_folder':'⚠ Chưa mở thư mục','alert.bad_page':max=>`⚠ Nhập số từ 1 đến ${max}`,
+    'v.folder.header':'Thư mục ảnh','v.folder.label':'Chọn thư mục','v.folder.ph':'D:\\Comic\\Chapter-1',
+    'btn.open_folder':'📖 Mở thư mục','v.mode.header':'Chế độ xem',
+    'v.mode.scroll':'Cuộn dọc','v.mode.scroll.sub':'Tất cả ảnh liên tục',
+    'v.mode.page':'Theo trang','v.mode.page.sub':'Chuyển từng ảnh',
+    'v.jump.header':'Chuyển trang nhanh','v.jump.ph':'Số trang…','btn.goto':'Đến',
+    'v.jump.hint':'Nhập số trang rồi nhấn Enter',
+    'v.key.left':'⬅ / ⬆  — Trang trước','v.key.right':'➡ / ⬇  — Trang sau',
+    'v.key.click':'Click ảnh trái/phải để chuyển','v.no_folder':'Chưa chọn thư mục',
+    'v.fit.width':'↔ Vừa chiều rộng','v.fit.contain':'⛶ Vừa màn hình','v.fit.original':'1:1 Kích thước gốc',
+    'v.scroll.empty':'Chọn thư mục và nhấn 📖 Mở thư mục','v.page.empty':'Chưa có ảnh',
+    'btn.prev':'‹ Trước','btn.prev.title':'Trang trước (←)','btn.next':'Sau ›','btn.next.title':'Trang sau (→)',
+  },
+  en: {
+    'theme.light':'☀ Light','theme.dark':'🌙 Dark',
+    'tab.crawl':'🕷 Crawl','tab.translate':'🌐 Translate','tab.viewer':'📖 Viewer',
+    'status.ready':'Ready','status.crawling':'Crawling…','status.stopping':'Stopping…',
+    'status.stopped':'Stopped','status.error':'Crawl error',
+    'status.done_fmt':(ok,fail)=>`Done: ${ok} ok, ${fail} failed`,
+    'status.t.ready':'Ready','status.t.running':'Translating…','status.t.stopping':'Stopping…',
+    'status.t.stopped':'Stopped','status.t.error':'Translation error',
+    'status.t.done_fmt':(ok,fail)=>`Done: ${ok} ok, ${fail} failed`,
+    'crawl.src.header':'Crawl Source','crawl.url.label':'Web URL',
+    'crawl.url.clear':'✕ Clear','crawl.url.clear.title':'Clear URL',
+    'crawl.folder.label':'Save Folder','crawl.folder.ph':'output  or  D:\\Images\\crawl',
+    'crawl.folder.hint':'Absolute or relative path from the script location.',
+    'crawl.adv.header':'Advanced Options','crawl.workers.label':'Workers',
+    'crawl.presets.label':'Quick Presets',
+    'preset.fast':'⚡ Fast','preset.fast.title':'delay=0.1s, 8 workers, timeout=15s','preset.fast.label':'Fast',
+    'preset.safe':'🛡 Safe','preset.safe.title':'delay=1.0s, 2 workers, timeout=30s','preset.safe.label':'Safe',
+    'preset.heavy':'💪 Heavy','preset.heavy.title':'delay=0.2s, 12 workers, timeout=20s','preset.heavy.label':'Heavy',
+    'preset.lazy':'🐢 Gentle','preset.lazy.title':'delay=2.0s, 1 worker, timeout=60s','preset.lazy.label':'Gentle',
+    'btn.browse':'📁 Browse…','btn.browse.title':'Browse for a folder',
+    'btn.start':'▶ Start','btn.stop':'■ Stop',
+    'btn.save_config':'💾 Save','btn.save_config.title':'Save config to browser',
+    'btn.reset_config.title':'Reset to defaults',
+    'btn.clear_log':'🗑 Clear','crawl.log.header':'Real-time Log',
+    'crawl.log.empty':'Enter a URL and click ▶ Start',
+    't.folders.header':'Image Folders','t.src_dir.label':'Source Folder (images to translate)',
+    't.src_dir.ph':'D:\\images\\chapters','t.out_dir.label':'Output Folder (translated images)',
+    't.out_dir.ph':'Leave blank → auto-create _vi folder',
+    't.out_dir.hint':'If empty, saves to <source>_vi/',
+    't.settings.header':'Translation Settings','t.backend.label':'Backend',
+    't.backend.auto.sub':'Automatic · offline','t.backend.mit.sub':'High quality · many models',
+    't.src_lang.label':'Source Language',
+    't.model.hint':'Qwen2.5:7b (~4.7GB) | Qwen2.5:3b (~2GB, faster)',
+    't.mit.translator.label':'Translator Model','t.mit.target.label':'Target Language',
+    't.mit.adv':'⚙ Advanced Settings','t.mit.adv.sub':'Detector · Inpainter · Upscale…',
+    't.mit.upscale.off':'Off','t.mit.skip':'⏭ Skip blank images','t.mit.overwrite':'♻ Overwrite translated images',
+    't.gpu':'⚡ Use GPU (~5× faster)','t.sys.header':'System Check',
+    'btn.check':'🔍 Check','btn.start_translate':'▶ Start Translation','btn.refresh':'↺ Refresh',
+    't.log.header':'Log','t.log.empty':'Translation log',
+    't.preview.header':'Translated Images','t.preview.empty':'Result images will appear here',
+    'prog.loading':(d,t)=>`Loading… ${d} / ${t}`,'prog.done_crawl':n=>`Done! ${n} images processed`,
+    'prog.translating':(d,t)=>`Translating… ${d} / ${t}`,'prog.done_translate':n=>`Done! ${n} images`,
+    'stat.total':n=>`Total: ${n}`,'stat.img_count':n=>`${n} images`,
+    'alert.no_url':'⚠  Please enter a URL.','alert.bad_url':'⚠  URL must start with http:// or https://',
+    'alert.bad_url_hint':'URL must start with http:// or https://','alert.valid_url':'✓ Valid URL',
+    'alert.no_conn':e=>`⚠  Cannot connect to server: ${e}`,
+    'alert.no_input_dir':'⚠  Please select a source image folder.',
+    'alert.saved_config':'💾  Config saved to browser.','alert.reset_config':'↺  Config reset to defaults.',
+    'alert.preset':(lbl,d,w,t)=>`⚙  Preset "${lbl}": delay=${d}s  workers=${w}  timeout=${t}s`,
+    'alert.no_folder':'⚠ No folder opened','alert.bad_page':max=>`⚠ Enter a number from 1 to ${max}`,
+    'v.folder.header':'Image Folder','v.folder.label':'Select Folder','v.folder.ph':'D:\\Comic\\Chapter-1',
+    'btn.open_folder':'📖 Open Folder','v.mode.header':'View Mode',
+    'v.mode.scroll':'Scroll Down','v.mode.scroll.sub':'All images in sequence',
+    'v.mode.page':'By Page','v.mode.page.sub':'One image at a time',
+    'v.jump.header':'Quick Jump','v.jump.ph':'Page number…','btn.goto':'Go',
+    'v.jump.hint':'Enter page number then press Enter',
+    'v.key.left':'⬅ / ⬆  — Previous page','v.key.right':'➡ / ⬇  — Next page',
+    'v.key.click':'Click left / right of image to navigate','v.no_folder':'No folder selected',
+    'v.fit.width':'↔ Fit Width','v.fit.contain':'⛶ Fit Screen','v.fit.original':'1:1 Original Size',
+    'v.scroll.empty':'Choose a folder and click 📖 Open','v.page.empty':'No images yet',
+    'btn.prev':'‹ Prev','btn.prev.title':'Previous page (←)','btn.next':'Next ›','btn.next.title':'Next page (→)',
+  },
+  zh: {
+    'theme.light':'☀ 浅色','theme.dark':'🌙 深色',
+    'tab.crawl':'🕷 抓取','tab.translate':'🌐 翻译','tab.viewer':'📖 查看器',
+    'status.ready':'就绪','status.crawling':'抓取中…','status.stopping':'停止中…',
+    'status.stopped':'已停止','status.error':'抓取错误',
+    'status.done_fmt':(ok,fail)=>`完成: ${ok} 成功, ${fail} 失败`,
+    'status.t.ready':'就绪','status.t.running':'翻译中…','status.t.stopping':'停止中…',
+    'status.t.stopped':'已停止','status.t.error':'翻译错误',
+    'status.t.done_fmt':(ok,fail)=>`完成: ${ok} 成功, ${fail} 失败`,
+    'crawl.src.header':'抓取来源','crawl.url.label':'网页 URL',
+    'crawl.url.clear':'✕ 清除','crawl.url.clear.title':'清除 URL',
+    'crawl.folder.label':'保存文件夹','crawl.folder.ph':'output 或 D:\\图片\\crawl',
+    'crawl.folder.hint':'从脚本运行位置的绝对路径或相对路径。',
+    'crawl.adv.header':'高级选项','crawl.workers.label':'工作线程',
+    'crawl.presets.label':'快速预设',
+    'preset.fast':'⚡ 快速','preset.fast.title':'delay=0.1s, 8线程, timeout=15s','preset.fast.label':'快速',
+    'preset.safe':'🛡 安全','preset.safe.title':'delay=1.0s, 2线程, timeout=30s','preset.safe.label':'安全',
+    'preset.heavy':'💪 强力','preset.heavy.title':'delay=0.2s, 12线程, timeout=20s','preset.heavy.label':'强力',
+    'preset.lazy':'🐢 轻柔','preset.lazy.title':'delay=2.0s, 1线程, timeout=60s','preset.lazy.label':'轻柔',
+    'btn.browse':'📁 浏览…','btn.browse.title':'选择文件夹',
+    'btn.start':'▶ 开始','btn.stop':'■ 停止',
+    'btn.save_config':'💾 保存','btn.save_config.title':'保存配置到浏览器',
+    'btn.reset_config.title':'重置为默认',
+    'btn.clear_log':'🗑 清除','crawl.log.header':'实时日志',
+    'crawl.log.empty':'输入 URL 并点击 ▶ 开始',
+    't.folders.header':'图片文件夹','t.src_dir.label':'源文件夹（需翻译的图片）',
+    't.src_dir.ph':'D:\\图片\\chapters','t.out_dir.label':'输出文件夹（已翻译的图片）',
+    't.out_dir.ph':'留空 → 自动创建 _vi 文件夹',
+    't.out_dir.hint':'若留空，结果保存到 <源文件夹>_vi/',
+    't.settings.header':'翻译设置','t.backend.label':'后端',
+    't.backend.auto.sub':'自动 · 离线','t.backend.mit.sub':'高质量 · 多模型',
+    't.src_lang.label':'源语言',
+    't.model.hint':'Qwen2.5:7b (~4.7GB) | Qwen2.5:3b (~2GB, 更快)',
+    't.mit.translator.label':'翻译模型','t.mit.target.label':'目标语言',
+    't.mit.adv':'⚙ 高级设置','t.mit.adv.sub':'检测器 · 修复器 · 放大…',
+    't.mit.upscale.off':'关','t.mit.skip':'⏭ 跳过空白图片','t.mit.overwrite':'♻ 覆盖已翻译图片',
+    't.gpu':'⚡ 使用 GPU（快约 5 倍）','t.sys.header':'系统检查',
+    'btn.check':'🔍 检查','btn.start_translate':'▶ 开始翻译','btn.refresh':'↺ 刷新',
+    't.log.header':'日志','t.log.empty':'翻译日志',
+    't.preview.header':'已翻译图片','t.preview.empty':'结果图片将在此显示',
+    'prog.loading':(d,t)=>`加载中… ${d} / ${t}`,'prog.done_crawl':n=>`完成！处理了 ${n} 张图片`,
+    'prog.translating':(d,t)=>`翻译中… ${d} / ${t}`,'prog.done_translate':n=>`完成！${n} 张图片`,
+    'stat.total':n=>`总计: ${n}`,'stat.img_count':n=>`${n} 张`,
+    'alert.no_url':'⚠  请输入 URL。','alert.bad_url':'⚠  URL 必须以 http:// 或 https:// 开头',
+    'alert.bad_url_hint':'URL 必须以 http:// 或 https:// 开头','alert.valid_url':'✓ URL 有效',
+    'alert.no_conn':e=>`⚠  无法连接到服务器: ${e}`,
+    'alert.no_input_dir':'⚠  请选择源图片文件夹。',
+    'alert.saved_config':'💾  配置已保存到浏览器。','alert.reset_config':'↺  配置已重置为默认。',
+    'alert.preset':(lbl,d,w,t)=>`⚙  预设 "${lbl}": delay=${d}s  workers=${w}  timeout=${t}s`,
+    'alert.no_folder':'⚠ 未打开文件夹','alert.bad_page':max=>`⚠ 请输入 1 到 ${max} 的数字`,
+    'v.folder.header':'图片文件夹','v.folder.label':'选择文件夹','v.folder.ph':'D:\\Comic\\Chapter-1',
+    'btn.open_folder':'📖 打开文件夹','v.mode.header':'查看模式',
+    'v.mode.scroll':'向下滚动','v.mode.scroll.sub':'所有图片连续显示',
+    'v.mode.page':'逐页','v.mode.page.sub':'每次显示一张',
+    'v.jump.header':'快速跳转','v.jump.ph':'页码…','btn.goto':'跳转',
+    'v.jump.hint':'输入页码后按 Enter',
+    'v.key.left':'⬅ / ⬆  — 上一页','v.key.right':'➡ / ⬇  — 下一页',
+    'v.key.click':'点击图片左/右侧翻页','v.no_folder':'未选择文件夹',
+    'v.fit.width':'↔ 适应宽度','v.fit.contain':'⛶ 适应屏幕','v.fit.original':'1:1 原始大小',
+    'v.scroll.empty':'选择文件夹并点击 📖 打开文件夹','v.page.empty':'暂无图片',
+    'btn.prev':'‹ 上页','btn.prev.title':'上一页 (←)','btn.next':'下页 ›','btn.next.title':'下一页 (→)',
+  },
+  ja: {
+    'theme.light':'☀ ライト','theme.dark':'🌙 ダーク',
+    'tab.crawl':'🕷 クロール','tab.translate':'🌐 翻訳','tab.viewer':'📖 ビューア',
+    'status.ready':'準備完了','status.crawling':'クロール中…','status.stopping':'停止中…',
+    'status.stopped':'停止済み','status.error':'クロールエラー',
+    'status.done_fmt':(ok,fail)=>`完了: ${ok} 成功, ${fail} 失敗`,
+    'status.t.ready':'準備完了','status.t.running':'翻訳中…','status.t.stopping':'停止中…',
+    'status.t.stopped':'停止済み','status.t.error':'翻訳エラー',
+    'status.t.done_fmt':(ok,fail)=>`完了: ${ok} 成功, ${fail} 失敗`,
+    'crawl.src.header':'クロール元','crawl.url.label':'Web URL',
+    'crawl.url.clear':'✕ クリア','crawl.url.clear.title':'URL をクリア',
+    'crawl.folder.label':'保存フォルダ','crawl.folder.ph':'output または D:\\画像\\crawl',
+    'crawl.folder.hint':'スクリプト実行場所からの絶対パスまたは相対パス。',
+    'crawl.adv.header':'詳細設定','crawl.workers.label':'ワーカー数',
+    'crawl.presets.label':'クイックプリセット',
+    'preset.fast':'⚡ 高速','preset.fast.title':'delay=0.1s, 8ワーカー, timeout=15s','preset.fast.label':'高速',
+    'preset.safe':'🛡 安全','preset.safe.title':'delay=1.0s, 2ワーカー, timeout=30s','preset.safe.label':'安全',
+    'preset.heavy':'💪 重量','preset.heavy.title':'delay=0.2s, 12ワーカー, timeout=20s','preset.heavy.label':'重量',
+    'preset.lazy':'🐢 ゆっくり','preset.lazy.title':'delay=2.0s, 1ワーカー, timeout=60s','preset.lazy.label':'ゆっくり',
+    'btn.browse':'📁 参照…','btn.browse.title':'フォルダを選択',
+    'btn.start':'▶ 開始','btn.stop':'■ 停止',
+    'btn.save_config':'💾 保存','btn.save_config.title':'設定をブラウザに保存',
+    'btn.reset_config.title':'デフォルトに戻す',
+    'btn.clear_log':'🗑 クリア','crawl.log.header':'リアルタイムログ',
+    'crawl.log.empty':'URL を入力して ▶ 開始 をクリック',
+    't.folders.header':'画像フォルダ','t.src_dir.label':'元フォルダ（翻訳する画像）',
+    't.src_dir.ph':'D:\\画像\\chapters','t.out_dir.label':'出力フォルダ（翻訳済み画像）',
+    't.out_dir.ph':'空白 → _vi フォルダを自動作成',
+    't.out_dir.hint':'空白の場合、<元フォルダ>_vi/ に保存',
+    't.settings.header':'翻訳設定','t.backend.label':'バックエンド',
+    't.backend.auto.sub':'自動 · オフライン','t.backend.mit.sub':'高品質 · 多モデル',
+    't.src_lang.label':'元言語',
+    't.model.hint':'Qwen2.5:7b (~4.7GB) | Qwen2.5:3b (~2GB, 高速)',
+    't.mit.translator.label':'翻訳モデル','t.mit.target.label':'対象言語',
+    't.mit.adv':'⚙ 詳細設定','t.mit.adv.sub':'検出器 · インペインター · アップスケール…',
+    't.mit.upscale.off':'オフ','t.mit.skip':'⏭ 空白画像をスキップ','t.mit.overwrite':'♻ 翻訳済み画像を上書き',
+    't.gpu':'⚡ GPU 使用（約 5 倍高速）','t.sys.header':'システムチェック',
+    'btn.check':'🔍 チェック','btn.start_translate':'▶ 翻訳開始','btn.refresh':'↺ 更新',
+    't.log.header':'ログ','t.log.empty':'翻訳ログ',
+    't.preview.header':'翻訳済み画像','t.preview.empty':'結果画像はここに表示されます',
+    'prog.loading':(d,t)=>`読み込み中… ${d} / ${t}`,'prog.done_crawl':n=>`完了！${n} 枚処理`,
+    'prog.translating':(d,t)=>`翻訳中… ${d} / ${t}`,'prog.done_translate':n=>`完了！${n} 枚`,
+    'stat.total':n=>`合計: ${n}`,'stat.img_count':n=>`${n} 枚`,
+    'alert.no_url':'⚠  URL を入力してください。','alert.bad_url':'⚠  URL は http:// または https:// で始まる必要があります',
+    'alert.bad_url_hint':'URL は http:// または https:// で始まる必要があります','alert.valid_url':'✓ URL は有効です',
+    'alert.no_conn':e=>`⚠  サーバーに接続できません: ${e}`,
+    'alert.no_input_dir':'⚠  元画像フォルダを選択してください。',
+    'alert.saved_config':'💾  設定をブラウザに保存しました。','alert.reset_config':'↺  設定をデフォルトに戻しました。',
+    'alert.preset':(lbl,d,w,t)=>`⚙  プリセット "${lbl}": delay=${d}s  workers=${w}  timeout=${t}s`,
+    'alert.no_folder':'⚠ フォルダが開かれていません','alert.bad_page':max=>`⚠ 1〜${max} の数字を入力してください`,
+    'v.folder.header':'画像フォルダ','v.folder.label':'フォルダを選択','v.folder.ph':'D:\\Comic\\Chapter-1',
+    'btn.open_folder':'📖 フォルダを開く','v.mode.header':'表示モード',
+    'v.mode.scroll':'縦スクロール','v.mode.scroll.sub':'全画像を連続表示',
+    'v.mode.page':'ページ毎','v.mode.page.sub':'1 枚ずつ表示',
+    'v.jump.header':'ページジャンプ','v.jump.ph':'ページ番号…','btn.goto':'移動',
+    'v.jump.hint':'ページ番号を入力して Enter を押す',
+    'v.key.left':'⬅ / ⬆  — 前のページ','v.key.right':'➡ / ⬇  — 次のページ',
+    'v.key.click':'画像の左/右クリックで移動','v.no_folder':'フォルダが選択されていません',
+    'v.fit.width':'↔ 幅に合わせる','v.fit.contain':'⛶ 画面に合わせる','v.fit.original':'1:1 元のサイズ',
+    'v.scroll.empty':'フォルダを選択して 📖 フォルダを開く をクリック','v.page.empty':'画像なし',
+    'btn.prev':'‹ 前','btn.prev.title':'前のページ (←)','btn.next':'次 ›','btn.next.title':'次のページ (→)',
+  },
+  ko: {
+    'theme.light':'☀ 라이트','theme.dark':'🌙 다크',
+    'tab.crawl':'🕷 크롤','tab.translate':'🌐 번역','tab.viewer':'📖 뷰어',
+    'status.ready':'준비','status.crawling':'크롤 중…','status.stopping':'중지 중…',
+    'status.stopped':'중지됨','status.error':'크롤 오류',
+    'status.done_fmt':(ok,fail)=>`완료: ${ok} 성공, ${fail} 실패`,
+    'status.t.ready':'준비','status.t.running':'번역 중…','status.t.stopping':'중지 중…',
+    'status.t.stopped':'중지됨','status.t.error':'번역 오류',
+    'status.t.done_fmt':(ok,fail)=>`완료: ${ok} 성공, ${fail} 실패`,
+    'crawl.src.header':'크롤 소스','crawl.url.label':'웹 URL',
+    'crawl.url.clear':'✕ 지우기','crawl.url.clear.title':'URL 지우기',
+    'crawl.folder.label':'저장 폴더','crawl.folder.ph':'output 또는 D:\\이미지\\crawl',
+    'crawl.folder.hint':'스크립트 위치에서의 절대 또는 상대 경로.',
+    'crawl.adv.header':'고급 옵션','crawl.workers.label':'워커',
+    'crawl.presets.label':'빠른 프리셋',
+    'preset.fast':'⚡ 빠름','preset.fast.title':'delay=0.1s, 8워커, timeout=15s','preset.fast.label':'빠름',
+    'preset.safe':'🛡 안전','preset.safe.title':'delay=1.0s, 2워커, timeout=30s','preset.safe.label':'안전',
+    'preset.heavy':'💪 강력','preset.heavy.title':'delay=0.2s, 12워커, timeout=20s','preset.heavy.label':'강력',
+    'preset.lazy':'🐢 느긋','preset.lazy.title':'delay=2.0s, 1워커, timeout=60s','preset.lazy.label':'느긋',
+    'btn.browse':'📁 찾아보기…','btn.browse.title':'폴더 선택',
+    'btn.start':'▶ 시작','btn.stop':'■ 중지',
+    'btn.save_config':'💾 저장','btn.save_config.title':'설정을 브라우저에 저장',
+    'btn.reset_config.title':'기본값으로 초기화',
+    'btn.clear_log':'🗑 지우기','crawl.log.header':'실시간 로그',
+    'crawl.log.empty':'URL을 입력하고 ▶ 시작을 클릭',
+    't.folders.header':'이미지 폴더','t.src_dir.label':'소스 폴더 (번역할 이미지)',
+    't.src_dir.ph':'D:\\이미지\\chapters','t.out_dir.label':'출력 폴더 (번역된 이미지)',
+    't.out_dir.ph':'비워두면 → _vi 폴더 자동 생성',
+    't.out_dir.hint':'비워두면 <소스>_vi/ 에 저장',
+    't.settings.header':'번역 설정','t.backend.label':'백엔드',
+    't.backend.auto.sub':'자동 · 오프라인','t.backend.mit.sub':'고품질 · 다중 모델',
+    't.src_lang.label':'소스 언어',
+    't.model.hint':'Qwen2.5:7b (~4.7GB) | Qwen2.5:3b (~2GB, 빠름)',
+    't.mit.translator.label':'번역 모델','t.mit.target.label':'대상 언어',
+    't.mit.adv':'⚙ 고급 설정','t.mit.adv.sub':'감지기 · 인페인터 · 업스케일…',
+    't.mit.upscale.off':'끄기','t.mit.skip':'⏭ 빈 이미지 건너뛰기','t.mit.overwrite':'♻ 번역된 이미지 덮어쓰기',
+    't.gpu':'⚡ GPU 사용 (~5배 빠름)','t.sys.header':'시스템 확인',
+    'btn.check':'🔍 확인','btn.start_translate':'▶ 번역 시작','btn.refresh':'↺ 새로고침',
+    't.log.header':'로그','t.log.empty':'번역 로그',
+    't.preview.header':'번역된 이미지','t.preview.empty':'결과 이미지가 여기 표시됩니다',
+    'prog.loading':(d,t)=>`로딩 중… ${d} / ${t}`,'prog.done_crawl':n=>`완료! ${n}장 처리`,
+    'prog.translating':(d,t)=>`번역 중… ${d} / ${t}`,'prog.done_translate':n=>`완료! ${n}장`,
+    'stat.total':n=>`총: ${n}`,'stat.img_count':n=>`${n}장`,
+    'alert.no_url':'⚠  URL을 입력해주세요.','alert.bad_url':'⚠  URL은 http:// 또는 https://로 시작해야 합니다',
+    'alert.bad_url_hint':'URL은 http:// 또는 https://로 시작해야 합니다','alert.valid_url':'✓ 유효한 URL',
+    'alert.no_conn':e=>`⚠  서버에 연결할 수 없습니다: ${e}`,
+    'alert.no_input_dir':'⚠  소스 이미지 폴더를 선택해주세요.',
+    'alert.saved_config':'💾  설정이 브라우저에 저장되었습니다.','alert.reset_config':'↺  설정이 기본값으로 초기화되었습니다.',
+    'alert.preset':(lbl,d,w,t)=>`⚙  프리셋 "${lbl}": delay=${d}s  workers=${w}  timeout=${t}s`,
+    'alert.no_folder':'⚠ 폴더가 열리지 않았습니다','alert.bad_page':max=>`⚠ 1에서 ${max}까지 숫자를 입력하세요`,
+    'v.folder.header':'이미지 폴더','v.folder.label':'폴더 선택','v.folder.ph':'D:\\Comic\\Chapter-1',
+    'btn.open_folder':'📖 폴더 열기','v.mode.header':'보기 모드',
+    'v.mode.scroll':'아래로 스크롤','v.mode.scroll.sub':'모든 이미지 연속 표시',
+    'v.mode.page':'페이지별','v.mode.page.sub':'한 번에 하나씩',
+    'v.jump.header':'빠른 이동','v.jump.ph':'페이지 번호…','btn.goto':'이동',
+    'v.jump.hint':'페이지 번호 입력 후 Enter',
+    'v.key.left':'⬅ / ⬆  — 이전 페이지','v.key.right':'➡ / ⬇  — 다음 페이지',
+    'v.key.click':'이미지 왼쪽/오른쪽 클릭으로 이동','v.no_folder':'폴더가 선택되지 않았습니다',
+    'v.fit.width':'↔ 너비 맞춤','v.fit.contain':'⛶ 화면 맞춤','v.fit.original':'1:1 원본 크기',
+    'v.scroll.empty':'폴더를 선택하고 📖 폴더 열기를 클릭','v.page.empty':'이미지 없음',
+    'btn.prev':'‹ 이전','btn.prev.title':'이전 페이지 (←)','btn.next':'다음 ›','btn.next.title':'다음 페이지 (→)',
+  },
+};
+
+let _lang = 'vi';
+
+function tr(key, ...args) {
+  const v = (TRANSLATIONS[_lang] ?? TRANSLATIONS.vi)[key] ?? TRANSLATIONS.vi[key] ?? key;
+  return typeof v === 'function' ? v(...args) : v;
+}
+
+function applyLang(lang) {
+  _lang = lang;
+  localStorage.setItem('lang', lang);
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const v = tr(el.dataset.i18n);
+    if (v !== el.dataset.i18n) el.textContent = v;
+  });
+  document.querySelectorAll('[data-i18n-ph]').forEach(el => {
+    const v = tr(el.dataset.i18nPh);
+    if (v !== el.dataset.i18nPh) el.placeholder = v;
+  });
+  document.querySelectorAll('[data-i18n-title]').forEach(el => {
+    const v = tr(el.dataset.i18nTitle);
+    if (v !== el.dataset.i18nTitle) el.title = v;
+  });
+  $('tabBtnCrawl').textContent     = tr('tab.crawl');
+  $('tabBtnTranslate').textContent = tr('tab.translate');
+  $('tabBtnViewer').textContent    = tr('tab.viewer');
+  const isDark = document.documentElement.dataset.theme === 'dark';
+  $('themeBtn').textContent = isDark ? tr('theme.light') : tr('theme.dark');
+  $('langSelect').value = lang;
+  document.documentElement.lang = lang;
+}
+
+function loadLang() {
+  applyLang(localStorage.getItem('lang') || 'vi');
+}
+
 // ── Presets ──────────────────────────────────────────────────────────────────
 const PRESETS = {
-  fast:  { delay: 0.1, workers: 8,  timeout: 15,  label: "Nhanh"      },
-  safe:  { delay: 1.0, workers: 2,  timeout: 30,  label: "An toàn"    },
-  heavy: { delay: 0.2, workers: 12, timeout: 20,  label: "Mạnh"       },
-  lazy:  { delay: 2.0, workers: 1,  timeout: 60,  label: "Nhẹ nhàng"  },
+  fast:  { delay: 0.1, workers: 8,  timeout: 15  },
+  safe:  { delay: 1.0, workers: 2,  timeout: 30  },
+  heavy: { delay: 0.2, workers: 12, timeout: 20  },
+  lazy:  { delay: 2.0, workers: 1,  timeout: 60  },
 };
 
 const DEFAULT_CONFIG = { delay: 0.3, workers: 4, timeout: 20, folder: "output" };
@@ -17,7 +366,7 @@ function applyPreset(name) {
   setVal("delayInput",   p.delay);
   setVal("workersInput", p.workers);
   setVal("timeoutInput", p.timeout);
-  addLog(`⚙  Preset "${p.label}": delay=${p.delay}s  workers=${p.workers}  timeout=${p.timeout}s`, "info");
+  addLog(tr('alert.preset', tr(`preset.${name}.label`), p.delay, p.workers, p.timeout), "info");
 }
 
 // ── Config persistence ────────────────────────────────────────────────────────
@@ -30,7 +379,7 @@ function saveConfig() {
     timeout: getVal("timeoutInput"),
   };
   localStorage.setItem("crawlerConfig", JSON.stringify(cfg));
-  addLog("💾  Cấu hình đã lưu vào trình duyệt.", "info");
+  addLog(tr('alert.saved_config'), "info");
 }
 
 function loadConfig() {
@@ -49,7 +398,7 @@ function resetConfig() {
   setVal("workersInput", DEFAULT_CONFIG.workers);
   setVal("timeoutInput", DEFAULT_CONFIG.timeout);
   setVal("folderInput",  DEFAULT_CONFIG.folder);
-  addLog("↺  Cấu hình đã khôi phục về mặc định.", "info");
+  addLog(tr('alert.reset_config'), "info");
 }
 
 // ── Theme ─────────────────────────────────────────────────────────────────────
@@ -57,14 +406,14 @@ function toggleTheme() {
   const html  = document.documentElement;
   const isDark = html.dataset.theme === "dark";
   html.dataset.theme = isDark ? "light" : "dark";
-  document.getElementById("themeBtn").textContent = isDark ? "🌙 Tối" : "☀ Sáng";
+  document.getElementById("themeBtn").textContent = isDark ? tr("theme.light") : tr("theme.dark");
   localStorage.setItem("theme", html.dataset.theme);
 }
 function loadTheme() {
-  const t = localStorage.getItem("theme");
-  if (t) {
-    document.documentElement.dataset.theme = t;
-    document.getElementById("themeBtn").textContent = t === "dark" ? "☀ Sáng" : "🌙 Tối";
+  const savedTheme = localStorage.getItem("theme");
+  if (savedTheme) {
+    document.documentElement.dataset.theme = savedTheme;
+    document.getElementById("themeBtn").textContent = savedTheme === "dark" ? tr("theme.light") : tr("theme.dark");
   }
 }
 
@@ -87,10 +436,10 @@ function onUrlChange() {
   if (!v) { hint.textContent = ""; return; }
   if (!v.startsWith("http://") && !v.startsWith("https://")) {
     hint.style.color = "var(--red)";
-    hint.textContent = "URL phải bắt đầu bằng http:// hoặc https://";
+    hint.textContent = tr('alert.bad_url_hint');
   } else {
     hint.style.color = "var(--green)";
-    hint.textContent = "✓ URL hợp lệ";
+    hint.textContent = tr('alert.valid_url');
   }
 }
 
@@ -137,8 +486,8 @@ function showProgress(done, total) {
   const pct = total > 0 ? Math.round(done / total * 100) : 0;
   $("progFill").style.width   = pct + "%";
   $("progPct").textContent    = pct + "%";
-  $("progLabel").textContent  = `Đang tải… ${done} / ${total}`;
-  $("statTotal").textContent  = `Tổng: ${total}`;
+  $("progLabel").textContent  = tr('prog.loading', done, total);
+  $("statTotal").textContent  = tr('stat.total', total);
 }
 
 function showStats(ok, fail) {
@@ -185,7 +534,7 @@ async function poll() {
         break;
       case "done":
         showStats(entry.success, entry.failed);
-        $("progLabel").textContent = `Hoàn thành! ${entry.success + entry.failed} ảnh xử lý`;
+        $("progLabel").textContent = tr('prog.done_crawl', entry.success + entry.failed);
         $("progFill").style.width  = "100%";
         $("progPct").textContent   = "100%";
         break;
@@ -199,17 +548,17 @@ async function poll() {
     stopPolling();
     const s = data.state.status;
     if (s === "done") {
-      setStatus(`Xong: ${data.state.success} OK, ${data.state.failed} lỗi`, "done");
+      setStatus(tr('status.done_fmt', data.state.success, data.state.failed), "done");
       // Luôn đưa progress về 100% từ state thực (tránh trường hợp log bị trân bộ nhớ)
       showProgress(data.state.total, data.state.total);
       showStats(data.state.success, data.state.failed);
-      $("progLabel").textContent = `Hoàn thành! ${data.state.total} ảnh xử lý`;
+      $("progLabel").textContent = tr('prog.done_crawl', data.state.total);
       $("progFill").style.width  = "100%";
       $("progPct").textContent   = "100%";
     } else if (s === "error") {
-      setStatus("Lỗi khi crawl", "error");
+      setStatus(tr('status.error'), "error");
     } else if (s === "stopped") {
-      setStatus("Đã dừng", "stopped");
+      setStatus(tr('status.stopped'), "stopped");
     }
   }
 }
@@ -223,10 +572,10 @@ async function startCrawl() {
   const timeout = parseInt(getVal("timeoutInput"), 10);
 
   if (!url) {
-    addLog("⚠  Vui lòng nhập URL.", "warn"); return;
+    addLog(tr('alert.no_url'), "warn"); return;
   }
   if (!url.startsWith("http://") && !url.startsWith("https://")) {
-    addLog("⚠  URL phải bắt đầu bằng http:// hoặc https://", "warn"); return;
+    addLog(tr('alert.bad_url'), "warn"); return;
   }
 
   _cursor   = 0;
@@ -235,7 +584,7 @@ async function startCrawl() {
   $("progressWrap").style.display = "";
   showProgress(0, 0);
   showStats(0, 0);
-  setStatus("Đang crawl…", "running");
+  setStatus(tr('status.crawling'), "running");
   setCrawling(true);
   startPolling();
 
@@ -248,7 +597,7 @@ async function startCrawl() {
     });
     json = await res.json();
   } catch (e) {
-    addLog(`⚠  Không kết nối được server: ${e}`, "fail");
+    addLog(tr('alert.no_conn', e), "fail");
     setCrawling(false); stopPolling(); _crawling = false; return;
   }
 
@@ -261,7 +610,7 @@ async function startCrawl() {
 
 async function stopCrawl() {
   try { await fetch("/api/stop", { method: "POST" }); } catch {}
-  setStatus("Đang dừng…", "stopped");
+  setStatus(tr('status.stopping'), "stopped");
 }
 
 // ── Folder Browser ───────────────────────────────────────────────────────────
@@ -425,8 +774,8 @@ function tShowProgress(done, total) {
   const pct = total > 0 ? Math.round(done / total * 100) : 0;
   $('tProgFill').style.width  = pct + '%';
   $('tProgPct').textContent   = pct + '%';
-  $('tProgLabel').textContent = `Đang dịch… ${done} / ${total}`;
-  $('tStatTotal').textContent = `Tổng: ${total}`;
+  $('tProgLabel').textContent = tr('prog.translating', done, total);
+  $('tStatTotal').textContent = tr('stat.total', total);
 }
 
 function tShowStats(ok, fail) {
@@ -470,7 +819,7 @@ async function tPoll() {
       tShowStats(entry.success, entry.failed);
       $('tProgFill').style.width  = '100%';
       $('tProgPct').textContent   = '100%';
-      $('tProgLabel').textContent = `Xong! ${entry.success + entry.failed} ảnh`;
+      $('tProgLabel').textContent = tr('prog.done_translate', entry.success + entry.failed);
       if (entry.output_dir) { _tOutputDir = entry.output_dir; tRefreshPreview(); }
     }
   }
@@ -482,16 +831,16 @@ async function tPoll() {
     tStopPolling();
     const s = data.state.status;
     if (s === 'done') {
-      tSetStatus(`Xong: ${data.state.success} OK, ${data.state.failed} lỗi`, 'done');
+      tSetStatus(tr('status.t.done_fmt', data.state.success, data.state.failed), 'done');
       // Luôn đưa progress về 100% từ state thực
       tShowProgress(data.state.total, data.state.total);
       tShowStats(data.state.success, data.state.failed);
       $('tProgFill').style.width  = '100%';
       $('tProgPct').textContent   = '100%';
-      $('tProgLabel').textContent = `Xong! ${data.state.total} ảnh`;
+      $('tProgLabel').textContent = tr('prog.done_translate', data.state.total);
     }
-    if (s === 'error')   tSetStatus('Lỗi khi dịch', 'error');
-    if (s === 'stopped') tSetStatus('Đã dừng', 'stopped');
+    if (s === 'error')   tSetStatus(tr('status.t.error'), 'error');
+    if (s === 'stopped') tSetStatus(tr('status.t.stopped'), 'stopped');
   }
 }
 
@@ -546,7 +895,7 @@ async function tStart() {
   const mit_skip_no_text = $('tMITSkipNoText').checked;
   const mit_overwrite    = $('tMITOverwrite').checked;
 
-  if (!input_dir) { tAddLog('⚠  Vui lòng chọn thư mục ảnh nguồn.', 'warn'); return; }
+  if (!input_dir) { tAddLog(tr('alert.no_input_dir'), 'warn'); return; }
 
   _tCursor    = 0;
   _tRunning   = true;
@@ -555,7 +904,7 @@ async function tStart() {
   $('tProgressWrap').style.display = '';
   tShowProgress(0, 0);
   tShowStats(0, 0);
-  tSetStatus('Đang khởi động…', 'running');
+  tSetStatus(tr('status.t.running'), 'running');
   tSetCrawling(true);
   tStartPolling();
 
@@ -574,13 +923,13 @@ async function tStart() {
     });
     json = await res.json();
   } catch (e) {
-    tAddLog(`⚠  Không kết nối server: ${e}`, 'fail');
+    tAddLog(tr('alert.no_conn', e), 'fail');
     tSetCrawling(false); tStopPolling(); _tRunning = false; return;
   }
 
   if (!res.ok) {
     tAddLog(`⚠  ${json.error || 'Lỗi không xác định'}`, 'warn');
-    tSetStatus('Lỗi', 'error');
+    tSetStatus(tr('status.t.error'), 'error');
     tSetCrawling(false); tStopPolling(); _tRunning = false;
   } else if (json.output_dir) {
     _tOutputDir = json.output_dir;
@@ -589,7 +938,7 @@ async function tStart() {
 
 async function tStop() {
   try { await fetch('/api/translate/stop', { method: 'POST' }); } catch {}
-  tSetStatus('Đang dừng…', 'stopped');
+  tSetStatus(tr('status.t.stopping'), 'stopped');
 }
 
 // ── Preview ───────────────────────────────────────────────────────────────────
@@ -674,7 +1023,7 @@ async function vOpen() {
 
   _vImages = data.images || [];
   _vPage   = 0;
-  $('vImgCount').textContent = `${_vImages.length} ảnh`;
+  $('vImgCount').textContent = tr('stat.img_count', _vImages.length);
 
   if (_vMode === 'scroll') vRenderScroll();
   else vRenderPage();
@@ -695,7 +1044,7 @@ function vRenderScroll() {
   c.innerHTML = '';
   vApplyFit();
   if (!_vImages.length) {
-    c.innerHTML = '<div class="viewer-empty"><span style="font-size:2rem;opacity:.35">🖼</span><span>Không có ảnh nào trong thư mục này</span></div>';
+    c.innerHTML = `<div class="viewer-empty"><span style="font-size:2rem;opacity:.35">🖼</span><span>${tr('v.scroll.empty')}</span></div>`;
     return;
   }
   _vImages.forEach((img) => {
@@ -743,9 +1092,9 @@ function vPrev() {
 function vGoToPage() {
   const n = parseInt(getVal('vGoPageInput'), 10);
   const hint = $('vGoPageHint');
-  if (!_vImages.length)       { hint.textContent = '⚠ Chưa mở thư mục'; return; }
+  if (!_vImages.length)       { hint.textContent = tr('alert.no_folder'); return; }
   if (isNaN(n) || n < 1 || n > _vImages.length) {
-    hint.textContent = `⚠ Nhập số từ 1 đến ${_vImages.length}`;
+    hint.textContent = tr('alert.bad_page', _vImages.length);
     return;
   }
   hint.textContent = '';
@@ -763,4 +1112,5 @@ function vPageClick(e) {
 // ── Init ──────────────────────────────────────────────────────────────────────
 loadTheme();
 loadConfig();
+loadLang();
 </script>

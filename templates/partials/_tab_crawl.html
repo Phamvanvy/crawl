@@ -6,34 +6,37 @@
 
     <!-- URL -->
     <div class="card" style="margin-bottom:12px">
-      <div class="card-header">Nguồn crawl</div>
+      <div class="card-header" data-i18n="crawl.src.header">Nguồn crawl</div>
       <div class="card-body">
         <div class="field">
-          <label>URL trang web</label>
+          <label data-i18n="crawl.url.label">URL trang web</label>
           <div class="folder-row">
             <input type="url" id="urlInput" placeholder="https://example.com/gallery"
                    oninput="onUrlChange()" />
-            <button class="btn btn-ghost btn-browse" onclick="clearUrl()" title="Xóa URL">✕ Xóa</button>
+            <button class="btn btn-ghost btn-browse" onclick="clearUrl()" title="Xóa URL"
+                    data-i18n="crawl.url.clear" data-i18n-title="crawl.url.clear.title">✕ Xóa</button>
           </div>
           <div class="field-hint" id="urlHint"></div>
         </div>
         <div class="field">
-          <label>Thư mục lưu ảnh</label>
+          <label data-i18n="crawl.folder.label">Thư mục lưu ảnh</label>
           <div class="folder-row">
             <input type="text" id="folderInput" value="output"
-                   placeholder="output  hoặc  D:\Ảnh\crawl" />
-            <button class="btn btn-ghost btn-browse" onclick="openFolderBrowser('folderInput')" title="Chọn thư mục trên máy">
+                   placeholder="output  hoặc  D:\Ảnh\crawl"
+                   data-i18n-ph="crawl.folder.ph" />
+            <button class="btn btn-ghost btn-browse" onclick="openFolderBrowser('folderInput')" title="Chọn thư mục trên máy"
+                    data-i18n="btn.browse" data-i18n-title="btn.browse.title">
               📁 Chọn…
             </button>
           </div>
-          <div class="field-hint">Đường dẫn tuyệt đối hoặc tương đối từ nơi chạy script.</div>
+          <div class="field-hint" data-i18n="crawl.folder.hint">Đường dẫn tuyệt đối hoặc tương đối từ nơi chạy script.</div>
         </div>
       </div>
     </div>
 
     <!-- Options -->
     <div class="card" style="margin-bottom:12px">
-      <div class="card-header">Tùy chọn nâng cao</div>
+      <div class="card-header" data-i18n="crawl.adv.header">Tùy chọn nâng cao</div>
       <div class="card-body">
         <div class="grid-3">
           <div class="field">
@@ -41,7 +44,7 @@
             <input type="number" id="delayInput" value="0.3" min="0" max="10" step="0.1" />
           </div>
           <div class="field">
-            <label>Luồng tải</label>
+            <label data-i18n="crawl.workers.label">Luồng tải</label>
             <input type="number" id="workersInput" value="4" min="1" max="32" step="1" />
           </div>
           <div class="field">
@@ -53,12 +56,12 @@
         <hr class="divider" />
 
         <div class="field" style="margin-bottom:0">
-          <label>Cài đặt nhanh</label>
+          <label data-i18n="crawl.presets.label">Cài đặt nhanh</label>
           <div class="presets">
-            <button class="chip" onclick="applyPreset('fast')" title="delay=0.1s, 8 luồng, timeout=15s">⚡ Nhanh</button>
-            <button class="chip" onclick="applyPreset('safe')" title="delay=1.0s, 2 luồng, timeout=30s">🛡 An toàn</button>
-            <button class="chip" onclick="applyPreset('heavy')" title="delay=0.2s, 12 luồng, timeout=20s">💪 Mạnh</button>
-            <button class="chip" onclick="applyPreset('lazy')" title="delay=2.0s, 1 luồng, timeout=60s">🐢 Nhẹ nhàng</button>
+            <button class="chip" onclick="applyPreset('fast')"  data-i18n="preset.fast"  data-i18n-title="preset.fast.title"  title="delay=0.1s, 8 luồng, timeout=15s">⚡ Nhanh</button>
+            <button class="chip" onclick="applyPreset('safe')"  data-i18n="preset.safe"  data-i18n-title="preset.safe.title"  title="delay=1.0s, 2 luồng, timeout=30s">🛡 An toàn</button>
+            <button class="chip" onclick="applyPreset('heavy')" data-i18n="preset.heavy" data-i18n-title="preset.heavy.title" title="delay=0.2s, 12 luồng, timeout=20s">💪 Mạnh</button>
+            <button class="chip" onclick="applyPreset('lazy')"  data-i18n="preset.lazy"  data-i18n-title="preset.lazy.title"  title="delay=2.0s, 1 luồng, timeout=60s">🐢 Nhẹ nhàng</button>
           </div>
         </div>
       </div>
@@ -68,10 +71,12 @@
     <div class="card">
       <div class="card-body">
         <div class="action-row">
-          <button class="btn btn-primary"  id="startBtn" onclick="startCrawl()">▶ Bắt đầu</button>
-          <button class="btn btn-danger"   id="stopBtn"  onclick="stopCrawl()" disabled>■ Dừng</button>
-          <button class="btn btn-ghost"    onclick="saveConfig()" title="Lưu cấu hình vào trình duyệt">💾 Lưu</button>
-          <button class="btn btn-ghost"    onclick="resetConfig()" title="Khôi phục mặc định">↺</button>
+          <button class="btn btn-primary"  id="startBtn" onclick="startCrawl()" data-i18n="btn.start">▶ Bắt đầu</button>
+          <button class="btn btn-danger"   id="stopBtn"  onclick="stopCrawl()" disabled data-i18n="btn.stop">■ Dừng</button>
+          <button class="btn btn-ghost"    onclick="saveConfig()" title="Lưu cấu hình vào trình duyệt"
+                  data-i18n="btn.save_config" data-i18n-title="btn.save_config.title">💾 Lưu</button>
+          <button class="btn btn-ghost"    onclick="resetConfig()" title="Khôi phục mặc định"
+                  data-i18n-title="btn.reset_config.title">↺</button>
         </div>
 
         <div class="progress-wrap" id="progressWrap" style="display:none">
@@ -92,7 +97,7 @@
 
         <div class="status-row">
           <div class="status-dot" id="statusDot"></div>
-          <span class="status-text" id="statusText">Sẵn sàng</span>
+          <span class="status-text" id="statusText" data-i18n="status.ready">Sẵn sàng</span>
         </div>
       </div>
     </div>
@@ -103,13 +108,14 @@
   <div class="right-col">
     <div class="card log-panel">
       <div class="card-header">
-        <span>Nhật ký thời gian thực</span>
-        <button class="btn btn-ghost" style="padding:3px 10px;font-size:.75rem" onclick="clearLog()">🗑 Xóa</button>
+        <span data-i18n="crawl.log.header">Nhật ký thời gian thực</span>
+        <button class="btn btn-ghost" style="padding:3px 10px;font-size:.75rem" onclick="clearLog()"
+                data-i18n="btn.clear_log">🗑 Xóa</button>
       </div>
       <div class="log-body" id="logBox">
         <div class="log-empty">
           <span>▋</span>
-          <span>Nhập URL và nhấn ▶ Bắt đầu</span>
+          <span data-i18n="crawl.log.empty">Nhập URL và nhấn ▶ Bắt đầu</span>
         </div>
       </div>
     </div>

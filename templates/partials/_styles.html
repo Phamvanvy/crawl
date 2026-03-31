@@ -612,6 +612,21 @@
     /* ── MIT section divider ────────────────────────────────────────────── */
     .mit-section { display: flex; flex-direction: column; gap: 10px; }
 
+    /* ── Language select ────────────────────────────────────────────────── */
+    .lang-select {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: 5px 10px;
+      cursor: pointer;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      font-family: inherit;
+      outline: none;
+      transition: all .15s;
+    }
+    .lang-select:hover, .lang-select:focus { border-color: var(--accent); color: var(--accent); }
+
     /* ── Viewer tab ─────────────────────────────────────────────────────── */
     .viewer-layout {
       display: grid;

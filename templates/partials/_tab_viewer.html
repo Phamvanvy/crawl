@@ -6,34 +6,37 @@
 
     <!-- Folder picker -->
     <div class="card" style="margin-bottom:12px">
-      <div class="card-header">Thư mục ảnh</div>
+      <div class="card-header" data-i18n="v.folder.header">Thư mục ảnh</div>
       <div class="card-body">
         <div class="field">
-          <label>Chọn thư mục</label>
+          <label data-i18n="v.folder.label">Chọn thư mục</label>
           <div class="folder-row">
             <input type="text" id="vFolderInput" placeholder="D:\Comic\Chapter-1"
+                   data-i18n-ph="v.folder.ph"
                    onkeydown="if(event.key==='Enter') vOpen()" />
-            <button class="btn btn-ghost btn-browse" onclick="openFolderBrowser('vFolderInput')">📁 Chọn…</button>
+            <button class="btn btn-ghost btn-browse" onclick="openFolderBrowser('vFolderInput')"
+                    data-i18n="btn.browse">📁 Chọn…</button>
           </div>
         </div>
-        <button class="btn btn-primary" style="width:100%;margin-top:4px" onclick="vOpen()">📖 Mở thư mục</button>
+        <button class="btn btn-primary" style="width:100%;margin-top:4px" onclick="vOpen()"
+                data-i18n="btn.open_folder">📖 Mở thư mục</button>
       </div>
     </div>
 
     <!-- View mode -->
     <div class="card" style="margin-bottom:12px">
-      <div class="card-header">Chế độ xem</div>
+      <div class="card-header" data-i18n="v.mode.header">Chế độ xem</div>
       <div class="card-body">
         <div class="viewer-mode-btns">
           <button id="vModeScroll" class="viewer-mode-btn active" onclick="vSetMode('scroll')">
             <span class="vm-icon">↕</span>
-            <b>Cuộn dọc</b>
-            <small>Tất cả ảnh liên tục</small>
+            <b data-i18n="v.mode.scroll">Cuộn dọc</b>
+            <small data-i18n="v.mode.scroll.sub">Tất cả ảnh liên tục</small>
           </button>
           <button id="vModePage" class="viewer-mode-btn" onclick="vSetMode('page')">
             <span class="vm-icon">📄</span>
-            <b>Theo trang</b>
-            <small>Chuyển từng ảnh</small>
+            <b data-i18n="v.mode.page">Theo trang</b>
+            <small data-i18n="v.mode.page.sub">Chuyển từng ảnh</small>
           </button>
         </div>
       </div>
@@ -41,14 +44,16 @@
 
     <!-- Jump to page (page mode only) -->
     <div id="vGoPageCard" class="card" style="display:none">
-      <div class="card-header">Chuyển trang nhanh</div>
+      <div class="card-header" data-i18n="v.jump.header">Chuyển trang nhanh</div>
       <div class="card-body">
         <div class="folder-row">
           <input type="number" id="vGoPageInput" min="1" placeholder="Số trang…"
+                 data-i18n-ph="v.jump.ph"
                  onkeydown="if(event.key==='Enter') vGoToPage()" />
-          <button class="btn btn-ghost" onclick="vGoToPage()">Đến</button>
+          <button class="btn btn-ghost" onclick="vGoToPage()" data-i18n="btn.goto">Đến</button>
         </div>
-        <div class="field-hint" id="vGoPageHint" style="margin-top:4px">Nhập số trang rồi nhấn Enter</div>
+        <div class="field-hint" id="vGoPageHint" style="margin-top:4px"
+             data-i18n="v.jump.hint">Nhập số trang rồi nhấn Enter</div>
       </div>
     </div>
 
@@ -56,9 +61,9 @@
     <div id="vKeyHint" class="card" style="display:none">
       <div class="card-body" style="padding:10px 14px">
         <div style="font-size:.72rem;color:var(--text-muted);line-height:1.9">
-          <div>⬅ / ⬆  — Trang trước</div>
-          <div>➡ / ⬇  — Trang sau</div>
-          <div>Click ảnh trái/phải để chuyển</div>
+          <div data-i18n="v.key.left">⬅ / ⬆  — Trang trước</div>
+          <div data-i18n="v.key.right">➡ / ⬇  — Trang sau</div>
+          <div data-i18n="v.key.click">Click ảnh trái/phải để chuyển</div>
         </div>
       </div>
     </div>
@@ -70,12 +75,12 @@
 
     <!-- toolbar -->
     <div class="viewer-toolbar">
-      <span class="viewer-folder-name" id="vFolderName">Chưa chọn thư mục</span>
+      <span class="viewer-folder-name" id="vFolderName" data-i18n="v.no_folder">Chưa chọn thư mục</span>
       <span class="stat-pill stat-blue" id="vImgCount" style="flex-shrink:0">0 ảnh</span>
       <select id="vFitSelect" class="viewer-fit-select" onchange="vApplyFit()">
-        <option value="width">↔ Vừa chiều rộng</option>
-        <option value="contain">⛶ Vừa màn hình</option>
-        <option value="original">1:1 Kích thước gốc</option>
+        <option value="width"    data-i18n="v.fit.width">↔ Vừa chiều rộng</option>
+        <option value="contain"  data-i18n="v.fit.contain">⛶ Vừa màn hình</option>
+        <option value="original" data-i18n="v.fit.original">1:1 Kích thước gốc</option>
       </select>
     </div>
 
@@ -83,7 +88,7 @@
     <div id="vScrollView" class="viewer-scroll fit-width">
       <div class="viewer-empty">
         <span style="font-size:2.5rem;opacity:.35">🖼</span>
-        <span>Chọn thư mục và nhấn 📖 Mở thư mục</span>
+        <span data-i18n="v.scroll.empty">Chọn thư mục và nhấn 📖 Mở thư mục</span>
       </div>
     </div>
 
@@ -92,18 +97,22 @@
       <div class="vpage-img-area fit-contain" id="vPageImgArea" onclick="vPageClick(event)">
         <div class="viewer-empty" id="vPageEmpty">
           <span style="font-size:2.5rem;opacity:.35">🖼</span>
-          <span>Chưa có ảnh</span>
+          <span data-i18n="v.page.empty">Chưa có ảnh</span>
         </div>
         <img id="vPageImg" src="" alt="" style="display:none" />
       </div>
       <div class="vpage-controls">
-        <button class="vpage-nav-btn" id="vPrevBtn" onclick="vPrev()" disabled title="Trang trước (←)">‹ Trước</button>
+        <button class="vpage-nav-btn" id="vPrevBtn" onclick="vPrev()" disabled
+                data-i18n="btn.prev" data-i18n-title="btn.prev.title"
+                title="Trang trước (←">‹ Trước</button>
         <div class="vpage-counter">
           <span id="vPageNum">—</span>
           <span style="color:var(--text-muted);margin:0 5px">/</span>
           <span id="vPageTotal">—</span>
         </div>
-        <button class="vpage-nav-btn" id="vNextBtn" onclick="vNext()" disabled title="Trang sau (→)">Sau ›</button>
+        <button class="vpage-nav-btn" id="vNextBtn" onclick="vNext()" disabled
+                data-i18n="btn.next" data-i18n-title="btn.next.title"
+                title="Trang sau (→)">Sau ›</button>
       </div>
     </div>
 
