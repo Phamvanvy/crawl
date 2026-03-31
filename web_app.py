@@ -9,6 +9,7 @@ import os
 import string
 import sys
 import threading
+from collections import deque
 
 # Đảm bảo stdout dùng UTF-8 trên Windows (tránh UnicodeEncodeError)
 if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
@@ -27,7 +28,8 @@ app = Flask(__name__)
 
 # ── Trạng thái toàn cục (một phiên crawl tại một thời điểm) ──────────────────
 _lock = threading.Lock()
-_logs: list[dict] = []          # Buffer tất cả sự kiện
+_logs: deque = deque()          # Circular buffer sự kiện
+_log_total: int = 0             # Absolute counter (không bao giờ reset bởi eviction)
 _state: dict = {
     "running": False,
     "done": 0,
@@ -41,17 +43,22 @@ MAX_LOG = 3000
 
 
 def _push(entry: dict) -> None:
-    """Thêm entry vào log buffer (thread-safe, giới hạn MAX_LOG)."""
+    """Thêm entry vào circular buffer (thread-safe, xoay vòng khi full)."""
+    global _log_total
     with _lock:
-        if len(_logs) < MAX_LOG:
-            _logs.append(entry)
+        if len(_logs) >= MAX_LOG:
+            _logs.popleft()  # bỏ entry cũ nhất
+        _logs.append(entry)
+        _log_total += 1
 
 
 def _reset() -> None:
     """Xóa log và reset state (gọi trước khi bắt đầu crawl mới)."""
+    global _log_total
     _stop_event.clear()           # ← xóa flag dừng trước khi bắt đầu
     with _lock:
         _logs.clear()
+        _log_total = 0
         _state.update(
             running=True, done=0, total=0,
             success=0, failed=0, status="running",
@@ -205,16 +212,19 @@ def api_logs():
         since = 0
 
     with _lock:
-        batch = _logs[since:]
-        total = len(_logs)
-        state = dict(_state)
+        total  = _log_total
+        offset = total - len(_logs)   # số entry đã bị xoay vòng bỏ đi
+        start  = max(0, since - offset)
+        batch  = list(_logs)[start:]
+        state  = dict(_state)
 
     return jsonify({"logs": batch, "total": total, "state": state})
 
 
 # ── Translation state ────────────────────────────────────────────────────────
 _t_lock      = threading.Lock()
-_t_logs: list[dict] = []
+_t_logs: deque = deque()          # Circular buffer
+_t_log_total: int = 0
 _t_state: dict = {
     "running": False, "done": 0, "total": 0,
     "success": 0, "failed": 0, "status": "ready",
@@ -239,14 +249,19 @@ def _find_font() -> str | None:
 
 
 def _t_push(entry: dict) -> None:
+    global _t_log_total
     with _t_lock:
-        if len(_t_logs) < MAX_LOG:
-            _t_logs.append(entry)
+        if len(_t_logs) >= MAX_LOG:
+            _t_logs.popleft()
+        _t_logs.append(entry)
+        _t_log_total += 1
 
 
 def _t_reset() -> None:
+    global _t_log_total
     with _t_lock:
         _t_logs.clear()
+        _t_log_total = 0
         _t_state.update(running=True, done=0, total=0, success=0, failed=0, status="running")
     _t_stop.clear()
 
@@ -421,9 +436,11 @@ def api_translate_logs():
     except (TypeError, ValueError):
         since = 0
     with _t_lock:
-        batch = _t_logs[since:]
-        total = len(_t_logs)
-        state = dict(_t_state)
+        total  = _t_log_total
+        offset = total - len(_t_logs)
+        start  = max(0, since - offset)
+        batch  = list(_t_logs)[start:]
+        state  = dict(_t_state)
     return jsonify({"logs": batch, "total": total, "state": state})
 
 

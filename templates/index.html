@@ -26,11 +26,14 @@
 <nav class="tabs-strip">
   <button class="tab-btn active" id="tabBtnCrawl"     onclick="switchTab('crawl')">🕷 Crawl ảnh</button>
   <button class="tab-btn"        id="tabBtnTranslate" onclick="switchTab('translate')">🌐 Dịch ảnh</button>
+  <button class="tab-btn"        id="tabBtnViewer"    onclick="switchTab('viewer')">📖 Xem ảnh</button>
 </nav>
 
 {% include 'partials/_tab_crawl.html' %}
 
 {% include 'partials/_tab_translate.html' %}
+
+{% include 'partials/_tab_viewer.html' %}
 
 {% include 'partials/_scripts.html' %}
 
