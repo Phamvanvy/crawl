@@ -21,7 +21,7 @@ from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request, send_file
 
-from crawler import crawl
+from crawler import crawl, retry_failed_downloads
 import translator_engine as te
 
 app = Flask(__name__)
@@ -37,6 +37,9 @@ _state: dict = {
     "success": 0,
     "failed": 0,
     "status": "ready",          # ready | running | done | error | stopped
+    "failed_items": [],        # list of {"url": str, "index": int}
+    "crawl_folder":  "",
+    "crawl_referer": "",
 }
 _stop_event = threading.Event()   # ← signal dừng crawl
 MAX_LOG = 3000
@@ -62,6 +65,7 @@ def _reset() -> None:
         _state.update(
             running=True, done=0, total=0,
             success=0, failed=0, status="running",
+            failed_items=[],
         )
 
 
@@ -140,6 +144,7 @@ def api_start():
         delay   = max(0.0, min(10.0, float(data.get("delay",   0.3))))
         workers = max(1,   min(32,   int(  data.get("workers", 4  ))))
         timeout = max(5,   min(300,  int(  data.get("timeout", 20 ))))
+        retries = max(0,   min(10,   int(  data.get("retries", 3  ))))
     except (TypeError, ValueError):
         return jsonify({"error": "Giá trị cấu hình không hợp lệ."}), 400
 
@@ -162,14 +167,15 @@ def api_start():
             _push({"type": "log", "msg": "─" * 60})
             _push({"type": "log", "msg": f"URL   : {url}"})
             _push({"type": "log", "msg": f"Folder: {folder}"})
-            _push({"type": "log", "msg": f"Config: delay={delay}s  workers={workers}  timeout={timeout}s"})
+            _push({"type": "log", "msg": f"Config: delay={delay}s  workers={workers}  timeout={timeout}s  retries={retries}"})
 
-            ok, fail = crawl(
+            ok, fail, failed_items = crawl(
                 url=url,
                 output_folder=folder,
                 delay=delay,
                 max_workers=workers,
                 timeout=timeout,
+                max_retries=retries,
                 on_progress=on_progress,
                 on_log=on_log,
                 stop_event=_stop_event,   # ← truyền event vào
@@ -179,6 +185,9 @@ def api_start():
             _push({"type": "done", "success": ok, "failed": fail})
             with _lock:
                 _state.update(running=False, success=ok, failed=fail, status="done")
+                _state["failed_items"]  = failed_items
+                _state["crawl_folder"]  = folder
+                _state["crawl_referer"] = url
 
         except Exception as exc:
             _push({"type": "log", "msg": f"✘  Lỗi: {exc}"})
@@ -200,6 +209,89 @@ def api_stop():
     _stop_event.set()             # ← báo hiệu dừng ngay lập tức
     _push({"type": "log",  "msg": "⚠  Đã dừng — các request hiện tại sẽ hoàn thành rồi dừng hẳn."})
     _push({"type": "stopped"})
+    return jsonify({"ok": True})
+
+
+@app.route("/api/failed")
+def api_failed():
+    """Trả về danh sách ảnh bị lỗi từ lần crawl gần nhất."""
+    with _lock:
+        items   = list(_state.get("failed_items", []))
+        folder  = _state.get("crawl_folder",  "")
+        referer = _state.get("crawl_referer", "")
+    return jsonify({"items": items, "folder": folder, "referer": referer})
+
+
+@app.route("/api/retry_failed", methods=["POST"])
+def api_retry_failed():
+    """Retry chỉ các ảnh bị lỗi, không crawl lại trang."""
+    with _lock:
+        if _state["running"]:
+            return jsonify({"error": "Đang crawl rồi. Vui lòng dừng trước."}), 409
+
+    data = request.get_json(silent=True) or {}
+    try:
+        delay   = max(0.0, min(10.0, float(data.get("delay",   0.3))))
+        workers = max(1,   min(32,   int(  data.get("workers", 4  ))))
+        timeout = max(5,   min(300,  int(  data.get("timeout", 20 ))))
+        retries = max(0,   min(10,   int(  data.get("retries", 3  ))))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Giá trị cấu hình không hợp lệ."}), 400
+
+    with _lock:
+        failed_items = list(_state.get("failed_items", []))
+        folder       = _state.get("crawl_folder",  "output")
+        referer      = _state.get("crawl_referer", "")
+
+    if not failed_items:
+        return jsonify({"error": "Không có ảnh lỗi để retry."}), 400
+
+    _reset()
+
+    def run() -> None:
+        try:
+            def on_log(msg: str) -> None:
+                _push({"type": "log", "msg": str(msg)})
+
+            def on_progress(done: int, total: int) -> None:
+                with _lock:
+                    _state["done"]  = done
+                    _state["total"] = total
+                _push({"type": "progress", "done": done, "total": total})
+
+            _push({"type": "log", "msg": "─" * 60})
+            _push({"type": "log", "msg": f"↺  Retry {len(failed_items)} ảnh lỗi…"})
+            _push({"type": "log", "msg": f"Config: delay={delay}s  workers={workers}  timeout={timeout}s  retries={retries}"})
+
+            urls = [item["url"] for item in failed_items]
+            ok, fail, new_failed = retry_failed_downloads(
+                urls=urls,
+                referer=referer,
+                output_folder=folder,
+                delay=delay,
+                max_workers=workers,
+                timeout=timeout,
+                max_retries=retries,
+                on_progress=on_progress,
+                on_log=on_log,
+                stop_event=_stop_event,
+            )
+
+            _push({"type": "log", "msg": f"\n✔  Retry xong: {ok} thành công, {fail} thất bại."})
+            _push({"type": "done", "success": ok, "failed": fail})
+            with _lock:
+                _state.update(running=False, success=ok, failed=fail, status="done")
+                _state["failed_items"]  = new_failed
+                _state["crawl_folder"]  = folder
+                _state["crawl_referer"] = referer
+
+        except Exception as exc:
+            _push({"type": "log", "msg": f"✘  Lỗi: {exc}"})
+            _push({"type": "error", "msg": str(exc)})
+            with _lock:
+                _state.update(running=False, status="error")
+
+    threading.Thread(target=run, daemon=True).start()
     return jsonify({"ok": True})
 
 

@@ -78,6 +78,7 @@ def unique_path(folder: Path, filename: str) -> Path:
 class ImageDownloader:
     def __init__(self, output_folder: str, delay: float = 0.3,
                  max_workers: int = 4, timeout: int = 20,
+                 max_retries: int = 3,
                  on_progress=None, on_log=None,
                  stop_event: threading.Event | None = None):
         self.output_folder = Path(output_folder)
@@ -85,6 +86,8 @@ class ImageDownloader:
         self.delay = delay
         self.max_workers = max_workers
         self.timeout = timeout
+        self.max_retries = max(0, int(max_retries))
+        self.failed_items: list[dict] = []  # {"url": str, "index": int}
         self.on_progress = on_progress or (lambda done, total: None)
         self.on_log = on_log or print
         self.stop_event = stop_event or threading.Event()
@@ -117,28 +120,49 @@ class ImageDownloader:
                 return
             filename = url_to_filename(url, index)
             dest = self._claim_path(filename)  # thread-safe reservation
-            try:
-                session = self._get_session(referer)
-                resp = session.get(url, timeout=self.timeout, stream=True)
-                resp.raise_for_status()
-                content_type = resp.headers.get("Content-Type", "")
-                if "image" not in content_type and not is_image_url(url):
-                    self.on_log(f"  [skip] Không phải ảnh: {url}")
+            last_exc: Exception | None = None
+            for attempt in range(self.max_retries + 1):
+                if self.stop_event.is_set():
                     return
-                with open(dest, "wb") as f:
-                    for chunk in resp.iter_content(chunk_size=8192):
-                        f.write(chunk)
-                with self._lock:
-                    self.success += 1
-                    done = self.success + self.failed
-                    self.on_progress(done, total)
-                self.on_log(f"  [OK {index}/{total}] {dest.name}")
-            except Exception as exc:
-                with self._lock:
-                    self.failed += 1
-                    done = self.success + self.failed
-                    self.on_progress(done, total)
-                self.on_log(f"  [FAIL {index}/{total}] {url}  →  {exc}")
+                if attempt > 0:
+                    wait = min(2 ** attempt, 30)
+                    self.on_log(f"  [RETRY {attempt}/{self.max_retries}] {dest.name}  (chờ {wait}s…)")
+                    time.sleep(wait)
+                try:
+                    session = self._get_session(referer)
+                    resp = session.get(url, timeout=self.timeout, stream=True)
+                    resp.raise_for_status()
+                    content_type = resp.headers.get("Content-Type", "")
+                    if "image" not in content_type and not is_image_url(url):
+                        self.on_log(f"  [skip] Không phải ảnh: {url}")
+                        return
+                    with open(dest, "wb") as f:
+                        for chunk in resp.iter_content(chunk_size=8192):
+                            f.write(chunk)
+                    with self._lock:
+                        self.success += 1
+                        done = self.success + self.failed
+                        self.on_progress(done, total)
+                    suffix = f" (retry {attempt}x)" if attempt > 0 else ""
+                    self.on_log(f"  [OK {index}/{total}] {dest.name}{suffix}")
+                    time.sleep(self.delay)
+                    return
+                except requests.exceptions.HTTPError as exc:
+                    status_code = exc.response.status_code if exc.response is not None else 0
+                    # 4xx errors (except 429 Too Many Requests) are permanent — stop retrying
+                    if status_code != 429 and 400 <= status_code < 500:
+                        last_exc = exc
+                        break
+                    last_exc = exc
+                except Exception as exc:
+                    last_exc = exc
+            # All attempts exhausted
+            with self._lock:
+                self.failed += 1
+                done = self.success + self.failed
+                self.on_progress(done, total)
+                self.failed_items.append({"url": url, "index": index})
+            self.on_log(f"  [FAIL {index}/{total}] {url}  →  {last_exc}")
             time.sleep(self.delay)
 
     def download_all(self, image_urls: list[str], referer: str):
@@ -156,7 +180,7 @@ class ImageDownloader:
             t.start()
         for t in threads:
             t.join()
-        return self.success, self.failed
+        return self.success, self.failed, self.failed_items
 
 
 # ── Phần cào trang ─────────────────────────────────────────────────────────────
@@ -270,11 +294,12 @@ def fetch_page(url: str, timeout: int = 20,
 
 def crawl(url: str, output_folder: str, delay: float = 0.3,
           max_workers: int = 4, timeout: int = 20,
+          max_retries: int = 3,
           on_progress=None, on_log=None,
-          stop_event: threading.Event | None = None) -> tuple[int, int]:
+          stop_event: threading.Event | None = None) -> tuple[int, int, list[dict]]:
     """
     Crawl ảnh từ `url` → lưu vào `output_folder`.
-    Trả về (số ảnh thành công, số ảnh lỗi).
+    Trả về (số ảnh thành công, số ảnh lỗi, danh sách URL lỗi).
     """
     log = on_log or print
     session = make_session(referer=url)
@@ -292,11 +317,35 @@ def crawl(url: str, output_folder: str, delay: float = 0.3,
         delay=delay,
         max_workers=max_workers,
         timeout=timeout,
+        max_retries=max_retries,
         on_progress=on_progress,
         on_log=log,
         stop_event=stop_event,
     )
     return downloader.download_all(image_urls, referer=url)
+
+
+def retry_failed_downloads(
+        urls: list[str], referer: str, output_folder: str,
+        delay: float = 0.3, max_workers: int = 4,
+        timeout: int = 20, max_retries: int = 3,
+        on_progress=None, on_log=None,
+        stop_event: threading.Event | None = None,
+) -> tuple[int, int, list[dict]]:
+    """Tải lại các URL bị lỗi, không cần crawl lại trang."""
+    log = on_log or print
+    log(f"↺  Replay {len(urls)} ảnh lỗi…")
+    downloader = ImageDownloader(
+        output_folder=output_folder,
+        delay=delay,
+        max_workers=max_workers,
+        timeout=timeout,
+        max_retries=max_retries,
+        on_progress=on_progress,
+        on_log=log,
+        stop_event=stop_event,
+    )
+    return downloader.download_all(urls, referer=referer)
 
 
 # ── CLI ────────────────────────────────────────────────────────────────────────
@@ -315,7 +364,7 @@ def main():
                         help="Timeout mỗi request (giây, mặc định 20)")
     args = parser.parse_args()
 
-    ok, fail = crawl(
+    ok, fail, _ = crawl(
         url=args.url,
         output_folder=args.output,
         delay=args.delay,

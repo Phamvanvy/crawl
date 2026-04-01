@@ -16,7 +16,7 @@ const TRANSLATIONS = {
     'crawl.url.clear':'✕ Xóa','crawl.url.clear.title':'Xóa URL',
     'crawl.folder.label':'Thư mục lưu ảnh','crawl.folder.ph':'output  hoặc  D:\\Ảnh\\crawl',
     'crawl.folder.hint':'Đường dẫn tuyệt đối hoặc tương đối từ nơi chạy script.',
-    'crawl.adv.header':'Tùy chọn nâng cao','crawl.workers.label':'Luồng tải',
+    'crawl.adv.header':'Tùy chọn nâng cao','crawl.workers.label':'Luồng tải','crawl.retries.label':'Thử lại',
     'crawl.presets.label':'Cài đặt nhanh',
     'preset.fast':'⚡ Nhanh','preset.fast.title':'delay=0.1s, 8 luồng, timeout=15s','preset.fast.label':'Nhanh',
     'preset.safe':'🛡 An toàn','preset.safe.title':'delay=1.0s, 2 luồng, timeout=30s','preset.safe.label':'An toàn',
@@ -78,7 +78,7 @@ const TRANSLATIONS = {
     'crawl.url.clear':'✕ Clear','crawl.url.clear.title':'Clear URL',
     'crawl.folder.label':'Save Folder','crawl.folder.ph':'output  or  D:\\Images\\crawl',
     'crawl.folder.hint':'Absolute or relative path from the script location.',
-    'crawl.adv.header':'Advanced Options','crawl.workers.label':'Workers',
+    'crawl.adv.header':'Advanced Options','crawl.workers.label':'Workers','crawl.retries.label':'Retries',
     'crawl.presets.label':'Quick Presets',
     'preset.fast':'⚡ Fast','preset.fast.title':'delay=0.1s, 8 workers, timeout=15s','preset.fast.label':'Fast',
     'preset.safe':'🛡 Safe','preset.safe.title':'delay=1.0s, 2 workers, timeout=30s','preset.safe.label':'Safe',
@@ -140,7 +140,7 @@ const TRANSLATIONS = {
     'crawl.url.clear':'✕ 清除','crawl.url.clear.title':'清除 URL',
     'crawl.folder.label':'保存文件夹','crawl.folder.ph':'output 或 D:\\图片\\crawl',
     'crawl.folder.hint':'从脚本运行位置的绝对路径或相对路径。',
-    'crawl.adv.header':'高级选项','crawl.workers.label':'工作线程',
+    'crawl.adv.header':'高级选项','crawl.workers.label':'工作线程','crawl.retries.label':'重试',
     'crawl.presets.label':'快速预设',
     'preset.fast':'⚡ 快速','preset.fast.title':'delay=0.1s, 8线程, timeout=15s','preset.fast.label':'快速',
     'preset.safe':'🛡 安全','preset.safe.title':'delay=1.0s, 2线程, timeout=30s','preset.safe.label':'安全',
@@ -202,7 +202,7 @@ const TRANSLATIONS = {
     'crawl.url.clear':'✕ クリア','crawl.url.clear.title':'URL をクリア',
     'crawl.folder.label':'保存フォルダ','crawl.folder.ph':'output または D:\\画像\\crawl',
     'crawl.folder.hint':'スクリプト実行場所からの絶対パスまたは相対パス。',
-    'crawl.adv.header':'詳細設定','crawl.workers.label':'ワーカー数',
+    'crawl.adv.header':'詳細設定','crawl.workers.label':'ワーカー数','crawl.retries.label':'リトライ',
     'crawl.presets.label':'クイックプリセット',
     'preset.fast':'⚡ 高速','preset.fast.title':'delay=0.1s, 8ワーカー, timeout=15s','preset.fast.label':'高速',
     'preset.safe':'🛡 安全','preset.safe.title':'delay=1.0s, 2ワーカー, timeout=30s','preset.safe.label':'安全',
@@ -264,7 +264,7 @@ const TRANSLATIONS = {
     'crawl.url.clear':'✕ 지우기','crawl.url.clear.title':'URL 지우기',
     'crawl.folder.label':'저장 폴더','crawl.folder.ph':'output 또는 D:\\이미지\\crawl',
     'crawl.folder.hint':'스크립트 위치에서의 절대 또는 상대 경로.',
-    'crawl.adv.header':'고급 옵션','crawl.workers.label':'워커',
+    'crawl.adv.header':'고급 옵션','crawl.workers.label':'워커','crawl.retries.label':'재시도',
     'crawl.presets.label':'빠른 프리셋',
     'preset.fast':'⚡ 빠름','preset.fast.title':'delay=0.1s, 8워커, timeout=15s','preset.fast.label':'빠름',
     'preset.safe':'🛡 안전','preset.safe.title':'delay=1.0s, 2워커, timeout=30s','preset.safe.label':'안전',
@@ -358,7 +358,7 @@ const PRESETS = {
   lazy:  { delay: 2.0, workers: 1,  timeout: 60  },
 };
 
-const DEFAULT_CONFIG = { delay: 0.3, workers: 4, timeout: 20, folder: "output" };
+const DEFAULT_CONFIG = { delay: 0.3, workers: 4, timeout: 20, retries: 3, folder: "output" };
 
 function applyPreset(name) {
   const p = PRESETS[name];
@@ -372,11 +372,14 @@ function applyPreset(name) {
 // ── Config persistence ────────────────────────────────────────────────────────
 function saveConfig() {
   const cfg = {
-    url:     getVal("urlInput"),
-    folder:  getVal("folderInput"),
-    delay:   getVal("delayInput"),
-    workers: getVal("workersInput"),
-    timeout: getVal("timeoutInput"),
+    url:       getVal("urlInput"),
+    folder:    getVal("folderInput"),
+    delay:     getVal("delayInput"),
+    workers:   getVal("workersInput"),
+    timeout:   getVal("timeoutInput"),
+    retries:   getVal("retriesInput"),
+    autoRetry:      $("autoRetryChk").checked,
+    autoRetryTimes: getVal("autoRetryTimes"),
   };
   localStorage.setItem("crawlerConfig", JSON.stringify(cfg));
   addLog(tr('alert.saved_config'), "info");
@@ -390,6 +393,9 @@ function loadConfig() {
     if (saved.delay   != null) setVal("delayInput",   saved.delay);
     if (saved.workers != null) setVal("workersInput", saved.workers);
     if (saved.timeout != null) setVal("timeoutInput", saved.timeout);
+    if (saved.retries != null) setVal("retriesInput", saved.retries);
+    if (saved.autoRetry      != null) $("autoRetryChk").checked    = !!saved.autoRetry;
+    if (saved.autoRetryTimes != null) setVal("autoRetryTimes", saved.autoRetryTimes);
   } catch {}
 }
 
@@ -397,6 +403,9 @@ function resetConfig() {
   setVal("delayInput",   DEFAULT_CONFIG.delay);
   setVal("workersInput", DEFAULT_CONFIG.workers);
   setVal("timeoutInput", DEFAULT_CONFIG.timeout);
+  setVal("retriesInput", DEFAULT_CONFIG.retries);
+  $("autoRetryChk").checked = false;
+  setVal("autoRetryTimes", 3);
   setVal("folderInput",  DEFAULT_CONFIG.folder);
   addLog(tr('alert.reset_config'), "info");
 }
@@ -464,6 +473,7 @@ function classifyLog(msg) {
   if (!msg) return "";
   if (msg.includes("[OK"))            return "ok";
   if (msg.includes("[FAIL"))          return "fail";
+  if (msg.includes("[RETRY"))         return "warn";
   if (msg.includes("[skip]"))         return "skip";
   if (msg.includes("✘") || msg.includes("Lỗi")) return "fail";
   if (msg.includes("⚠"))             return "warn";
@@ -555,6 +565,19 @@ async function poll() {
       $("progLabel").textContent = tr('prog.done_crawl', data.state.total);
       $("progFill").style.width  = "100%";
       $("progPct").textContent   = "100%";
+      if (data.state.failed > 0) {
+        let rounds;
+        if (_autoRetryRoundsLeft > 0) {
+          // continuing an auto-retry chain
+          rounds = _autoRetryRoundsLeft;
+        } else if ($("autoRetryChk").checked) {
+          // first auto-retry kickoff after original crawl
+          rounds = Math.max(1, parseInt(getVal("autoRetryTimes"), 10) || 1);
+        } else {
+          rounds = 0;
+        }
+        loadFailedItems(rounds);
+      } else { $("failedPanel").style.display = "none"; _failedItems = []; }
     } else if (s === "error") {
       setStatus(tr('status.error'), "error");
     } else if (s === "stopped") {
@@ -570,6 +593,7 @@ async function startCrawl() {
   const delay   = parseFloat(getVal("delayInput"));
   const workers = parseInt(getVal("workersInput"), 10);
   const timeout = parseInt(getVal("timeoutInput"), 10);
+  const retries = parseInt(getVal("retriesInput"), 10);
 
   if (!url) {
     addLog(tr('alert.no_url'), "warn"); return;
@@ -580,8 +604,11 @@ async function startCrawl() {
 
   _cursor   = 0;
   _crawling = true;
+  _autoRetryRoundsLeft = 0;
   clearLog();
-  $("progressWrap").style.display = "";
+  $('failedPanel').style.display = 'none';
+  _failedItems = [];
+  $('progressWrap').style.display = '';
   showProgress(0, 0);
   showStats(0, 0);
   setStatus(tr('status.crawling'), "running");
@@ -593,7 +620,7 @@ async function startCrawl() {
     res  = await fetch("/api/start", {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ url, folder, delay, workers, timeout }),
+      body:    JSON.stringify({ url, folder, delay, workers, timeout, retries }),
     });
     json = await res.json();
   } catch (e) {
@@ -604,6 +631,110 @@ async function startCrawl() {
   if (!res.ok) {
     addLog(`⚠  ${json.error || "Lỗi không xác định"}`, "warn");
     setStatus("Lỗi", "error");
+    setCrawling(false); stopPolling(); _crawling = false;
+  }
+}
+
+// ── Failed images panel ────────────────────────────────────────────────────────────────────────
+let _failedItems = [];
+
+function onAutoRetryChkChange() {
+  $("autoRetryTimes").disabled = !$("autoRetryChk").checked;
+}
+
+async function loadFailedItems(roundsLeft = 0) {
+  try {
+    const res  = await fetch('/api/failed');
+    const data = await res.json();
+    _failedItems = data.items || [];
+  } catch {
+    _failedItems = [];
+  }
+  renderFailedPanel();
+  if (roundsLeft > 0 && _failedItems.length) {
+    addLog(`↺  Auto-retry (còn ${roundsLeft} lần): bắt đầu tải lại ảnh lỗi…`, 'info');
+    _autoRetryRoundsLeft = roundsLeft - 1;
+    retryFailed();
+  } else {
+    _autoRetryRoundsLeft = 0;
+  }
+}
+
+let _autoRetryRoundsLeft = 0;
+
+function renderFailedPanel() {
+  const panel = $('failedPanel');
+  const badge = $('failedCountBadge');
+  const list  = $('failedUrlList');
+  if (!_failedItems.length) { panel.style.display = 'none'; return; }
+  badge.textContent = `${_failedItems.length} ảnh`;
+  panel.style.display = '';
+  list.innerHTML = '';
+  for (const item of _failedItems) {
+    const div = document.createElement('div');
+    div.className = 'failed-url-item';
+    div.innerHTML = `<span class="fi-idx">#${item.index}</span>`
+                  + `<span class="fi-url" title="${escHtml(item.url)}">${escHtml(item.url)}</span>`;
+    list.appendChild(div);
+  }
+}
+
+function toggleFailedList() {
+  const wrap = $('failedUrlWrap');
+  const btn  = $('toggleFailedBtn');
+  if (wrap.style.display === 'none') {
+    wrap.style.display = '';
+    btn.textContent = '\u25b2 Ẩn danh sách';
+  } else {
+    wrap.style.display = 'none';
+    btn.textContent = '\u25ba Xem danh sách';
+  }
+}
+
+function copyFailedUrls() {
+  if (!_failedItems.length) return;
+  const text = _failedItems.map(i => i.url).join('\n');
+  navigator.clipboard.writeText(text).then(() => {
+    addLog(`\u{1F4CB}  Đã copy ${_failedItems.length} URL vào clipboard.`, 'info');
+  }).catch(() => {
+    addLog('⚠  Không thể copy (cần HTTPS hoặc localhost).', 'warn');
+  });
+}
+
+async function retryFailed() {
+  if (!_failedItems.length) return;
+  const delay   = parseFloat(getVal('delayInput'));
+  const workers = parseInt(getVal('workersInput'), 10);
+  const timeout = parseInt(getVal('timeoutInput'), 10);
+  const retries = parseInt(getVal('retriesInput'), 10);
+
+  $('failedPanel').style.display = 'none';
+  _cursor   = 0;
+  _crawling = true;
+  clearLog();
+  $('progressWrap').style.display = '';
+  showProgress(0, 0);
+  showStats(0, 0);
+  setStatus(tr('status.crawling'), 'running');
+  setCrawling(true);
+  startPolling();
+
+  let res, json;
+  try {
+    res  = await fetch('/api/retry_failed', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ delay, workers, timeout, retries }),
+    });
+    json = await res.json();
+  } catch (e) {
+    addLog(tr('alert.no_conn', e), 'fail');
+    setCrawling(false); stopPolling(); _crawling = false; return;
+  }
+
+  if (!res.ok) {
+    addLog(`⚠  ${json.error || 'Lỗi không xác định'}`, 'warn');
+    setStatus('Lỗi', 'error');
     setCrawling(false); stopPolling(); _crawling = false;
   }
 }
@@ -698,7 +829,15 @@ function escHtml(s) {
 }
 
 // ── Tab switcher ──────────────────────────────────────────────────────────────
+function vClearScroll() {
+  if (_vScrollObserver) { _vScrollObserver.disconnect(); _vScrollObserver = null; }
+  _vScrollRendered = 0;
+  $('vScrollView').innerHTML = '';
+}
+
 function switchTab(name) {
+  // Free viewer DOM when leaving to keep other tabs responsive
+  if (name !== 'viewer') vClearScroll();
   $('tab-crawl').style.display     = name === 'crawl'     ? '' : 'none';
   $('tab-translate').style.display = name === 'translate' ? '' : 'none';
   $('tab-viewer').style.display    = name === 'viewer'    ? '' : 'none';
@@ -988,9 +1127,12 @@ document.addEventListener('keydown', e => {
 });
 
 // ── Image Viewer ──────────────────────────────────────────────────────────────
-let _vImages = [];        // [{name, path}]
-let _vPage   = 0;         // 0-based
-let _vMode   = 'scroll';  // 'scroll' | 'page'
+let _vImages          = [];       // [{name, path}]
+let _vPage            = 0;        // 0-based
+let _vMode            = 'scroll'; // 'scroll' | 'page'
+let _vScrollObserver  = null;     // IntersectionObserver for infinite scroll
+let _vScrollRendered  = 0;        // how many images currently in DOM
+const V_SCROLL_BATCH  = 50;       // images per batch
 
 function vSetMode(mode) {
   _vMode = mode;
@@ -1010,6 +1152,8 @@ async function vOpen() {
   const shortName = folder.replace(/\\/g, '/').split('/').filter(Boolean).pop() || folder;
   $('vFolderName').textContent = shortName;
   $('vImgCount').textContent   = '⏳';
+  // Clear old images from DOM immediately before loading new folder
+  vClearScroll();
 
   let data;
   try {
@@ -1040,21 +1184,51 @@ function vApplyFit() {
 }
 
 function vRenderScroll() {
+  // Disconnect any previous infinite-scroll observer
+  if (_vScrollObserver) { _vScrollObserver.disconnect(); _vScrollObserver = null; }
+  _vScrollRendered = 0;
+
   const c = $('vScrollView');
   c.innerHTML = '';
   vApplyFit();
+
   if (!_vImages.length) {
     c.innerHTML = `<div class="viewer-empty"><span style="font-size:2rem;opacity:.35">🖼</span><span>${tr('v.scroll.empty')}</span></div>`;
     return;
   }
-  _vImages.forEach((img) => {
-    const el   = document.createElement('img');
-    el.src     = vImgUrl(img);
-    el.alt     = img.name;
-    el.title   = img.name;
-    el.loading = 'lazy';
-    c.appendChild(el);
-  });
+
+  // Sentinel div at the bottom — observer loads next batch when it enters viewport
+  const sentinel = document.createElement('div');
+  sentinel.style.cssText = 'height:1px;width:100%;flex-shrink:0';
+  c.appendChild(sentinel);
+
+  function renderNextBatch() {
+    const end  = Math.min(_vScrollRendered + V_SCROLL_BATCH, _vImages.length);
+    const frag = document.createDocumentFragment();
+    for (let i = _vScrollRendered; i < end; i++) {
+      const el   = document.createElement('img');
+      el.src     = vImgUrl(_vImages[i]);
+      el.alt     = _vImages[i].name;
+      el.title   = _vImages[i].name;
+      el.loading = 'lazy';
+      frag.appendChild(el);
+    }
+    c.insertBefore(frag, sentinel);
+    _vScrollRendered = end;
+    if (_vScrollRendered >= _vImages.length && _vScrollObserver) {
+      _vScrollObserver.disconnect();
+      _vScrollObserver = null;
+    }
+  }
+
+  _vScrollObserver = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting && _vScrollRendered < _vImages.length) {
+      renderNextBatch();
+    }
+  }, { root: c, rootMargin: '600px' });
+
+  _vScrollObserver.observe(sentinel);
+  renderNextBatch(); // load first batch immediately
   c.scrollTop = 0;
 }
 
