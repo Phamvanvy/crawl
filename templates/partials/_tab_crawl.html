@@ -82,15 +82,15 @@
           <button class="btn btn-ghost"    onclick="resetConfig()" title="Khôi phục mặc định"
                   data-i18n-title="btn.reset_config.title">↺</button>
         </div>
-        <label class="cb-item" style="margin-top:10px; gap:12px" title="Số lần tự động retry ảnh lỗi sau khi done (0 = tắt)">
+        <label class="cb-item" style="margin-top:10px; gap:12px" data-i18n-title="crawl.auto_retry.title">
           <input type="checkbox" id="autoRetryChk" onchange="onAutoRetryChkChange()" />
-          ↺ Tự động retry ảnh lỗi &nbsp;
+          <span data-i18n="crawl.auto_retry.label">↺ Tự động retry ảnh lỗi</span>&nbsp;
           <input type="number" id="autoRetryTimes" value="3" min="1" max="20" step="1"
                  style="width:52px; padding:2px 6px; font-size:.82rem; border-radius:5px;
                         border:1px solid var(--border); background:var(--surface);
                         color:var(--text); text-align:center"
-                 title="Số lần retry tối đa" />
-          lần
+                 data-i18n-title="crawl.auto_retry.times_title" />
+          <span data-i18n="crawl.auto_retry.times_suffix">lần</span>
         </label>
 
         <div class="progress-wrap" id="progressWrap" style="display:none">
