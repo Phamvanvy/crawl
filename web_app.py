@@ -6,6 +6,7 @@ Chạy: python web_app.py  →  tự mở http://localhost:5000
 import json
 import mimetypes
 import os
+import re
 import string
 import sys
 import threading
@@ -98,14 +99,18 @@ def api_fs():
                     if os.path.exists(dp):
                         drives.append({"name": dp, "path": dp})
                 return jsonify({"path": "", "parent": None, "entries": drives})
+            def _nk(x): return [int(t) if t.isdigit() else t.lower() for t in re.split(r'(\d+)', x.name)]
             return jsonify({"path": "/", "parent": None,
                             "entries": [{"name": c.name, "path": str(c)}
-                                        for c in sorted(Path("/").iterdir())
+                                        for c in sorted(Path("/").iterdir(), key=_nk)
                                         if c.is_dir()]})
+
+        def _natural_key(x):
+            return [int(t) if t.isdigit() else t.lower() for t in re.split(r'(\d+)', x.name)]
 
         entries = []
         try:
-            for child in sorted(p.iterdir(), key=lambda x: x.name.lower()):
+            for child in sorted(p.iterdir(), key=_natural_key):
                 if not child.is_dir():
                     continue
                 if child.name.startswith("."):

@@ -68,6 +68,8 @@ const TRANSLATIONS = {
     'v.fit.width':'↔ Vừa chiều rộng','v.fit.contain':'⛶ Vừa màn hình','v.fit.original':'1:1 Kích thước gốc',
     'v.scroll.empty':'Chọn thư mục và nhấn 📖 Mở thư mục','v.page.empty':'Chưa có ảnh',
     'btn.prev':'‹ Trước','btn.prev.title':'Trang trước (←)','btn.next':'Sau ›','btn.next.title':'Trang sau (→)',
+    'v.chap.header':'Điều hướng chương','btn.prev_chap':'← Trước','btn.next_chap':'Sau →',
+    'v.chap.pos':(i,t)=>`${i} / ${t}`,'v.key.prev_chap':'[  — Chap trước','v.key.next_chap':']  — Chap sau',
   },
   en: {
     'theme.light':'☀ Light','theme.dark':'🌙 Dark',
@@ -134,6 +136,8 @@ const TRANSLATIONS = {
     'v.fit.width':'↔ Fit Width','v.fit.contain':'⛶ Fit Screen','v.fit.original':'1:1 Original Size',
     'v.scroll.empty':'Choose a folder and click 📖 Open','v.page.empty':'No images yet',
     'btn.prev':'‹ Prev','btn.prev.title':'Previous page (←)','btn.next':'Next ›','btn.next.title':'Next page (→)',
+    'v.chap.header':'Chapter Nav','btn.prev_chap':'← Prev','btn.next_chap':'Next →',
+    'v.chap.pos':(i,t)=>`${i} / ${t}`,'v.key.prev_chap':'[  — Prev chapter','v.key.next_chap':']  — Next chapter',
   },
   zh: {
     'theme.light':'☀ 浅色','theme.dark':'🌙 深色',
@@ -200,6 +204,8 @@ const TRANSLATIONS = {
     'v.fit.width':'↔ 适应宽度','v.fit.contain':'⛶ 适应屏幕','v.fit.original':'1:1 原始大小',
     'v.scroll.empty':'选择文件夹并点击 📖 打开文件夹','v.page.empty':'暂无图片',
     'btn.prev':'‹ 上页','btn.prev.title':'上一页 (←)','btn.next':'下页 ›','btn.next.title':'下一页 (→)',
+    'v.chap.header':'章节导航','btn.prev_chap':'← 上一章','btn.next_chap':'下一章 →',
+    'v.chap.pos':(i,t)=>`${i} / ${t}`,'v.key.prev_chap':'[  — 上一章','v.key.next_chap':']  — 下一章',
   },
   ja: {
     'theme.light':'☀ ライト','theme.dark':'🌙 ダーク',
@@ -266,6 +272,8 @@ const TRANSLATIONS = {
     'v.fit.width':'↔ 幅に合わせる','v.fit.contain':'⛶ 画面に合わせる','v.fit.original':'1:1 元のサイズ',
     'v.scroll.empty':'フォルダを選択して 📖 フォルダを開く をクリック','v.page.empty':'画像なし',
     'btn.prev':'‹ 前','btn.prev.title':'前のページ (←)','btn.next':'次 ›','btn.next.title':'次のページ (→)',
+    'v.chap.header':'章ナビ','btn.prev_chap':'← 前の章','btn.next_chap':'次の章 →',
+    'v.chap.pos':(i,t)=>`${i} / ${t}`,'v.key.prev_chap':'[  — 前の章','v.key.next_chap':']  — 次の章',
   },
   ko: {
     'theme.light':'☀ 라이트','theme.dark':'🌙 다크',
@@ -332,6 +340,8 @@ const TRANSLATIONS = {
     'v.fit.width':'↔ 너비 맞춤','v.fit.contain':'⛶ 화면 맞춤','v.fit.original':'1:1 원본 크기',
     'v.scroll.empty':'폴더를 선택하고 📖 폴더 열기를 클릭','v.page.empty':'이미지 없음',
     'btn.prev':'‹ 이전','btn.prev.title':'이전 페이지 (←)','btn.next':'다음 ›','btn.next.title':'다음 페이지 (→)',
+    'v.chap.header':'챕터 탐색','btn.prev_chap':'← 이전 챕터','btn.next_chap':'다음 챕터 →',
+    'v.chap.pos':(i,t)=>`${i} / ${t}`,'v.key.prev_chap':'[  — 이전 챕터','v.key.next_chap':']  — 다음 챕터',
   },
 };
 
@@ -1144,6 +1154,12 @@ document.addEventListener('keydown', e => {
     if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); vNext(); }
     if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   { e.preventDefault(); vPrev(); }
   }
+  // Chapter navigation shortcuts ([ and ]) — work in both scroll and page mode
+  if ($('tab-viewer') && $('tab-viewer').style.display !== 'none') {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    if (e.key === '[' || e.key === 'BracketLeft')  { e.preventDefault(); vPrevChap(); }
+    if (e.key === ']' || e.key === 'BracketRight') { e.preventDefault(); vNextChap(); }
+  }
 });
 
 // ── Image Viewer ──────────────────────────────────────────────────────────────
@@ -1153,6 +1169,8 @@ let _vMode            = 'scroll'; // 'scroll' | 'page'
 let _vScrollObserver  = null;     // IntersectionObserver for infinite scroll
 let _vScrollRendered  = 0;        // how many images currently in DOM
 const V_SCROLL_BATCH  = 50;       // images per batch
+let _vSiblings        = [];       // sibling folders [{name, path}]
+let _vSibIdx          = -1;       // current folder index in siblings
 
 function vSetMode(mode) {
   _vMode = mode;
@@ -1189,6 +1207,84 @@ async function vOpen() {
   _vPage   = 0;
   $('vImgCount').textContent = tr('stat.img_count', _vImages.length);
 
+  if (_vMode === 'scroll') vRenderScroll();
+  else vRenderPage();
+
+  vLoadSiblings(folder);
+}
+
+async function vLoadSiblings(folder) {
+  // Compute parent: normalize to forward slashes, strip trailing slash, cut last segment
+  const norm   = folder.replace(/\\/g, '/').replace(/\/+$/, '');
+  const slash  = norm.lastIndexOf('/');
+  if (slash <= 0) { _vSiblings = []; _vSibIdx = -1; vUpdateChapNav(); return; }
+  const parent = folder.slice(0, slash); // preserve original separators
+  try {
+    const res  = await fetch('/api/fs?path=' + encodeURIComponent(parent));
+    const data = await res.json();
+    _vSiblings = data.entries || [];
+    const normLc = norm.toLowerCase();
+    _vSibIdx = _vSiblings.findIndex(e =>
+      e.path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase() === normLc
+    );
+  } catch (e) {
+    _vSiblings = []; _vSibIdx = -1;
+  }
+  vUpdateChapNav();
+}
+
+function vUpdateChapNav() {
+  const card = $('vChapNav');
+  if (_vSiblings.length < 2 || _vSibIdx < 0) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  $('vPrevChapBtn').disabled = _vSibIdx === 0;
+  $('vNextChapBtn').disabled = _vSibIdx === _vSiblings.length - 1;
+  $('vChapLabel').textContent = _vSiblings[_vSibIdx].name;
+  $('vChapPos').textContent   = tr('v.chap.pos', _vSibIdx + 1, _vSiblings.length);
+}
+
+function vPrevChap() {
+  if (_vSibIdx > 0) vOpenChap(_vSiblings[_vSibIdx - 1].path);
+}
+
+function vNextChap() {
+  if (_vSibIdx < _vSiblings.length - 1) vOpenChap(_vSiblings[_vSibIdx + 1].path);
+}
+
+function vOpenChap(path) {
+  $('vFolderInput').value = path;
+  // Preserve siblings — only update index, skip re-fetching parent
+  const norm  = path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  const newIdx = _vSiblings.findIndex(e =>
+    e.path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase() === norm
+  );
+  if (newIdx >= 0) {
+    _vSibIdx = newIdx;
+    vUpdateChapNav();
+    // Load images directly without re-fetching siblings
+    _vLoadFolderImages(path);
+  } else {
+    vOpen();
+  }
+}
+
+async function _vLoadFolderImages(folder) {
+  const shortName = folder.replace(/\\/g, '/').split('/').filter(Boolean).pop() || folder;
+  $('vFolderName').textContent = shortName;
+  $('vImgCount').textContent   = '⏳';
+  vClearScroll();
+  let data;
+  try {
+    const res = await fetch('/api/translate/preview?folder=' + encodeURIComponent(folder));
+    if (!res.ok) throw new Error(res.status);
+    data = await res.json();
+  } catch (e) {
+    $('vImgCount').textContent = '⚠ Lỗi';
+    return;
+  }
+  _vImages = data.images || [];
+  _vPage   = 0;
+  $('vImgCount').textContent = tr('stat.img_count', _vImages.length);
   if (_vMode === 'scroll') vRenderScroll();
   else vRenderPage();
 }

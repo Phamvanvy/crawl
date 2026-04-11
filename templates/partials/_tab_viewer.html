@@ -23,6 +23,23 @@
       </div>
     </div>
 
+    <!-- Chapter navigation -->
+    <div class="card" id="vChapNav" style="display:none;margin-bottom:12px">
+      <div class="card-header" data-i18n="v.chap.header">Điều hướng chương</div>
+      <div class="card-body">
+        <div style="display:flex;gap:6px;align-items:center">
+          <button class="btn btn-ghost" id="vPrevChapBtn" onclick="vPrevChap()" disabled
+                  data-i18n="btn.prev_chap" style="flex-shrink:0">← Trước</button>
+          <div style="flex:1;text-align:center;min-width:0">
+            <div id="vChapLabel" style="font-size:.8rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
+            <div id="vChapPos" style="font-size:.7rem;color:var(--text-muted)"></div>
+          </div>
+          <button class="btn btn-ghost" id="vNextChapBtn" onclick="vNextChap()" disabled
+                  data-i18n="btn.next_chap" style="flex-shrink:0">Sau →</button>
+        </div>
+      </div>
+    </div>
+
     <!-- View mode -->
     <div class="card" style="margin-bottom:12px">
       <div class="card-header" data-i18n="v.mode.header">Chế độ xem</div>
@@ -64,6 +81,8 @@
           <div data-i18n="v.key.left">⬅ / ⬆  — Trang trước</div>
           <div data-i18n="v.key.right">➡ / ⬇  — Trang sau</div>
           <div data-i18n="v.key.click">Click ảnh trái/phải để chuyển</div>
+          <div data-i18n="v.key.prev_chap">[  — Chap trước</div>
+          <div data-i18n="v.key.next_chap">]  — Chap sau</div>
         </div>
       </div>
     </div>
