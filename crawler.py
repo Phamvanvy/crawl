@@ -178,7 +178,12 @@ class ImageDownloader:
                 self.failed += 1
                 done = self.success + self.failed
                 self.on_progress(done, total)
-                self.failed_items.append({"url": url, "index": index})
+                self.failed_items.append({
+                    "url": url,
+                    "index": index,
+                    "folder": str(self.output_folder),
+                    "referer": referer,
+                })
             self.on_log(f"  [FAIL {index}/{total}] {url}  →  {last_exc}")
             time.sleep(self.delay)
 
@@ -371,26 +376,54 @@ def _crawl_single_page(url: str, output_folder: str, delay: float = 0.3,
 
 
 def retry_failed_downloads(
-        urls: list[str], referer: str, output_folder: str,
+        items: list[dict], default_referer: str, default_output_folder: str,
         delay: float = 0.3, max_workers: int = 4,
         timeout: int = 20, max_retries: int = 3,
         on_progress=None, on_log=None,
         stop_event: threading.Event | None = None,
 ) -> tuple[int, int, list[dict]]:
-    """Tải lại các URL bị lỗi, không cần crawl lại trang."""
+    """Tải lại các URL bị lỗi, nhóm theo folder (mỗi gallery vào đúng subfolder).
+    Mỗi item phải có 'url'; tùy chọn có 'folder' và 'referer'.
+    """
     log = on_log or print
-    log(f"↺  Replay {len(urls)} ảnh lỗi…")
-    downloader = ImageDownloader(
-        output_folder=output_folder,
-        delay=delay,
-        max_workers=max_workers,
-        timeout=timeout,
-        max_retries=max_retries,
-        on_progress=on_progress,
-        on_log=log,
-        stop_event=stop_event,
-    )
-    return downloader.download_all(urls, referer=referer)
+    log(f"↺  Replay {len(items)} ảnh lỗi…")
+
+    # Nhóm theo (folder, referer)
+    groups: dict[tuple[str, str], list[str]] = {}
+    for item in items:
+        folder  = item.get("folder")  or default_output_folder
+        referer = item.get("referer") or default_referer
+        key = (folder, referer)
+        groups.setdefault(key, []).append(item["url"])
+
+    total_ok = total_fail = 0
+    all_failed: list[dict] = []
+    cumulative = 0
+
+    for (folder, referer), urls in groups.items():
+        log(f"  Folder: {folder}  ({len(urls)} ảnh)")
+
+        def _prog(done: int, total: int, _base: int = cumulative) -> None:
+            if on_progress:
+                on_progress(_base + done, _base + total)
+
+        downloader = ImageDownloader(
+            output_folder=folder,
+            delay=delay,
+            max_workers=max_workers,
+            timeout=timeout,
+            max_retries=max_retries,
+            on_progress=_prog,
+            on_log=log,
+            stop_event=stop_event,
+        )
+        ok, fail, failed = downloader.download_all(urls, referer=referer)
+        total_ok   += ok
+        total_fail += fail
+        all_failed.extend(failed)
+        cumulative += ok
+
+    return total_ok, total_fail, all_failed
 
 
 # ── wnacg multi-page search crawler ───────────────────────────────────────────

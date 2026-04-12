@@ -268,11 +268,10 @@ def api_retry_failed():
             _push({"type": "log", "msg": f"↺  Retry {len(failed_items)} ảnh lỗi…"})
             _push({"type": "log", "msg": f"Config: delay={delay}s  workers={workers}  timeout={timeout}s  retries={retries}"})
 
-            urls = [item["url"] for item in failed_items]
             ok, fail, new_failed = retry_failed_downloads(
-                urls=urls,
-                referer=referer,
-                output_folder=folder,
+                items=failed_items,
+                default_referer=referer,
+                default_output_folder=folder,
                 delay=delay,
                 max_workers=workers,
                 timeout=timeout,
