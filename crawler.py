@@ -16,16 +16,33 @@ from urllib.parse import urljoin, urlparse, unquote
 import requests
 from bs4 import BeautifulSoup
 
+try:
+    import curl_cffi.requests as _curl_requests
+    _CURL_CFFI_AVAILABLE = True
+except ImportError:
+    _CURL_CFFI_AVAILABLE = False
+
 # ── Cấu hình mặc định ──────────────────────────────────────────────────────────
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg", ".avif"}
 DEFAULT_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/122.0.0.0 Safari/537.36"
+        "Chrome/124.0.0.0 Safari/537.36"
     ),
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-    "Accept-Language": "vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Upgrade-Insecure-Requests": "1",
+    "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": '"Windows"',
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Connection": "keep-alive",
+    "Cache-Control": "max-age=0",
 }
 # Các thuộc tính HTML chứa URL ảnh (bao gồm lazy-load)
 SRC_ATTRS = ["src", "data-src", "data-lazy", "data-original", "data-url", "data-lazy-src"]
@@ -282,6 +299,32 @@ def make_session(referer: str = "") -> requests.Session:
     return s
 
 
+def make_wnacg_session(base_url: str, timeout: int = 20):
+    """Tạo session cho wnacg dùng curl_cffi (Chrome TLS fingerprint) nếu có,
+    ngược lại fallback về requests thường với headers đầy đủ."""
+    parsed = urlparse(base_url)
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+    if _CURL_CFFI_AVAILABLE:
+        s = _curl_requests.Session(impersonate="chrome124")
+        # Warm-up homepage để lấy cookies
+        try:
+            s.get(origin, timeout=timeout)
+        except Exception:
+            pass
+        s.headers["Referer"] = origin
+        return s
+    # Fallback: requests thường
+    s = requests.Session()
+    s.headers.update(DEFAULT_HEADERS)
+    try:
+        s.get(origin, timeout=timeout)
+    except Exception:
+        pass
+    s.headers["Referer"] = origin
+    s.headers["Sec-Fetch-Site"] = "same-origin"
+    return s
+
+
 def fetch_page(url: str, timeout: int = 20,
                session: "requests.Session | None" = None) -> str:
     """Tải HTML của trang."""
@@ -292,24 +335,26 @@ def fetch_page(url: str, timeout: int = 20,
     return resp.text
 
 
-def crawl(url: str, output_folder: str, delay: float = 0.3,
-          max_workers: int = 4, timeout: int = 20,
-          max_retries: int = 3,
-          on_progress=None, on_log=None,
-          stop_event: threading.Event | None = None) -> tuple[int, int, list[dict]]:
+def _crawl_single_page(url: str, output_folder: str, delay: float = 0.3,
+                       max_workers: int = 4, timeout: int = 20,
+                       max_retries: int = 3,
+                       on_progress=None, on_log=None,
+                       stop_event: threading.Event | None = None,
+                       session=None) -> tuple[int, int, list[dict]]:
     """
-    Crawl ảnh từ `url` → lưu vào `output_folder`.
+    Crawl ảnh từ một trang `url` → lưu vào `output_folder`.
     Trả về (số ảnh thành công, số ảnh lỗi, danh sách URL lỗi).
     """
     log = on_log or print
-    session = make_session(referer=url)
+    if session is None:
+        session = make_session(referer=url)
     log(f"Đang tải trang: {url}")
     html = fetch_page(url, timeout=timeout, session=session)
     image_urls = extract_image_urls(html, url, session=session)
 
     if not image_urls:
         log("Không tìm thấy ảnh nào trên trang này.")
-        return 0, 0
+        return 0, 0, []
 
     log(f"Tìm thấy {len(image_urls)} ảnh. Bắt đầu tải xuống…")
     downloader = ImageDownloader(
@@ -346,6 +391,239 @@ def retry_failed_downloads(
         stop_event=stop_event,
     )
     return downloader.download_all(urls, referer=referer)
+
+
+# ── wnacg multi-page search crawler ───────────────────────────────────────────
+
+_WNACG_NETLOCS = {"wnacg.com", "wnacg.ru", "wnacg01.link"}
+
+
+def _is_wnacg_url(url: str) -> bool:
+    """True nếu URL thuộc domain wnacg."""
+    return urlparse(url).netloc in _WNACG_NETLOCS
+
+
+def _is_wnacg_search(url: str) -> bool:
+    """True nếu URL là trang tìm kiếm/danh sách của wnacg."""
+    p = urlparse(url)
+    if p.netloc not in _WNACG_NETLOCS:
+        return False
+    # Khớp cả /search/ và /search/index.php
+    return p.path.rstrip("/") in ("/search", "/search/index.php") or \
+           p.path.startswith("/search/")
+
+
+def _wnacg_slide_url(url: str) -> str | None:
+    """Chuyển photos-index-aid-ID.html → photos-slide-aid-ID.html.
+    Nếu đã là slide URL, trả về nguyên."""
+    m = re.search(r'(https?://[^/]+)/photos-(?:index|slide)-aid-(\d+)\.html', url)
+    if not m:
+        return None
+    return f"{m.group(1)}/photos-slide-aid-{m.group(2)}.html"
+
+
+def _wnacg_gallery_links(html: str, base_url: str) -> list[tuple[str, str]]:
+    """Trả về [(title, index_url), ...] từ trang tìm kiếm wnacg (theo thứ tự HTML)."""
+    soup = BeautifulSoup(html, "lxml")
+    aid_data: dict[str, tuple[str, str]] = {}   # aid → (title, url)
+
+    for a in soup.find_all("a", href=True):
+        m = re.search(r'/photos-index-aid-(\d+)\.html', a["href"])
+        if not m:
+            continue
+        aid = m.group(1)
+        full_url = urljoin(base_url, a["href"])
+
+        # Lấy text, bỏ alt text của <img> lồng bên trong
+        for img in a.find_all("img"):
+            img.decompose()
+        text = a.get_text(" ", strip=True)
+
+        # Ưu tiên anchor có text dài hơn (title link vs thumbnail link)
+        if aid not in aid_data or len(text) > len(aid_data[aid][0]):
+            title = sanitize_filename(text) if text else f"gallery_{aid}"
+            aid_data[aid] = (title or f"gallery_{aid}", full_url)
+
+    return list(aid_data.values())
+
+
+def _wnacg_max_page(html: str) -> int:
+    """Tìm số trang lớn nhất từ thanh phân trang wnacg."""
+    soup = BeautifulSoup(html, "lxml")
+    max_p = 1
+    for a in soup.find_all("a", href=True):
+        m = re.search(r'[?&]p=(\d+)', a["href"])
+        if m:
+            max_p = max(max_p, int(m.group(1)))
+    return max_p
+
+
+def _titles_common_prefix(titles: list[str]) -> str:
+    """Tìm tiền tố chung dài nhất của danh sách chuỗi, cắt tại ranh giới từ."""
+    if not titles:
+        return ""
+    prefix = titles[0]
+    for s in titles[1:]:
+        # Rút ngắn prefix cho đến khi s bắt đầu bằng prefix
+        while prefix and not s.startswith(prefix):
+            prefix = prefix[:-1]
+        if not prefix:
+            return ""
+    return prefix.rstrip()
+
+
+def crawl_search_listing(
+        url: str, output_folder: str, delay: float = 0.3,
+        max_workers: int = 4, timeout: int = 20, max_retries: int = 3,
+        on_progress=None, on_log=None,
+        stop_event: threading.Event | None = None,
+) -> tuple[int, int, list[dict]]:
+    """Crawl tất cả gallery từ trang tìm kiếm wnacg (tự động duyệt nhiều trang).
+
+    Thứ tự crawl:
+    - Trang: từ trang cao nhất → trang 1
+    - Trong mỗi trang: từ gallery cuối → gallery đầu (dưới lên trên)
+
+    Cấu trúc thư mục output:
+        output_folder / <tên series chung> / <phần riêng của mỗi gallery>
+    Ví dụ:  D:\\Comic / [ryota tanaka] 逆轉 / 1-6
+    """
+    log = on_log or print
+    stop = stop_event or threading.Event()
+    log(f"Đang phân tích trang tìm kiếm: {url}")
+    session = make_wnacg_session(url, timeout=timeout)
+    first_html = fetch_page(url, timeout=timeout, session=session)
+    detected_max = _wnacg_max_page(first_html)
+
+    # Số trang cao nhất = max(trang trong URL, tìm thấy từ HTML)
+    parsed_qs: dict[str, str] = {}
+    for part in urlparse(url).query.split("&"):
+        if "=" in part:
+            k, v = part.split("=", 1)
+            parsed_qs[k] = v
+    url_page = int(parsed_qs["p"]) if parsed_qs.get("p", "").isdigit() else 1
+    max_page = max(url_page, detected_max)
+
+    log(f"Tổng số trang phát hiện: {max_page}.  Thu thập danh sách gallery…")
+
+    def make_page_url(p: int) -> str:
+        if "p=" in url:
+            return re.sub(r'([?&]p=)\d+', lambda mo: mo.group(1) + str(p), url)
+        sep = "&" if "?" in url else "?"
+        return f"{url}{sep}p={p}"
+
+    # ── Phase 1: thu thập tất cả gallery trên mọi trang (high → low) ─────────
+    pages_galleries: list[list[tuple[str, str]]] = []  # [(title, idx_url), ...]
+    page_htmls: dict[int, str] = {url_page: first_html}
+
+    for pg in range(max_page, 0, -1):
+        if stop.is_set():
+            break
+        try:
+            html = page_htmls.get(pg) or fetch_page(make_page_url(pg), timeout=timeout, session=session)
+        except Exception as exc:
+            log(f"  [ERR] Không tải được trang {pg}: {exc}")
+            pages_galleries.append([])
+            continue
+        galleries = _wnacg_gallery_links(html, make_page_url(pg))
+        galleries.reverse()  # dưới → trên
+        pages_galleries.append(galleries)
+
+    # ── Phase 2: tính series folder từ tiền tố chung ─────────────────────────
+    all_titles = [title for galleries in pages_galleries for title, _ in galleries]
+    prefix = _titles_common_prefix(all_titles)
+    series_name = sanitize_filename(prefix) if prefix else ""
+
+    if series_name:
+        series_folder = Path(output_folder) / series_name
+        log(f"Series folder: {series_folder}")
+    else:
+        series_folder = Path(output_folder)
+
+    if all_titles:
+        log(f"Tổng cộng {len(all_titles)} gallery.  Bắt đầu tải từ trang {max_page} → 1")
+
+    # ── Phase 3: crawl từng gallery ──────────────────────────────────────────
+    total_ok = total_fail = 0
+    all_failed: list[dict] = []
+    cumulative_ok = 0
+    page_num = max_page
+
+    for galleries in pages_galleries:
+        if stop.is_set():
+            break
+
+        log(f"\n{'─' * 60}")
+        log(f"📄 Trang {page_num}/{max_page}  ({len(galleries)} gallery)")
+        page_num -= 1
+
+        for title, idx_url in galleries:
+            if stop.is_set():
+                break
+
+            slide_url = _wnacg_slide_url(idx_url)
+            if not slide_url:
+                log(f"  [SKIP] Không chuyển được sang slide URL: {idx_url}")
+                continue
+
+            # Tên subfolder = phần riêng sau prefix chung
+            sub = title[len(prefix):].strip() if prefix else title
+            sub = sanitize_filename(sub) or title
+            dest = str(series_folder / sub)
+
+            log(f"\n  ▶ {sub}  ({title})")
+            log(f"     {slide_url}")
+
+            def _prog(done: int, total: int, _base: int = cumulative_ok) -> None:
+                if on_progress:
+                    on_progress(_base + done, _base + total)
+
+            ok, fail, failed = _crawl_single_page(
+                url=slide_url,
+                output_folder=dest,
+                delay=delay,
+                max_workers=max_workers,
+                timeout=timeout,
+                max_retries=max_retries,
+                on_progress=_prog,
+                on_log=log,
+                stop_event=stop,
+                session=session,
+            )
+            total_ok += ok
+            total_fail += fail
+            all_failed.extend(failed)
+            cumulative_ok += ok
+
+    log(f"\n{'═' * 60}")
+    log(f"✔  Hoàn thành toàn bộ: {total_ok} ảnh thành công, {total_fail} thất bại.")
+    return total_ok, total_fail, all_failed
+
+
+def crawl(url: str, output_folder: str, delay: float = 0.3,
+          max_workers: int = 4, timeout: int = 20,
+          max_retries: int = 3,
+          on_progress=None, on_log=None,
+          stop_event: threading.Event | None = None) -> tuple[int, int, list[dict]]:
+    """
+    Entry point chính: crawl ảnh từ `url` → lưu vào `output_folder`.
+    Tự động nhận diện URL tìm kiếm wnacg và xử lý nhiều trang.
+    Trả về (số ảnh thành công, số ảnh lỗi, danh sách URL lỗi).
+    """
+    if _is_wnacg_search(url):
+        return crawl_search_listing(
+            url=url, output_folder=output_folder, delay=delay,
+            max_workers=max_workers, timeout=timeout, max_retries=max_retries,
+            on_progress=on_progress, on_log=on_log, stop_event=stop_event,
+        )
+    # URL wnacg đơn lẻ (slide/index page) cũng cần curl_cffi
+    _session = make_wnacg_session(url, timeout=timeout) if _is_wnacg_url(url) else None
+    return _crawl_single_page(
+        url=url, output_folder=output_folder, delay=delay,
+        max_workers=max_workers, timeout=timeout, max_retries=max_retries,
+        on_progress=on_progress, on_log=on_log, stop_event=stop_event,
+        session=_session,
+    )
 
 
 # ── CLI ────────────────────────────────────────────────────────────────────────
