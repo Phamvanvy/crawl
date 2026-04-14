@@ -39,7 +39,7 @@ const TRANSLATIONS = {
     't.settings.header':'Cài đặt dịch','t.backend.label':'Backend dịch',
     't.backend.auto.sub':'Tự động · offline','t.backend.mit.sub':'Chất lượng cao · nhiều model',
     't.src_lang.label':'Ngôn ngữ nguồn',
-    't.model.hint':'Qwen2.5:7b (~4.7GB) | Qwen2.5:3b (~2GB, nhanh hơn)',
+    't.model.hint':'Qwen3:8b (~5GB) | Qwen3:4b (~3GB, nhanh hơn) | Qwen3:30b (~19GB, tốt hơn)',  // Qwen3
     't.mit.translator.label':'Model dịch','t.mit.target.label':'Ngôn ngữ đích',
     't.mit.adv':'⚙ Cài đặt nâng cao','t.mit.adv.sub':'Detector · Inpainter · Upscale…',
     't.mit.upscale.off':'Tắt','t.mit.skip':'⏭ Bỏ qua ảnh trống','t.mit.overwrite':'♻ Ghi đè ảnh đã dịch',
@@ -107,7 +107,7 @@ const TRANSLATIONS = {
     't.settings.header':'Translation Settings','t.backend.label':'Backend',
     't.backend.auto.sub':'Automatic · offline','t.backend.mit.sub':'High quality · many models',
     't.src_lang.label':'Source Language',
-    't.model.hint':'Qwen2.5:7b (~4.7GB) | Qwen2.5:3b (~2GB, faster)',
+    't.model.hint':'Qwen3:8b (~5GB) | Qwen3:4b (~3GB, faster) | Qwen3:30b (~19GB, better)',  // Qwen3
     't.mit.translator.label':'Translator Model','t.mit.target.label':'Target Language',
     't.mit.adv':'⚙ Advanced Settings','t.mit.adv.sub':'Detector · Inpainter · Upscale…',
     't.mit.upscale.off':'Off','t.mit.skip':'⏭ Skip blank images','t.mit.overwrite':'♻ Overwrite translated images',
@@ -175,7 +175,7 @@ const TRANSLATIONS = {
     't.settings.header':'翻译设置','t.backend.label':'后端',
     't.backend.auto.sub':'自动 · 离线','t.backend.mit.sub':'高质量 · 多模型',
     't.src_lang.label':'源语言',
-    't.model.hint':'Qwen2.5:7b (~4.7GB) | Qwen2.5:3b (~2GB, 更快)',
+    't.model.hint':'Qwen3:8b (~5GB) | Qwen3:4b (~3GB, 更快) | Qwen3:30b (~19GB, 更好)',  // Qwen3
     't.mit.translator.label':'翻译模型','t.mit.target.label':'目标语言',
     't.mit.adv':'⚙ 高级设置','t.mit.adv.sub':'检测器 · 修复器 · 放大…',
     't.mit.upscale.off':'关','t.mit.skip':'⏭ 跳过空白图片','t.mit.overwrite':'♻ 覆盖已翻译图片',
@@ -243,7 +243,7 @@ const TRANSLATIONS = {
     't.settings.header':'翻訳設定','t.backend.label':'バックエンド',
     't.backend.auto.sub':'自動 · オフライン','t.backend.mit.sub':'高品質 · 多モデル',
     't.src_lang.label':'元言語',
-    't.model.hint':'Qwen2.5:7b (~4.7GB) | Qwen2.5:3b (~2GB, 高速)',
+    't.model.hint':'Qwen3:8b (~5GB) | Qwen3:4b (~3GB, 高速) | Qwen3:30b (~19GB, 高品質)',  // Qwen3
     't.mit.translator.label':'翻訳モデル','t.mit.target.label':'対象言語',
     't.mit.adv':'⚙ 詳細設定','t.mit.adv.sub':'検出器 · インペインター · アップスケール…',
     't.mit.upscale.off':'オフ','t.mit.skip':'⏭ 空白画像をスキップ','t.mit.overwrite':'♻ 翻訳済み画像を上書き',
@@ -311,7 +311,7 @@ const TRANSLATIONS = {
     't.settings.header':'번역 설정','t.backend.label':'백엔드',
     't.backend.auto.sub':'자동 · 오프라인','t.backend.mit.sub':'고품질 · 다중 모델',
     't.src_lang.label':'소스 언어',
-    't.model.hint':'Qwen2.5:7b (~4.7GB) | Qwen2.5:3b (~2GB, 빠름)',
+    't.model.hint':'Qwen3:8b (~5GB) | Qwen3:4b (~3GB, 빠름) | Qwen3:30b (~19GB, 더 좋음)',  // Qwen3
     't.mit.translator.label':'번역 모델','t.mit.target.label':'대상 언어',
     't.mit.adv':'⚙ 고급 설정','t.mit.adv.sub':'감지기 · 인페인터 · 업스케일…',
     't.mit.upscale.off':'끄기','t.mit.skip':'⏭ 빈 이미지 건너뛰기','t.mit.overwrite':'♻ 번역된 이미지 덮어쓰기',
@@ -896,6 +896,13 @@ async function runCheck() {
   setCk('ck-easyocr',   data.easyocr,      data.easyocr    ? 'OK (fallback)' : 'optional');
   setCk('ck-ollama',    data.ollama,       data.ollama     ? 'running' : (data.ollama_error || 'not running'));
   setCk('ck-mit',       data.mit,          data.mit        ? (data.mit_python || 'OK') : (data.mit_error || 'mit_venv không tìm thấy'));
+  // LAMA hint
+  const lamaEl  = $('tInpainter');
+  const lamaHnt = $('lamaHint');
+  if (lamaEl && lamaHnt) {
+    lamaHnt.style.display = data.lama ? 'none' : '';
+    if (!data.lama && lamaEl.value === 'lama') lamaEl.value = 'opencv';
+  }
   const sel = $('tModelSelect');
   while (sel.options.length > 1) sel.remove(1);
   for (const m of (data.ollama_models || [])) {
@@ -1024,7 +1031,7 @@ const MIT_API_KEYS = {
   caiyun:       'Cần env: CAIYUN_TOKEN=xxx',
   groq:         'Cần env: GROQ_API_KEY=xxx  |  GROQ_MODEL=mixtral-8x7b-32768',
   sakura:       'Cần env: SAKURA_API_BASE=http://127.0.0.1:8080/v1',
-  custom_openai:'Cần env: CUSTOM_OPENAI_API_BASE=http://localhost:11434/v1  CUSTOM_OPENAI_MODEL=qwen2.5:7b',
+  custom_openai:'Cần env: CUSTOM_OPENAI_API_BASE=http://localhost:11434/v1  CUSTOM_OPENAI_MODEL=qwen3-14b-nothink  (hoặc qwen3-nothink cho 8b)',
 };
 
 function onMITTranslatorChange() {
@@ -1038,6 +1045,40 @@ function onMITTranslatorChange() {
   }
 }
 
+function mitPreset(mode) {
+  const set = (id, v) => { const el = $(id); if (el) el.value = v; };
+  const setSel = (id, v) => { const el = $(id); if (el) el.value = v; };
+  if (mode === 'cg') {
+    // CG / Visual Novel: dùng default detector (craft không phát hiện được subtitle CG)
+    setSel('tMITDetector', '');          // default detector
+    setSel('tMITDetSize',  '');          // default
+    set('tMITMaskDil',  '20');
+    set('tMITUnclip',   '6.0');          // mở rộng bbox lớn → đủ cho text VN dài hơn TQ
+    set('tMITFontOfs',  '-2');           // giảm 2px so với auto để VN text vừa hơn
+    set('tMITFontMin',  '10');           // tối thiểu 10px — đủ đọc
+    set('tMITFontFixed','');             // KHÔNG cố định → để MIT tự scale theo bbox
+    set('tMITFontColor','FFFFFF:000000');// trắng nền đen
+  } else if (mode === 'manga') {
+    // Manga: chữ trong bong bóng, không cần override màu
+    setSel('tMITDetector', '');
+    setSel('tMITDetSize',  '');
+    set('tMITMaskDil',  '0');
+    set('tMITUnclip',   '2.3');
+    set('tMITFontOfs',  '0');
+    set('tMITFontMin',  '');
+    set('tMITFontFixed','');
+    set('tMITFontColor','');
+  } else {
+    // Reset về trống (dùng MIT defaults)
+    set('tMITMaskDil',  '');
+    set('tMITUnclip',   '');
+    set('tMITFontOfs',  '');
+    set('tMITFontMin',  '');
+    set('tMITFontFixed','');
+    set('tMITFontColor','');
+  }
+}
+
 function onBackendChange() {
   const isMIT = document.querySelector('input[name="tBackend"]:checked').value === 'mit';
   $('tMITOptions').style.display    = isMIT ? '' : 'none';
@@ -1048,7 +1089,7 @@ function onBackendChange() {
 async function tStart() {
   const input_dir        = getVal('tInputDir').trim();
   const output_dir       = getVal('tOutputDir').trim();
-  const model            = getVal('tModel').trim() || 'qwen2.5:7b';
+  const model            = getVal('tModel').trim() || 'qwen3:8b';
   const use_gpu          = $('tUseGpu').checked;
   const src_lang         = getVal('tSrcLang');
   const backend          = document.querySelector('input[name="tBackend"]:checked').value;
@@ -1059,10 +1100,15 @@ async function tStart() {
   const mit_upscale      = getVal('tMITUpscale');
   const mit_det_size     = getVal('tMITDetSize');
   const mit_mask_dil     = $('tMITMaskDil').value;
+  const mit_unclip       = $('tMITUnclip').value;
   const mit_font_ofs     = $('tMITFontOfs').value;
+  const mit_font_min     = $('tMITFontMin').value;
+  const mit_font_fixed   = $('tMITFontFixed').value;
+  const mit_font_color   = $('tMITFontColor').value;
   const mit_verbose      = $('tMITVerbose').checked;
   const mit_skip_no_text = $('tMITSkipNoText').checked;
   const mit_overwrite    = $('tMITOverwrite').checked;
+  const inpainter        = getVal('tInpainter') || 'opencv';
 
   if (!input_dir) { tAddLog(tr('alert.no_input_dir'), 'warn'); return; }
 
@@ -1086,8 +1132,9 @@ async function tStart() {
         input_dir, output_dir, model, use_gpu, src_lang, backend,
         mit_translator, mit_target_lang,
         mit_detector, mit_inpainter, mit_upscale, mit_det_size,
-        mit_mask_dil, mit_font_ofs,
+        mit_mask_dil, mit_unclip, mit_font_ofs, mit_font_min, mit_font_fixed, mit_font_color,
         mit_verbose, mit_skip_no_text, mit_overwrite,
+        inpainter,
       }),
     });
     json = await res.json();
@@ -1403,4 +1450,51 @@ function vPageClick(e) {
 loadTheme();
 loadConfig();
 loadLang();
+
+// ── Floating tooltip ──────────────────────────────────────────────────────────
+(function () {
+  // Create single floating div attached to <body>
+  const ttEl = document.createElement('div');
+  ttEl.id = 'tt-float';
+  document.body.appendChild(ttEl);
+
+  const MARGIN = 10; // px from viewport edge
+  const GAP    = 8;  // px above the icon
+
+  function show(icon, text) {
+    ttEl.textContent = text;
+    ttEl.classList.add('visible');
+
+    const iconRect = icon.getBoundingClientRect();
+    const ttW = ttEl.offsetWidth;
+    const ttH = ttEl.offsetHeight;
+    const vw  = window.innerWidth;
+
+    // Horizontal: center over icon, clamp to viewport
+    let left = iconRect.left + iconRect.width / 2 - ttW / 2;
+    left = Math.max(MARGIN, Math.min(left, vw - ttW - MARGIN));
+
+    // Vertical: above icon; flip below if not enough space
+    let top = iconRect.top - ttH - GAP;
+    if (top < MARGIN) top = iconRect.bottom + GAP;
+
+    ttEl.style.left = left + 'px';
+    ttEl.style.top  = top  + 'px';
+  }
+
+  function hide() { ttEl.classList.remove('visible'); }
+
+  // Delegate events on all .tt-icon elements
+  document.addEventListener('mouseover', function (e) {
+    const icon = e.target.closest('.tt-icon');
+    if (!icon) return;
+    const wrap = icon.closest('.tt-wrap');
+    const box  = wrap && wrap.querySelector('.tt-box');
+    if (box) show(icon, box.textContent);
+  });
+  document.addEventListener('mouseout', function (e) {
+    if (e.target.closest('.tt-icon')) hide();
+  });
+  document.addEventListener('scroll', hide, true);
+})();
 </script>

@@ -135,6 +135,27 @@ def _rect_of_bbox(bbox) -> tuple:
            float(pts[:, 0].max()), float(pts[:, 1].max())
 
 
+_lama_available = None
+
+
+def check_lama_available() -> bool:
+    """Kiểm tra simple-lama-inpainting đã cài và có thể import."""
+    global _lama_available
+    if _lama_available is not None:
+        return _lama_available
+    try:
+        import simple_lama_inpainting  # noqa: F401
+        _lama_available = True
+    except Exception:
+        _lama_available = False
+    return _lama_available
+
+
+def _get_lama():
+    import simple_lama_inpainting
+    return simple_lama_inpainting.SimpleLama()
+
+
 def _iou_rect(a: tuple, b: tuple) -> float:
     """Intersection-over-Union của 2 rect (x1,y1,x2,y2)."""
     ax1, ay1, ax2, ay2 = a
@@ -265,7 +286,7 @@ def translate_batch(texts: list[str], model: str, src_lang: str = "zh") -> list[
     prompt = (
         f"Dịch các đoạn text {lang_name} sau sang tiếng Việt.\n"
         "Đây là hội thoại trong manhwa/manga, giữ nguyên cảm xúc và sự ngắn gọn.\n"
-        "Trả về ĐÚNG MỘT JSON array, không giải thích thêm.\n\n"
+        "Trả về ĐÚNG MỘT JSON array, không giải thích thêm. /no_think\n\n"
         f"Texts:\n{numbered}\n\n"
         "Kết quả (chỉ JSON array):"
     )
@@ -277,12 +298,26 @@ def translate_batch(texts: list[str], model: str, src_lang: str = "zh") -> list[
         )
         resp.raise_for_status()
         raw = resp.json().get("response", "").strip()
+        # Strip Qwen3 thinking tags <think>...</think>
+        raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
         s = raw.find("[")
         e = raw.rfind("]") + 1
         if s >= 0 and e > s:
             parsed = json.loads(raw[s:e])
             if isinstance(parsed, list) and len(parsed) == len(texts):
-                return [str(t) for t in parsed]
+                def _extract(t):
+                    if isinstance(t, str):
+                        return t
+                    if isinstance(t, dict):
+                        for k in ("text", "translation", "result", "output", "translated", "vi"):
+                            if k in t and isinstance(t[k], str):
+                                return t[k]
+                        # lấy value đầu tiên là str
+                        for v in t.values():
+                            if isinstance(v, str):
+                                return v
+                    return str(t)
+                return [_extract(t) for t in parsed]
     except Exception:
         pass
     return texts  # fallback: giữ nguyên text gốc
@@ -299,45 +334,33 @@ def _bbox_xyxy(bbox) -> tuple[int, int, int, int]:
     return int(x1), int(y1), int(x2), int(y2)
 
 
-def inpaint_region(img, bbox):
-    """Xóa text khỏi vùng bbox bằng cách phát hiện màu nền và fill."""
+def inpaint_region(img, bbox, method: str = "opencv"):
+    """Xóa text khỏi vùng bbox bằng openCV hoặc LAMA."""
     import cv2
     import numpy as np
     h, w = img.shape[:2]
     pts  = np.array(bbox, dtype=np.int32)
     x1, y1, x2, y2 = _bbox_xyxy(bbox)
-    x1e = max(0, x1 - 6)
-    y1e = max(0, y1 - 6)
-    x2e = min(w, x2 + 6)
-    y2e = min(h, y2 + 6)
+    x1i, y1i = max(0, int(x1)), max(0, int(y1))
+    x2i, y2i = min(w, int(x2)), min(h, int(y2))
 
-    roi = img[y1e:y2e, x1e:x2e]
-    if roi.size == 0:
-        return img
-
-    # Lấy màu nền từ đường viền bbox
-    top    = roi[0, :]
-    bot    = roi[-1, :]
-    left   = roi[:, 0]
-    right  = roi[:, -1]
-    border = np.concatenate([top, bot, left, right], axis=0)
-    bg     = np.median(border, axis=0).astype(np.uint8)
-    brightness = float(np.mean(bg))
-
-    # Tạo mask phủ vùng text
-    mask   = np.zeros((h, w), dtype=np.uint8)
+    mask = np.zeros((h, w), dtype=np.uint8)
     cv2.fillPoly(mask, [pts], 255)
-    kernel = np.ones((3, 3), np.uint8)
-    mask   = cv2.dilate(mask, kernel, iterations=3)
+    mask = cv2.dilate(mask, np.ones((5, 5), np.uint8), iterations=2)
 
-    if brightness > 160:
-        # Nền sáng (speech bubble trắng) → fill màu nền trực tiếp, sạch hơn inpaint
-        result = img.copy()
-        result[mask > 0] = bg
-        return result
-    else:
-        # Nền tối / phức tạp → dùng cv2.inpaint
-        return cv2.inpaint(img, mask, inpaintRadius=7, flags=cv2.INPAINT_TELEA)
+    if method == "lama" and check_lama_available():
+        try:
+            lama = _get_lama()
+            from PIL import Image as _Image
+            pil_img  = _Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+            pil_mask = _Image.fromarray(mask)
+            out = lama(pil_img, pil_mask)
+            return cv2.cvtColor(np.array(out), cv2.COLOR_RGB2BGR)
+        except Exception:
+            pass
+
+    # Fallback: OpenCV inpaint
+    return cv2.inpaint(img, mask, inpaintRadius=6, flags=cv2.INPAINT_TELEA)
 
 
 # ── Text rendering ────────────────────────────────────────────────────────────
@@ -348,61 +371,137 @@ def render_text(
     text: str,
     font_path: str | None,
 ):
-    """Vẽ text đã dịch vào vùng bbox, tự chọn cỡ chữ và xuống dòng."""
-    from PIL import ImageDraw  # lazy
+    """
+    Vẽ text vào vùng bbox:
+    - Vẽ background box (màu lấy từ vùng đã inpaint)
+    - Text căn giữa, màu tương phản, có viền shadow
+    """
+    from PIL import ImageDraw
+    import numpy as np
+    if not text.strip():
+        return img_pil
+
     draw = ImageDraw.Draw(img_pil)
     x1, y1, x2, y2 = _bbox_xyxy(bbox)
-    bw = max(x2 - x1, 10)
-    bh = max(y2 - y1, 10)
+    x1i, y1i, x2i, y2i = int(x1), int(y1), int(x2), int(y2)
+    iw, ih = img_pil.size
+    bw = max(x2i - x1i, 40)
+    bh = max(y2i - y1i, 16)
 
+    # Lấy màu nền từ vùng đã inpaint
+    arr = np.array(img_pil.convert("RGB"))
+    ry1, ry2 = max(0, y1i), min(ih, y2i)
+    rx1, rx2 = max(0, x1i), min(iw, x2i)
+    if ry2 > ry1 and rx2 > rx1:
+        roi = arr[ry1:ry2, rx1:rx2]
+        bg_rgb = tuple(int(v) for v in np.median(roi.reshape(-1, 3), axis=0))
+    else:
+        bg_rgb = (20, 20, 20)
+
+    brightness   = sum(bg_rgb) / 3
+    text_color   = (255, 255, 255) if brightness < 140 else (15, 15, 15)
+    shadow_color = (0, 0, 0)       if brightness < 140 else (255, 255, 255)
+
+    # Tìm cỡ chữ tốt nhất
     best_font  = None
     best_lines = [text]
-
-    for size in range(min(bh, 26), 7, -1):
+    for size in range(min(bh, 28), 7, -1):
         font = _load_font(font_path, size)
         try:
-            sample_bb = draw.textbbox((0, 0), "M", font=font)
-            cw = max(sample_bb[2] - sample_bb[0], 1)
+            bb = draw.textbbox((0, 0), "M", font=font)
+            cw = max(bb[2] - bb[0], 1)
         except Exception:
-            cw = size * 0.6
-        cpl   = max(1, int(bw / cw))
+            cw = max(int(size * 0.55), 1)
+        cpl   = max(1, int(bw * 0.95 / cw))
         lines = textwrap.wrap(text, width=cpl) or [text]
         try:
-            lh_bb = draw.textbbox((0, 0), "Ắp", font=font)
-            lh    = lh_bb[3] - lh_bb[1] + 3
+            bb = draw.textbbox((0, 0), "Ắp", font=font)
+            lh = bb[3] - bb[1] + 2
         except Exception:
-            lh = size + 3
-        if lh * len(lines) <= bh:
+            lh = size + 2
+        if lh * len(lines) <= bh + size:
             best_font  = font
             best_lines = lines
             break
 
     if best_font is None:
-        best_font = _load_font(font_path, 8)
+        best_font = _load_font(font_path, 9)
 
     try:
-        lh_bb = draw.textbbox((0, 0), "Ắp", font=best_font)
-        lh    = lh_bb[3] - lh_bb[1] + 3
+        bb = draw.textbbox((0, 0), "Ắp", font=best_font)
+        lh = bb[3] - bb[1] + 2
     except Exception:
         lh = 11
 
-    total_h = lh * len(best_lines)
-    ty      = y1 + max(0, (bh - total_h) // 2)
+    total_h   = lh * len(best_lines)
+    actual_y2 = min(ih, max(y2i, y1i + total_h + 8))
 
+    # Vẽ background box
+    draw.rectangle([x1i - 3, y1i - 3, x2i + 3, actual_y2 + 3], fill=bg_rgb)
+
+    # Vẽ text căn giữa
+    ty = y1i + max(0, (actual_y2 - y1i - total_h) // 2)
     for line in best_lines:
         try:
             lb = draw.textbbox((0, 0), line, font=best_font)
             lw = lb[2] - lb[0]
         except Exception:
-            lw = len(line) * (lh // 2)
-        tx = x1 + max(0, (bw - lw) // 2)
-        # Viền trắng để dễ đọc trên mọi nền
+            lw = len(line) * lh // 2
+        tx = x1i + max(0, (bw - lw) // 2)
         for dx, dy in ((-1, -1), (1, -1), (-1, 1), (1, 1), (0, -1), (0, 1), (-1, 0), (1, 0)):
-            draw.text((tx + dx, ty + dy), line, font=best_font, fill=(255, 255, 255))
-        draw.text((tx, ty), line, font=best_font, fill=(15, 15, 15))
+            draw.text((tx + dx, ty + dy), line, font=best_font, fill=shadow_color)
+        draw.text((tx, ty), line, font=best_font, fill=text_color)
         ty += lh
 
     return img_pil
+
+
+def _group_nearby_regions(results: list, gap_px: int = 18) -> list:
+    """
+    Gom các OCR bbox gần nhau (cùng cột/dòng văn bản) thành một group.
+    Trả về list of list of (bbox, text, conf).
+    """
+    import numpy as np
+    if not results:
+        return []
+
+    def to_xyxy(bbox):
+        pts = np.array(bbox, dtype=np.float32)
+        return (float(pts[:, 0].min()), float(pts[:, 1].min()),
+                float(pts[:, 0].max()), float(pts[:, 1].max()))
+
+    enriched = [(to_xyxy(b), b, t, c) for b, t, c in results]
+    enriched.sort(key=lambda x: (x[0][1], x[0][0]))  # top→bottom, left→right
+    used   = [False] * len(enriched)
+    groups = []
+
+    for i in range(len(enriched)):
+        if used[i]:
+            continue
+        group = [enriched[i]]
+        used[i] = True
+        changed = True
+        while changed:
+            changed = False
+            gx1 = min(it[0][0] for it in group)
+            gy1 = min(it[0][1] for it in group)
+            gx2 = max(it[0][2] for it in group)
+            gy2 = max(it[0][3] for it in group)
+            for j in range(len(enriched)):
+                if used[j]:
+                    continue
+                r2     = enriched[j][0]
+                v_gap  = max(0.0, max(r2[1] - gy2, gy1 - r2[3]))
+                h_span = max(r2[2], gx2) - min(r2[0], gx1)
+                h_olap = min(r2[2], gx2) - max(r2[0], gx1)
+                h_rat  = h_olap / h_span if h_span > 0 else 0.0
+                if v_gap <= gap_px and h_rat > 0.15:
+                    group.append(enriched[j])
+                    used[j] = True
+                    changed = True
+        groups.append([(b, t, c) for _, b, t, c in group])
+
+    return groups
 
 
 # ── Main translator class ─────────────────────────────────────────────────────
@@ -410,10 +509,11 @@ def render_text(
 class ImageTranslator:
     def __init__(
         self,
-        model: str = "qwen2.5:7b",
+        model: str = "qwen3:8b",
         font_path: str | None = None,
         use_gpu: bool = True,
         src_lang: str = "zh",
+        inpainter: str = "opencv",
         on_log=None,
         on_progress=None,
     ):
@@ -421,6 +521,7 @@ class ImageTranslator:
         self.font_path   = font_path
         self.use_gpu     = use_gpu
         self.src_lang    = src_lang if src_lang in ("zh", "en") else "zh"
+        self.inpainter   = inpainter if inpainter in ("opencv", "lama") else "opencv"
         self.on_log      = on_log or print
         self.on_progress = on_progress or (lambda d, t: None)
 
@@ -434,7 +535,8 @@ class ImageTranslator:
             from PIL import Image
             self._log(f"  [OCR] {src.name}")
 
-            img_orig = cv2.imread(str(src))
+            import numpy as np
+            img_orig = cv2.imdecode(np.fromfile(str(src), dtype=np.uint8), cv2.IMREAD_COLOR)
             if img_orig is None:
                 raise ValueError("Không đọc được file ảnh")
 
@@ -445,11 +547,12 @@ class ImageTranslator:
             self._log(f"  [OCR] Phát hiện {len(raw_results)} vùng thô (full+crop)")
             if self.src_lang == "zh":
                 for b, t, c in raw_results:
-                    flag = "✓" if c > 0.1 and has_chinese(t) else "✗"
+                    zh_len = len([ch for ch in t if '\u4e00' <= ch <= '\u9fff' or '\u3400' <= ch <= '\u4dbf'])
+                    flag = "✓" if has_chinese(t) and (c > 0.1 or zh_len >= 4) else "✗"
                     self._log(f"    {flag} conf={c:.2f} zh={has_chinese(t)} text={t!r:.50}")
                 results = [
                     (b, t, c) for b, t, c in raw_results
-                    if c > 0.1 and has_chinese(t)
+                    if has_chinese(t) and (c > 0.1 or len([ch for ch in t if '\u4e00' <= ch <= '\u9fff' or '\u3400' <= ch <= '\u4dbf']) >= 4)
                 ]
                 if not results:
                     self._log(f"  [SKIP] Không có text Trung: {src.name}")
@@ -468,23 +571,41 @@ class ImageTranslator:
                     shutil.copy2(src, dst)
                     return True
 
-            bboxes = [r[0] for r in results]
-            texts  = [r[1] for r in results]
-            self._log(f"  [OCR] {len(texts)} vùng text Trung (sau lọc)")
+            src_lbl = "Trung" if self.src_lang == "zh" else "Anh"
+            self._log(f"  [OCR] {len(results)} vùng text {src_lbl} (sau lọc)")
 
-            # Translate
+            # Gom các vùng gần nhau thành block
+            groups = _group_nearby_regions(results)
+            self._log(f"  [OCR] → {len(groups)} block")
+
+            # Dịch tất cả texts cùng lúc (flatten → translate → split lại)
+            all_texts = [t for grp in groups for _, t, _ in grp]
             self._log("  [TRANS] Đang dịch…")
-            translations = translate_batch(texts, self.model, src_lang=self.src_lang)
+            all_trans = translate_batch(all_texts, self.model, src_lang=self.src_lang)
+            idx = 0
+            group_trans: list[list[str]] = []
+            for grp in groups:
+                n = len(grp)
+                group_trans.append(all_trans[idx:idx + n])
+                idx += n
 
-            # Inpaint trên ảnh gốc (không phải ảnh đã preprocess)
+            # Inpaint tất cả bbox
             img = img_orig.copy()
-            for bbox in bboxes:
-                img = inpaint_region(img, bbox)
+            for grp in groups:
+                for bbox, _, _ in grp:
+                    img = inpaint_region(img, bbox, method=self.inpainter)
 
-            # Render text Việt
+            # Render mỗi group thành một text block sạch
             img_pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-            for bbox, trans in zip(bboxes, translations):
-                img_pil = render_text(img_pil, bbox, trans, self.font_path)
+            for grp, trans_list in zip(groups, group_trans):
+                rects = [_bbox_xyxy(b) for b, _, _ in grp]
+                gx1   = int(min(r[0] for r in rects))
+                gy1   = int(min(r[1] for r in rects))
+                gx2   = int(max(r[2] for r in rects))
+                gy2   = int(max(r[3] for r in rects))
+                full_text    = " ".join(t for t in trans_list if t.strip())
+                merged_bbox  = [[gx1, gy1], [gx2, gy1], [gx2, gy2], [gx1, gy2]]
+                img_pil = render_text(img_pil, merged_bbox, full_text, self.font_path)
 
             # Lưu — giữ nguyên định dạng
             dst.parent.mkdir(parents=True, exist_ok=True)
@@ -623,7 +744,7 @@ class MITImageTranslator:
 
     def __init__(
         self,
-        translator: str = "m2m100",
+        translator: str = "m2m100_big",
         target_lang: str = "VIN",
         use_gpu: bool = True,
         python_path: str | None = None,
@@ -632,7 +753,11 @@ class MITImageTranslator:
         upscale_ratio: str = "",
         detection_size: str = "",
         mask_dilation_offset: str = "",
+        unclip_ratio: str = "",
         font_size_offset: str = "",
+        font_size_minimum: str = "",
+        font_size_fixed: str = "",
+        font_color: str = "",
         verbose: bool = False,
         skip_no_text: bool = False,
         overwrite: bool = False,
@@ -648,7 +773,11 @@ class MITImageTranslator:
         self.upscale_ratio        = upscale_ratio
         self.detection_size       = detection_size
         self.mask_dilation_offset = mask_dilation_offset
+        self.unclip_ratio         = unclip_ratio
         self.font_size_offset     = font_size_offset
+        self.font_size_minimum    = font_size_minimum
+        self.font_size_fixed      = font_size_fixed
+        self.font_color           = font_color
         self.verbose              = verbose
         self.skip_no_text         = skip_no_text
         self.overwrite            = overwrite
@@ -700,10 +829,27 @@ class MITImageTranslator:
             cfg["detector"] = {"detector": self.detector}
         if self.detection_size:
             cfg.setdefault("detector", {})["detection_size"] = int(self.detection_size)
+        if self.mask_dilation_offset:
+            cfg["mask_dilation_offset"] = int(self.mask_dilation_offset)  # top-level Config field
+        if self.unclip_ratio:
+            cfg.setdefault("detector", {})["unclip_ratio"] = float(self.unclip_ratio)
         if self.upscale_ratio:
             cfg["upscale"] = {"upscale_ratio": int(self.upscale_ratio)}
         if self.font_size_offset:
-            cfg["render"] = {"font_size_offset": int(self.font_size_offset)}
+            cfg.setdefault("render", {})["font_size_offset"] = int(self.font_size_offset)
+        if self.font_size_minimum:
+            cfg.setdefault("render", {})["font_size_minimum"] = int(self.font_size_minimum)
+        if self.font_size_fixed:
+            cfg.setdefault("render", {})["font_size"] = int(self.font_size_fixed)
+        if self.font_color:
+            cfg.setdefault("render", {})["font_color"] = self.font_color
+
+        # Auto-inject gpt_config for custom_openai to improve translation quality
+        if self.translator == "custom_openai":
+            gpt_cfg = Path(__file__).parent / "gpt_config_vi.yaml"
+            if gpt_cfg.exists():
+                cfg.setdefault("translator", {})["gpt_config"] = str(gpt_cfg)
+                self._log(f"  [GPT] Using custom gpt_config: {gpt_cfg.name}")
 
         tf = tempfile.NamedTemporaryFile(
             mode="w", suffix=".json", delete=False, encoding="utf-8"

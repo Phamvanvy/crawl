@@ -81,6 +81,16 @@
             </div>
             <div class="field-hint" data-i18n="t.model.hint">Qwen2.5:7b (~4.7GB) | Qwen2.5:3b (~2GB, nhanh hơn)</div>
           </div>
+          <div class="field">
+            <label>Inpainter (xóa chữ)</label>
+            <select id="tInpainter" class="field select">
+              <option value="opencv" selected>OpenCV TELEA — nhanh, tốt cho nền đơn giản</option>
+              <option value="lama">LAMA (neural) — chất lượng cao, cần cài thêm ~200MB</option>
+            </select>
+            <div id="lamaHint" class="field-hint" style="display:none;color:var(--warn)">
+              ⚠ Chưa cài: <code>pip install simple-lama-inpainting</code>
+            </div>
+          </div>
         </div>
 
         <!-- ── MIT options ────────────────────────────────────────────── -->
@@ -91,8 +101,8 @@
             <label data-i18n="t.mit.translator.label">Model dịch</label>
             <select id="tMITTranslator" class="field select" onchange="onMITTranslatorChange()">
               <optgroup label="─── Offline (không cần internet) ───">
-                <option value="m2m100" selected>M2M-100 — đa ngôn ngữ ✦ ZH→VI tốt</option>
-                <option value="m2m100_big">M2M-100 Large — chất lượng cao hơn (~2.5GB)</option>
+                <option value="m2m100">M2M-100 — đa ngôn ngữ (~1.2GB)</option>
+                <option value="m2m100_big" selected>M2M-100 Large — chất lượng cao ❖ (~2.5GB)</option>
                 <option value="nllb">NLLB-200 — đa ngôn ngữ</option>
                 <option value="nllb_big">NLLB-200 Large</option>
                 <option value="qwen2">Qwen2 — model Alibaba offline (~4.5GB)</option>
@@ -113,7 +123,7 @@
                 <option value="caiyun">Caiyun — cần CAIYUN_TOKEN</option>
                 <option value="groq">Groq — cần GROQ_API_KEY</option>
                 <option value="sakura">Sakura (Ollama-compatible) — cần SAKURA_API_BASE</option>
-                <option value="custom_openai">Custom OpenAI (Ollama…) — cần CUSTOM_OPENAI_API_BASE</option>
+                <option value="custom_openai">Custom OpenAI / Ollama (qwen3:14b…) ★ — cần CUSTOM_OPENAI_API_BASE</option>
               </optgroup>
             </select>
           </div>
@@ -145,10 +155,29 @@
             </summary>
             <div style="margin-top:10px;display:flex;flex-direction:column;gap:10px">
 
+              <!-- Preset buttons -->
+              <div style="display:flex;gap:6px;flex-wrap:wrap">
+                <button type="button" onclick="mitPreset('manga')"
+                  style="flex:1;padding:5px 8px;font-size:.75rem;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer"
+                  title="Manga/truyện tranh: chữ trong bong bóng, bbox nhỏ">📖 Manga</button>
+                <button type="button" onclick="mitPreset('cg')"
+                  style="flex:1;padding:5px 8px;font-size:.75rem;border-radius:6px;border:1px solid var(--accent,#7c6af7);background:var(--surface2);color:var(--accent,#7c6af7);cursor:pointer;font-weight:600"
+                  title="CG/Visual novel: subtitle dài ở dưới ảnh, text nhỏ trắng nền đen">🎮 CG/VN ★</button>
+                <button type="button" onclick="mitPreset('reset')"
+                  style="flex:1;padding:5px 8px;font-size:.75rem;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer"
+                  title="Xóa về mặc định">↺ Reset</button>
+              </div>
+
               <!-- Row 1: Detector / Inpainter / Upscale -->
               <div class="grid-3">
                 <div class="field" style="margin-bottom:0">
-                  <label>Detector</label>
+                  <label><span class="tt-wrap">Detector<span class="tt-icon">?</span><span class="tt-box">Model nhận diện vùng chữ trong ảnh.
+• default — tự chọn tốt nhất
+• ctd — chuyên cho manga Nhật, phát hiện bong bóng hội thoại
+• craft — tổng quát, tốt với scene text
+• dbnet_convnext — nhanh hơn, phù hợp CG/photo
+
+Với truyện tranh dùng ctd. Với CG/ảnh 3D để default.</span></span></label>
                   <select id="tMITDetector" class="field select sm">
                     <option value="">default</option>
                     <option value="ctd">ctd (manga)</option>
@@ -157,7 +186,13 @@
                   </select>
                 </div>
                 <div class="field" style="margin-bottom:0">
-                  <label>Inpainter</label>
+                  <label><span class="tt-wrap">Inpainter<span class="tt-icon">?</span><span class="tt-box">Model xoá chữ gốc và tái tạo nền sau inpaint.
+• lama_large ★ — chất lượng cao nhất, dùng deep learning (~800MB VRAM)
+• lama_mpe — nhẹ hơn, chất lượng gần tương đương
+• opencv — nhanh nhất, không cần GPU, chất lượng thấp
+• none — giữ nguyên nền, chỉ render chữ mới đè lên
+
+Khuyến nghị: lama_large nếu có GPU.</span></span></label>
                   <select id="tMITInpainter" class="field select sm">
                     <option value="">default</option>
                     <option value="lama_large" selected>lama_large ✦</option>
@@ -167,7 +202,11 @@
                   </select>
                 </div>
                 <div class="field" style="margin-bottom:0">
-                  <label>Upscale ×</label>
+                  <label><span class="tt-wrap">Upscale ×<span class="tt-icon">?</span><span class="tt-box">Phóng to ảnh trước khi dịch bằng AI upscaler.
+• Tắt — không upscale (nhanh nhất)
+• ×2 / ×3 / ×4 — phóng to lên 2-4 lần trước khi xử lý
+
+Upscale giúp OCR nhận diện chữ nhỏ chính xác hơn nhưng tốn thêm VRAM và thời gian. Với ảnh 1080p trở lên thường không cần.</span></span></label>
                   <select id="tMITUpscale" class="field select sm">
                     <option value="" data-i18n="t.mit.upscale.off">Tắt</option>
                     <option value="1">×1</option>
@@ -178,10 +217,16 @@
                 </div>
               </div>
 
-              <!-- Row 2: Detection size / Mask dilation / Font size offset -->
+              <!-- Row 2: Detection size / Mask dilation / Unclip ratio / Font options -->
               <div class="grid-3">
                 <div class="field" style="margin-bottom:0">
-                  <label>Det. size</label>
+                  <label><span class="tt-wrap">Det. size<span class="tt-icon">?</span><span class="tt-box">Độ phân giải ảnh khi chạy text detection.
+• default — MIT tự chọn (thường 2048)
+• 1024 — nhanh rất nhiều, bỏ sót chữ nhỏ
+• 2048 — cân bằng tốc độ / chất lượng ★
+• 2560 — tìm được chữ rất nhỏ, chậm và tốn VRAM
+
+Với ảnh 1080p dùng 2048. Với ảnh 4K dùng 2560.</span></span></label>
                   <select id="tMITDetSize" class="field select sm">
                     <option value="">default</option>
                     <option value="1024">1024</option>
@@ -191,28 +236,90 @@
                   </select>
                 </div>
                 <div class="field" style="margin-bottom:0">
-                  <label>Mask dilation</label>
+                  <label><span class="tt-wrap">Mask dilation<span class="tt-icon">?</span><span class="tt-box">Mở rộng vùng mask xoá chữ ra xung quanh (tính theo pixel).
+• 0 — chỉ xoá vùng chữ khít
+• 10–20 — xoá thêm viền xung quanh, sạch hơn
+• 30–50 — xoá rộng, hữu ích khi chữ có viền/đổ bóng lớn
+
+CG/subtitle: dùng 15–25 để xoá sạch shadow và outline.</span></span></label>
                   <input type="number" id="tMITMaskDil" placeholder="0" min="0" max="50" value=""
                     style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-family:inherit;font-size:.82rem;outline:none;width:100%" />
                 </div>
                 <div class="field" style="margin-bottom:0">
-                  <label>Font offset</label>
+                  <label><span class="tt-wrap">Unclip <span style="opacity:.55;font-size:.75rem">(CG: 3.5)</span><span class="tt-icon">?</span><span class="tt-box">Hệ số mở rộng bounding box sau khi detect text.
+Mặc định: 2.3
+
+• 2.3 — mặc định cho manga, bbox vừa khít chữ
+• 3.5–4.5 — CG/VN, subtitle dài: mở rộng để đủ chỗ render bản dịch
+• 5.0–6.0 — khi text Vietnamese dài hơn nhiều so với chữ Trung
+
+⚠ Quá lớn có thể gộp lẫn các vùng chữ khác nhau.</span></span></label>
+                  <input type="number" id="tMITUnclip" placeholder="2.3" min="1" max="8" step="0.1" value=""
+                    style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-family:inherit;font-size:.82rem;outline:none;width:100%" />
+                </div>
+                <div class="field" style="margin-bottom:0">
+                  <label><span class="tt-wrap">Font offset<span class="tt-icon">?</span><span class="tt-box">Điều chỉnh cỡ font so với giá trị MIT tự tính (đơn vị: pixel).
+• 0 — giữ nguyên auto-calculated size
+• -5 đến -15 — thu nhỏ font → ít tràn ra ngoài bbox hơn
+• +5 đến +10 — phóng to font
+
+CG/VN: dùng -8 đến -15 nếu text bị tràn.
+Khác với Font fixed: offset này cộng/trừ vào kích cỡ đã tính, không ghi đè hoàn toàn.</span></span></label>
                   <input type="number" id="tMITFontOfs" placeholder="0" min="-20" max="20" value=""
                     style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-family:inherit;font-size:.82rem;outline:none;width:100%" />
+                </div>
+                <div class="field" style="margin-bottom:0">
+                  <label><span class="tt-wrap">Font min <span style="opacity:.55;font-size:.75rem">(CG: 8)</span><span class="tt-icon">?</span><span class="tt-box">Cỡ font nhỏ nhất được phép render (pixel).
+Mặc định: image_perimeter / 200 (thường ~10–14px)
+
+• Để trống — dùng giá trị auto của MIT
+• 8 — buộc render dù text rất dài so với bbox
+• 6 — nhỏ nhất có thể đọc được
+
+Quan trọng cho CG/subtitle: nếu không set, MIT sẽ BỎ QUA vùng chữ khi text dịch quá dài không vừa bbox — gây mất dòng dịch.
+Đặt 8 để giữ lại tất cả text dù chữ nhỏ.</span></span></label>
+                  <input type="number" id="tMITFontMin" placeholder="auto" min="6" max="30" value=""
+                    style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-family:inherit;font-size:.82rem;outline:none;width:100%" />
+                </div>
+                <div class="field" style="margin-bottom:0">
+                  <label><span class="tt-wrap">Font fixed <span style="opacity:.55;font-size:.75rem">(CG: 16)</span><span class="tt-icon">?</span><span class="tt-box">Cố định kích cỡ font (pixel) — bỏ qua hoàn toàn auto-sizing của MIT.
+• Để trống — MIT tự tính (khuyến nghị cho manga)
+• 14–18 — phù hợp subtitle CG 1080p
+• 20–28 — phù hợp manga / text to rõ
+
+Khi đặt giá trị này, Font offset và Font min không có tác dụng nữa.
+Dùng khi muốn toàn bộ ảnh có font size đồng nhất.</span></span></label>
+                  <input type="number" id="tMITFontFixed" placeholder="auto" min="8" max="60" value=""
+                    style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-family:inherit;font-size:.82rem;outline:none;width:100%" />
+                </div>
+                <div class="field" style="margin-bottom:0">
+                  <label><span class="tt-wrap">Font color <span style="opacity:.55;font-size:.75rem">(VD: FFFFFF:000000)</span><span class="tt-icon">?</span><span class="tt-box">Override màu chữ và màu nền chữ. Dùng hex không có #.
+Format: FG hoặc FG:BG
+
+Ví dụ:
+• FFFFFF — chữ trắng, nền auto
+• FFFFFF:000000 — chữ trắng, nền đen ★ (CG)
+• 000000:FFFFFF — chữ đen, nền trắng (manga sáng)
+• FF3300 — chữ đỏ, không nền
+
+Để trống = MIT tự detect màu từ ảnh gốc.
+CG/subtitle: dùng FFFFFF:000000 để đảm bảo đọc được trên mọi background.</span></span></label>
+                  <input type="text" id="tMITFontColor" placeholder="auto" maxlength="15" value=""
+                    style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-family:monospace;font-size:.82rem;outline:none;width:100%" />
                 </div>
               </div>
 
               <!-- Row 3: Checkboxes -->
               <div class="cb-grid">
-                <label class="cb-item">
+                <label class="cb-item" title="In toàn bộ log chi tiết của MIT ra panel Nhật ký — hữu ích để debug khi ảnh bị bỏ qua hoặc dịch sai">
                   <input type="checkbox" id="tMITVerbose" />
                   📋 Verbose log
                 </label>
-                <label class="cb-item">
+                <label class="cb-item" title="Bỏ qua ảnh không phát hiện được chữ — tăng tốc khi folder có nhiều ảnh không có text">
                   <input type="checkbox" id="tMITSkipNoText" />
                   <span data-i18n="t.mit.skip">⏭ Bỏ qua ảnh trống</span>
                 </label>
-                <label class="cb-item span2">
+                <label class="cb-item span2" title="Dịch lại những ảnh đã có trong thư mục output. Bỏ tick = chỉ dịch ảnh chưa có file đầu ra (tiết kiệm thời gian khi dịch lại từ giữa chừng)">
                   <input type="checkbox" id="tMITOverwrite" />
                   <span data-i18n="t.mit.overwrite">♻ Ghi đè ảnh đã dịch</span>
                 </label>

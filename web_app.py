@@ -409,6 +409,8 @@ def api_translate_check():
     result["mit_version"] = mit.get("version")
     result["mit_python"]  = mit.get("python")
     result["mit_error"]   = mit.get("error")
+    # LAMA inpainter
+    result["lama"] = te.check_lama_available()
     return jsonify(result)
 
 
@@ -432,10 +434,17 @@ def api_translate_start():
     mit_upscale       = str(data.get("mit_upscale",      "")).strip()
     mit_det_size      = str(data.get("mit_det_size",     "")).strip()
     mit_mask_dil      = str(data.get("mit_mask_dil",     "")).strip()
+    mit_unclip         = str(data.get("mit_unclip",       "")).strip()
     mit_font_ofs      = str(data.get("mit_font_ofs",     "")).strip()
+    mit_font_min      = str(data.get("mit_font_min",     "")).strip()
+    mit_font_fixed    = str(data.get("mit_font_fixed",   "")).strip()
+    mit_font_color    = str(data.get("mit_font_color",   "")).strip()
     mit_verbose       = bool(data.get("mit_verbose",     False))
     mit_skip_no_text  = bool(data.get("mit_skip_no_text",False))
     mit_overwrite     = bool(data.get("mit_overwrite",   False))
+    inpainter         = str(data.get("inpainter",        "opencv")).strip()
+    if inpainter not in ("opencv", "lama"):
+        inpainter = "opencv"
     if src_lang not in ("zh", "en"):
         src_lang = "zh"
     if backend not in ("default", "mit"):
@@ -477,7 +486,11 @@ def api_translate_start():
                     upscale_ratio=mit_upscale,
                     detection_size=mit_det_size,
                     mask_dilation_offset=mit_mask_dil,
+                    unclip_ratio=mit_unclip,
                     font_size_offset=mit_font_ofs,
+                    font_size_minimum=mit_font_min,
+                    font_size_fixed=mit_font_fixed,
+                    font_color=mit_font_color,
                     verbose=mit_verbose,
                     skip_no_text=mit_skip_no_text,
                     overwrite=mit_overwrite,
@@ -485,13 +498,14 @@ def api_translate_start():
                     on_progress=on_progress,
                 )
             else:
-                _t_push({"type": "log", "msg": f"Model : {model}  GPU={use_gpu}"})
+                _t_push({"type": "log", "msg": f"Model : {model}  GPU={use_gpu}  Inpainter={inpainter}"})
                 _t_push({"type": "log", "msg": f"Lang  : {'ZH→VI' if src_lang == 'zh' else 'EN→VI'}"})
                 translator = te.ImageTranslator(
                     model=model,
                     font_path=_find_font(),
                     use_gpu=use_gpu,
                     src_lang=src_lang,
+                    inpainter=inpainter,
                     on_log=on_log,
                     on_progress=on_progress,
                 )
