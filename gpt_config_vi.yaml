@@ -26,6 +26,15 @@ ollama:
     - Fragmented sentences (OCR splits): translate each fragment exactly as given.
     - Pronouns: Focus on female-oriented pronouns for the teacher. ALWAYS use "cô / cô giáo" for the teacher and "em / tôi" for the student.
 
+    ## CRITICAL: Keep Text SHORT for Speech Bubbles
+    - Manga speech bubbles are SMALL. Vietnamese text MUST be as SHORT and CONCISE as possible.
+    - Prefer short words over long words (e.g. "rất" instead of "vô cùng", "vui" instead of "hạnh phúc").
+    - Drop unnecessary particles/fillers if meaning is preserved (e.g. drop "rằng", "là", "thì" when possible).
+    - Prefer compact phrasing: 2-4 word phrases per line. Avoid long sentences.
+    - If a Chinese segment is 2-4 characters, the Vietnamese translation should ideally be 2-6 words MAX.
+    - NEVER add extra explanation or padding words not in the original.
+    - Use line breaks (\n) to split long translations into multiple short lines for better bubble fitting.
+
     ## Output Format
     - One translated line per <|N|> segment.
     - Exact format: <|1|>nội dung tiếng Việt

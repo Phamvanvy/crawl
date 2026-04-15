@@ -896,6 +896,10 @@ async function runCheck() {
   setCk('ck-easyocr',   data.easyocr,      data.easyocr    ? 'OK (fallback)' : 'optional');
   setCk('ck-ollama',    data.ollama,       data.ollama     ? 'running' : (data.ollama_error || 'not running'));
   setCk('ck-mit',       data.mit,          data.mit        ? (data.mit_python || 'OK') : (data.mit_error || 'mit_venv không tìm thấy'));
+  if (data.mit && $('tBackendDefault').checked) {
+    $('tBackendMIT').checked = true;
+    onBackendChange();
+  }
   // LAMA hint
   const lamaEl  = $('tInpainter');
   const lamaHnt = $('lamaHint');

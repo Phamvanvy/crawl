@@ -346,6 +346,8 @@ def translate_batch(texts: list[str], model: str, src_lang: str = "zh") -> list[
     prompt = (
         f"Dịch các đoạn text {lang_name} sau sang tiếng Việt.\n"
         "Đây là hội thoại trong manhwa/manga, giữ nguyên cảm xúc và sự ngắn gọn.\n"
+        "QUAN TRỌNG: Bản dịch phải NGẮN GỌN nhất có thể vì text sẽ nằm trong bong bóng hội thoại nhỏ.\n"
+        "Dùng từ ngắn, tránh từ dài không cần thiết. Dùng \\n để xuống dòng nếu câu dài.\n"
         "Trả về ĐÚNG MỘT JSON array, không giải thích thêm. /no_think\n\n"
         f"Texts:\n{numbered}\n\n"
         "Kết quả (chỉ JSON array):"
@@ -432,28 +434,71 @@ def _draw_text_with_shadow(draw, pos, text, font, text_color, shadow_color):
     draw.text((tx, ty), text, font=font, fill=text_color)
 
 
-def _wrap_text_px(draw, text: str, font, max_px: int) -> list:
-    """Word-wrap `text` so each line fits within `max_px` pixels."""
-    words = text.split()
-    if not words:
-        return [text]
-    lines = []
-    current = []
-    for word in words:
-        candidate = " ".join(current + [word])
+def _wrap_text_px(draw, text: str, font, max_px: int, allow_hard_split: bool = False) -> list | None:
+    """Word-wrap `text` so each line fits within `max_px` pixels.
+    If allow_hard_split=False, return None when a single word cannot fit.
+    """
+    def width_of(value: str) -> int:
         try:
-            bb = draw.textbbox((0, 0), candidate, font=font)
-            w  = bb[2] - bb[0]
+            bb = draw.textbbox((0, 0), value, font=font)
+            return bb[2] - bb[0]
         except Exception:
-            w = len(candidate) * max(getattr(font, "size", 10), 8)
-        if w <= max_px or not current:
-            current.append(word)
-        else:
+            return len(value) * max(getattr(font, "size", 10), 8)
+
+    def split_long_word(word: str) -> list[str]:
+        if width_of(word) <= max_px:
+            return [word]
+        parts: list[str] = []
+        current = ""
+        for ch in word:
+            if width_of(current + ch) <= max_px or not current:
+                current += ch
+            else:
+                parts.append(current)
+                current = ch
+        if current:
+            parts.append(current)
+        return parts or [word]
+
+    if text is None:
+        return [""]
+
+    lines: list[str] = []
+    for paragraph in text.splitlines():
+        if not paragraph:
+            lines.append("")
+            continue
+
+        words = paragraph.split()
+        if not words:
+            lines.append("")
+            continue
+
+        current: list[str] = []
+        for word in words:
+            candidate = " ".join(current + [word]) if current else word
+            if width_of(candidate) <= max_px:
+                current.append(word)
+                continue
+
+            if not current:
+                if not allow_hard_split:
+                    return None
+                lines.extend(split_long_word(word))
+            else:
+                lines.append(" ".join(current))
+                if width_of(word) <= max_px:
+                    current = [word]
+                else:
+                    if not allow_hard_split:
+                        return None
+                    lines.extend(split_long_word(word))
+                    current = []
+
+        if current:
             lines.append(" ".join(current))
-            current = [word]
-    if current:
-        lines.append(" ".join(current))
-    return lines or [text]
+
+    return lines or [""]
 
 
 def render_text(
@@ -496,35 +541,58 @@ def render_text(
     pad     = max(4, int(min(bw, bh) * 0.07))
     inner_w = max(bw - pad * 2, 20)
     inner_h = max(bh - pad * 2, 12)
-    max_start = max(min(inner_h // 2, 56), 10)
+    # start from the largest font that can still fit the bubble height
+    max_start = max(min(inner_h, 56), 10)
     # strict_clip: dùng đúng chiều rộng bubble; không có: giới hạn 220px vìOCR box có thể rất rộng
     wrap_w  = inner_w if strict_clip else min(inner_w, 220)
 
     best_font  = None
     best_lines = [text]
     best_lh    = 11
-    for size in range(max_start, 6, -1):
+    wrap_candidates = [wrap_w]
+    if strict_clip:
+        wrap_candidates.extend([
+            max(10, int(wrap_w * 0.85)),
+            max(10, int(wrap_w * 0.70)),
+            max(10, int(wrap_w * 0.55)),
+        ])
+
+    for size in range(max_start, 4, -1):
         font = _load_font(font_path, size)
         try:
             bb = draw.textbbox((0, 0), "Ắp", font=font)
             lh = bb[3] - bb[1] + 2
         except Exception:
             lh = size + 2
-        lines = _wrap_text_px(draw, text, font, wrap_w)
-        if lh * len(lines) <= inner_h:
-            best_font  = font
-            best_lines = lines
-            best_lh    = lh
+
+        for current_wrap in wrap_candidates:
+            lines = _wrap_text_px(draw, text, font, current_wrap, allow_hard_split=False)
+            if lines is None:
+                continue
+            if lh * len(lines) <= inner_h:
+                best_font  = font
+                best_lines = lines
+                best_lh    = lh
+                wrap_w = current_wrap
+                break
+        if best_font is not None:
             break
 
     if best_font is None:
-        best_font  = _load_font(font_path, 8)
-        best_lines = _wrap_text_px(draw, text, best_font, wrap_w)
+        best_font  = _load_font(font_path, 6)
+        best_lines = _wrap_text_px(draw, text, best_font, max(10, int(inner_w * 0.55)), allow_hard_split=True)
+        if best_lines is None:
+            best_lines = [text]
         try:
             bb = draw.textbbox((0, 0), "Ắp", font=best_font)
             best_lh = bb[3] - bb[1] + 2
         except Exception:
-            best_lh = 10
+            best_lh = 8
+
+    if strict_clip:
+        max_lines = max(1, inner_h // best_lh)
+        if len(best_lines) > max_lines:
+            best_lines = best_lines[:max_lines]
 
     total_h   = best_lh * len(best_lines)
     if strict_clip:
@@ -674,10 +742,41 @@ class ImageTranslator:
             groups = _group_nearby_regions(results)
             self._log(f"  [OCR] → {len(groups)} block")
 
-            # Dịch tất cả texts cùng lúc (flatten → translate → split lại)
+            # Dịch theo khung bubble: lấy constraint từ bubble gần nhất
             all_texts = [t for grp in groups for _, t, _ in grp]
+            constraints: list[dict] = []
+            for grp in groups:
+                rects = [_bbox_xyxy(b) for b, _, _ in grp]
+                gx1 = int(min(r[0] for r in rects))
+                gy1 = int(min(r[1] for r in rects))
+                gx2 = int(max(r[2] for r in rects))
+                gy2 = int(max(r[3] for r in rects))
+                ocr_rect = (gx1, gy1, gx2, gy2)
+                best_bubble = None
+                best_cov = 0.0
+                for bubble in bubbles:
+                    cov = _bubble_coverage(ocr_rect, bubble)
+                    if cov > best_cov:
+                        best_cov = cov
+                        best_bubble = bubble
+                if best_bubble and best_cov > 0.4:
+                    bw = int(best_bubble[2] - best_bubble[0])
+                    bh = int(best_bubble[3] - best_bubble[1])
+                    max_chars = max(6, bw // 8)
+                    max_lines = max(1, bh // 14)
+                    for _ in grp:
+                        constraints.append({"max_chars": max_chars, "max_lines": max_lines})
+                else:
+                    for _ in grp:
+                        constraints.append({})
+
             self._log("  [TRANS] Đang dịch…")
-            all_trans = translate_batch(all_texts, self.model, src_lang=self.src_lang)
+            all_trans = translate_batch(
+                all_texts,
+                self.model,
+                src_lang=self.src_lang,
+                constraints=constraints,
+            )
             idx = 0
             group_trans: list[list[str]] = []
             for grp in groups:
@@ -699,7 +798,7 @@ class ImageTranslator:
                 gy1   = int(min(r[1] for r in rects))
                 gx2   = int(max(r[2] for r in rects))
                 gy2   = int(max(r[3] for r in rects))
-                full_text = " ".join(t for t in trans_list if t.strip())
+                full_text = "\n".join(t for t in trans_list if t.strip())
 
                 # Khớp OCR group với bubble bằng coverage:
                 # (% OCR box nằm trong bubble) thay vì IoU — vì OCR box << bubble
@@ -981,6 +1080,15 @@ class MITImageTranslator:
             cfg.setdefault("render", {})["font_size"] = int(self.font_size_fixed)
         if self.font_color:
             cfg.setdefault("render", {})["font_color"] = self.font_color
+
+        # Vietnamese: auto-apply stronger font shrink if user hasn't set one
+        # Vietnamese text is significantly longer than Chinese, so reduce font to fit bubbles
+        if self.target_lang in ("VIN", "vi") and not self.font_size_offset:
+            cfg.setdefault("render", {})["font_size_offset"] = -6
+            self._log("  [RENDER] Auto font_size_offset=-6 (Vietnamese text fitting)")
+        # Vietnamese: set font_size_minimum=10 if not specified to keep readability
+        if self.target_lang in ("VIN", "vi") and not self.font_size_minimum:
+            cfg.setdefault("render", {})["font_size_minimum"] = 10
 
         # Auto-inject gpt_config for custom_openai to improve translation quality
         if self.translator == "custom_openai":
