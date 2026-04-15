@@ -91,14 +91,6 @@
               ⚠ Chưa cài: <code>pip install simple-lama-inpainting</code>
             </div>
           </div>
-          <div class="field">
-            <label title="Cách xếp chữ trong bong bóng hội thoại">Kiểu chữ trong bong bóng</label>
-            <select id="tTextLayout" class="field select">
-              <option value="auto" selected>Tự động (dọc khi khung cao, ngang khi khung rộng)</option>
-              <option value="horizontal">Ngang — wrap theo dòng</option>
-              <option value="vertical">Dọc — từng chữ xếp thành cột</option>
-            </select>
-          </div>
           <label class="cb-item" style="margin-top:6px" title="Dịch lại những ảnh đã có trong thư mục output. Bỏ tick = chỉ dịch ảnh chưa có file đầu ra (xóa ảnh xấu rồi chạy lại sẽ tự dịch lại)">
             <input type="checkbox" id="tOverwrite" />
             ♻ Ghi đè ảnh đã dịch
@@ -350,15 +342,6 @@ CG/subtitle: dùng FFFFFF:000000 để đảm bảo đọc được trên mọi 
                 </label>
               </div>
 
-              <!-- Row 4: Text direction -->
-              <div class="field" style="margin-top:8px">
-                <label title="Hướng xếp chữ khi render (MIT render config: direction)">Hướng chữ (direction)</label>
-                <select id="tMITTextLayout" class="field select sm">
-                  <option value="auto" selected>auto — MIT tự chọn</option>
-                  <option value="horizontal">horizontal — nằm ngang</option>
-                  <option value="vertical">vertical — đứng dọc ↕</option>
-                </select>
-              </div>
 
             </div>
           </details>

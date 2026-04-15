@@ -448,9 +448,6 @@ def api_translate_start():
     mit_skip_no_text  = bool(data.get("mit_skip_no_text",False))
     mit_overwrite     = bool(data.get("mit_overwrite",   False))
     overwrite         = bool(data.get("overwrite",       False))
-    text_layout       = str(data.get("text_layout",      "auto")).strip()
-    if text_layout not in ("auto", "horizontal", "vertical"):
-        text_layout = "auto"
     inpainter         = str(data.get("inpainter",        "opencv")).strip()
     if inpainter not in ("opencv", "lama"):
         inpainter = "opencv"
@@ -501,7 +498,6 @@ def api_translate_start():
                     font_size_minimum=mit_font_min,
                     font_size_fixed=mit_font_fixed,
                     font_color=mit_font_color,
-                    text_layout=text_layout,
                     verbose=mit_verbose,
                     skip_no_text=mit_skip_no_text,
                     overwrite=mit_overwrite,
@@ -518,7 +514,6 @@ def api_translate_start():
                     src_lang=src_lang,
                     inpainter=inpainter,
                     overwrite=overwrite,
-                    text_layout=text_layout,
                     on_log=on_log,
                     on_progress=on_progress,
                 )
@@ -681,7 +676,10 @@ def api_translate_image():
     if not p.is_file() or p.suffix.lower() not in te.IMAGE_EXTS:
         return jsonify({"error": "File không hợp lệ"}), 400
     mime, _ = mimetypes.guess_type(str(p))
-    return send_file(str(p), mimetype=mime or "image/jpeg")
+    resp = send_file(str(p), mimetype=mime or "image/jpeg")
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    return resp
 
 
 @app.route("/api/translate/preview")

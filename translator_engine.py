@@ -115,7 +115,7 @@ def _run_ocr_engine(img_array, gpu: bool = True, src_lang: str = "zh") -> list[t
 def _find_speech_bubbles(img) -> list[tuple]:
     """
     Phát hiện vùng bong bóng hội thoại trong ảnh manga/manhwa.
-    Tìm các vùng sáng (nền trắng/xám nhạt) đủ lớn và không quá dài.
+    Thử nhiều threshold để bắt cả bubble trắng lẫn xám.
     Returns: list of (x1, y1, x2, y2)
     """
     import cv2
@@ -123,33 +123,53 @@ def _find_speech_bubbles(img) -> list[tuple]:
 
     h, w = img.shape[:2]
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-
-    # Ngưỡng tìm vùng nền sáng (bong bóng hội thoại thường nền trắng/xám nhạt)
-    _, thresh = cv2.threshold(gray, 190, 255, cv2.THRESH_BINARY)
-
-    # Đóng lỗ hổng bên trong bong bóng (text tối nằm trong vùng sáng)
-    ksize = max(7, w // 80)
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (ksize, ksize))
-    closed = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
-
-    contours, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     img_area = h * w
-    bubbles = []
-    for cnt in contours:
-        area = cv2.contourArea(cnt)
-        # Lọc theo diện tích: 0.2% – 35% ảnh
-        if not (img_area * 0.002 < area < img_area * 0.35):
-            continue
-        x, y, bw, bh = cv2.boundingRect(cnt)
-        # Bỏ qua hình quá dài / quá rộng (không phải bubble)
-        if max(bw, bh) / max(min(bw, bh), 1) > 6:
-            continue
-        pad = max(4, int(min(bw, bh) * 0.08))
-        bubbles.append((
-            max(0, x - pad), max(0, y - pad),
-            min(w, x + bw + pad), min(h, y + bh + pad),
-        ))
-    return bubbles
+    ksize  = max(7, w // 80)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (ksize, ksize))
+    found: list[tuple] = []
+
+    # Thử nhiều threshold: 190 = bubble trắng chuẩn, 160 = bubble xám nhạt
+    for thr in (190, 160):
+        _, thresh = cv2.threshold(gray, thr, 255, cv2.THRESH_BINARY)
+        closed = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
+        contours, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if not (img_area * 0.002 < area < img_area * 0.35):
+                continue
+            x, y, bw, bh = cv2.boundingRect(cnt)
+            if max(bw, bh) / max(min(bw, bh), 1) > 6:
+                continue
+            pad = max(4, int(min(bw, bh) * 0.08))
+            candidate = (
+                max(0, x - pad), max(0, y - pad),
+                min(w, x + bw + pad), min(h, y + bh + pad),
+            )
+            # Bỏ qua nếu bubble rất giống đã có (IoU > 0.7)
+            if not any(_iou_rect(candidate, b) > 0.7 for b in found):
+                found.append(candidate)
+
+    # Bubble tối/đen (VD: bong bóng gai nhọn) — dùng inverted threshold
+    for thr in (60, 80):
+        _, thresh = cv2.threshold(gray, thr, 255, cv2.THRESH_BINARY_INV)
+        closed = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
+        contours, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if not (img_area * 0.003 < area < img_area * 0.20):
+                continue
+            x, y, bw, bh = cv2.boundingRect(cnt)
+            if max(bw, bh) / max(min(bw, bh), 1) > 5:
+                continue
+            pad = max(4, int(min(bw, bh) * 0.05))
+            candidate = (
+                max(0, x - pad), max(0, y - pad),
+                min(w, x + bw + pad), min(h, y + bh + pad),
+            )
+            if not any(_iou_rect(candidate, b) > 0.7 for b in found):
+                found.append(candidate)
+
+    return found
 
 
 def _rect_of_bbox(bbox) -> tuple:
@@ -192,6 +212,21 @@ def _iou_rect(a: tuple, b: tuple) -> float:
     inter = (ix2 - ix1) * (iy2 - iy1)
     union = (ax2 - ax1) * (ay2 - ay1) + (bx2 - bx1) * (by2 - by1) - inter
     return inter / union if union > 0 else 0.0
+
+
+def _bubble_coverage(ocr: tuple, bubble: tuple) -> float:
+    """Fraction of the OCR rect covered by the bubble rect.
+    Better than IoU for matching small OCR boxes inside large bubbles:
+    OCR bbox bao sát chữ nên diện tích << bubble, IoU luôn thấp."""
+    ax1, ay1, ax2, ay2 = ocr
+    bx1, by1, bx2, by2 = bubble
+    ix1 = max(ax1, bx1); iy1 = max(ay1, by1)
+    ix2 = min(ax2, bx2); iy2 = min(ay2, by2)
+    if ix2 <= ix1 or iy2 <= iy1:
+        return 0.0
+    inter = (ix2 - ix1) * (iy2 - iy1)
+    ocr_area = max(1, (ax2 - ax1) * (ay2 - ay1))
+    return inter / ocr_area
 
 
 def _run_ocr(img_array, gpu: bool = True, src_lang: str = "zh") -> list[tuple]:
@@ -397,18 +432,39 @@ def _draw_text_with_shadow(draw, pos, text, font, text_color, shadow_color):
     draw.text((tx, ty), text, font=font, fill=text_color)
 
 
+def _wrap_text_px(draw, text: str, font, max_px: int) -> list:
+    """Word-wrap `text` so each line fits within `max_px` pixels."""
+    words = text.split()
+    if not words:
+        return [text]
+    lines = []
+    current = []
+    for word in words:
+        candidate = " ".join(current + [word])
+        try:
+            bb = draw.textbbox((0, 0), candidate, font=font)
+            w  = bb[2] - bb[0]
+        except Exception:
+            w = len(candidate) * max(getattr(font, "size", 10), 8)
+        if w <= max_px or not current:
+            current.append(word)
+        else:
+            lines.append(" ".join(current))
+            current = [word]
+    if current:
+        lines.append(" ".join(current))
+    return lines or [text]
+
+
 def render_text(
     img_pil,
     bbox,
     text: str,
     font_path: str | None,
-    layout: str = "auto",
+    strict_clip: bool = False,
 ):
-    """
-    Vẽ text vào vùng bbox.
-    layout: "auto"       – chọn tự động (vertical nếu bubble cao hơn rộng)
-            "horizontal" – ngang truyền thống, tự wrap
-            "vertical"   – dọc: mỗi chữ 1 hàng, các cột đọc từ phải sang trái
+    """Vẽ text ngang vào vùng bbox với pixel-accurate word wrap.
+    strict_clip=True: cắp text trong bbox (khi đã khớp với bubble thật).
     """
     from PIL import ImageDraw
     import numpy as np
@@ -436,129 +492,60 @@ def render_text(
     text_color   = (255, 255, 255) if brightness < 140 else (15, 15, 15)
     shadow_color = (0, 0, 0)       if brightness < 140 else (255, 255, 255)
 
-    # auto: vertical nếu bubble cao hơn rộng >= 1.4×
-    effective_layout = layout
-    if layout == "auto":
-        effective_layout = "vertical" if bh >= bw * 1.4 else "horizontal"
+    # always horizontal — Vietnamese is Latin script
+    pad     = max(4, int(min(bw, bh) * 0.07))
+    inner_w = max(bw - pad * 2, 20)
+    inner_h = max(bh - pad * 2, 12)
+    max_start = max(min(inner_h // 2, 56), 10)
+    # strict_clip: dùng đúng chiều rộng bubble; không có: giới hạn 220px vìOCR box có thể rất rộng
+    wrap_w  = inner_w if strict_clip else min(inner_w, 220)
 
-    # ── VERTICAL layout ────────────────────────────────────────────────────
-    if effective_layout == "vertical":
-        # Chia chữ thành các cột đọc phải→trái (mỗi cột là 1 chuỗi ký tự dọc)
-        chars = list(text.replace("\n", "").replace(" ", ""))
-        if not chars:
-            return img_pil
-
-        # Tìm cỡ chữ: mỗi char chiếm 1 ô vuông cạnh `size`
-        # Cần số hàng (chars/col) × size ≤ bh, số cột × size ≤ bw
-        best_size  = 9
-        best_cols  = 1
-        best_rows  = len(chars)
-        for size in range(min(bw, bh, 32), 7, -1):
-            font_t = _load_font(font_path, size)
-            try:
-                bb  = draw.textbbox((0, 0), "国", font=font_t)
-                cw  = bb[2] - bb[0]
-                ch  = bb[3] - bb[1]
-            except Exception:
-                cw = ch = size
-            char_size = max(cw, ch, 1)
-            max_cols = max(1, int(bw * 0.95 / (char_size + 2)))
-            rows_needed = -(-len(chars) // max_cols)  # ceil div
-            rows_fit    = max(1, int(bh * 0.95 / (char_size + 2)))
-            if rows_needed <= rows_fit:
-                best_size = char_size
-                best_cols = max_cols
-                best_rows = rows_needed
-                break
-
-        font_v   = _load_font(font_path, best_size)
-        try:
-            bb = draw.textbbox((0, 0), "国", font=font_v)
-            cs = max(bb[2] - bb[0], bb[3] - bb[1], 1)
-        except Exception:
-            cs = best_size
-        gap = 2
-
-        # Phân phối chars vào cột (cột đầu tiên = phải nhất)
-        rows_per_col = -(-len(chars) // best_cols)
-        cols_data = []
-        for ci in range(best_cols):
-            cols_data.append(chars[ci * rows_per_col:(ci + 1) * rows_per_col])
-
-        total_w = best_cols * (cs + gap) - gap
-        total_h = rows_per_col * (cs + gap) - gap
-
-        actual_x1 = min(iw, max(x1i, x2i - total_w - 4))
-        actual_y2 = min(ih, max(y2i, y1i + total_h + 8))
-
-        draw.rectangle([actual_x1 - 3, y1i - 3, x2i + 3, actual_y2 + 3], fill=bg_rgb)
-
-        # Cột phải nhất đầu tiên, đọc từ trên xuống
-        start_x = x2i - total_w + (x2i - x1i - total_w) // 2
-        start_x = max(x1i + 2, min(start_x, x2i - cs - 2))
-        start_y = y1i + max(0, (actual_y2 - y1i - total_h) // 2)
-
-        for ci, col_chars in enumerate(cols_data):
-            cx = start_x + ci * (cs + gap)
-            cy = start_y
-            for ch_char in col_chars:
-                try:
-                    bb  = draw.textbbox((0, 0), ch_char, font=font_v)
-                    cbw = bb[2] - bb[0]
-                    off = max(0, (cs - cbw) // 2)
-                except Exception:
-                    off = 0
-                _draw_text_with_shadow(draw, (cx + off, cy), ch_char, font_v, text_color, shadow_color)
-                cy += cs + gap
-
-        return img_pil
-
-    # ── HORIZONTAL layout ──────────────────────────────────────────────────
     best_font  = None
     best_lines = [text]
-    for size in range(min(bh, 28), 7, -1):
+    best_lh    = 11
+    for size in range(max_start, 6, -1):
         font = _load_font(font_path, size)
-        try:
-            bb = draw.textbbox((0, 0), "M", font=font)
-            cw = max(bb[2] - bb[0], 1)
-        except Exception:
-            cw = max(int(size * 0.55), 1)
-        cpl   = max(1, int(bw * 0.95 / cw))
-        lines = textwrap.wrap(text, width=cpl) or [text]
         try:
             bb = draw.textbbox((0, 0), "Ắp", font=font)
             lh = bb[3] - bb[1] + 2
         except Exception:
             lh = size + 2
-        if lh * len(lines) <= bh + size:
+        lines = _wrap_text_px(draw, text, font, wrap_w)
+        if lh * len(lines) <= inner_h:
             best_font  = font
             best_lines = lines
+            best_lh    = lh
             break
 
     if best_font is None:
-        best_font = _load_font(font_path, 9)
+        best_font  = _load_font(font_path, 8)
+        best_lines = _wrap_text_px(draw, text, best_font, wrap_w)
+        try:
+            bb = draw.textbbox((0, 0), "Ắp", font=best_font)
+            best_lh = bb[3] - bb[1] + 2
+        except Exception:
+            best_lh = 10
 
-    try:
-        bb = draw.textbbox((0, 0), "Ắp", font=best_font)
-        lh = bb[3] - bb[1] + 2
-    except Exception:
-        lh = 11
-
-    total_h   = lh * len(best_lines)
-    actual_y2 = min(ih, max(y2i, y1i + total_h + 8))
+    total_h   = best_lh * len(best_lines)
+    if strict_clip:
+        # Giữ text trong bubble: không mở rộng xuống dưới y2i
+        actual_y2 = min(y2i, y1i + total_h + pad * 2)
+    else:
+        # Không có bubble khớp: cho phép mở rộng xuống để thấy đủ text
+        actual_y2 = min(ih, max(y2i, y1i + total_h + pad * 2))
 
     draw.rectangle([x1i - 3, y1i - 3, x2i + 3, actual_y2 + 3], fill=bg_rgb)
 
-    ty = y1i + max(0, (actual_y2 - y1i - total_h) // 2)
+    ty = y1i + max(pad, (actual_y2 - y1i - total_h) // 2)
     for line in best_lines:
         try:
             lb = draw.textbbox((0, 0), line, font=best_font)
             lw = lb[2] - lb[0]
         except Exception:
-            lw = len(line) * lh // 2
-        tx = x1i + max(0, (bw - lw) // 2)
+            lw = len(line) * best_lh // 2
+        tx = x1i + max(pad, (bw - lw) // 2)
         _draw_text_with_shadow(draw, (tx, ty), line, best_font, text_color, shadow_color)
-        ty += lh
+        ty += best_lh
 
     return img_pil
 
@@ -622,7 +609,6 @@ class ImageTranslator:
         src_lang: str = "zh",
         inpainter: str = "opencv",
         overwrite: bool = False,
-        text_layout: str = "auto",
         on_log=None,
         on_progress=None,
     ):
@@ -632,7 +618,6 @@ class ImageTranslator:
         self.src_lang    = src_lang if src_lang in ("zh", "en") else "zh"
         self.inpainter   = inpainter if inpainter in ("opencv", "lama") else "opencv"
         self.overwrite   = overwrite
-        self.text_layout = text_layout if text_layout in ("auto", "horizontal", "vertical") else "auto"
         self.on_log      = on_log or print
         self.on_progress = on_progress or (lambda d, t: None)
 
@@ -716,22 +701,31 @@ class ImageTranslator:
                 gy2   = int(max(r[3] for r in rects))
                 full_text = " ".join(t for t in trans_list if t.strip())
 
-                # Thử khớp với speech bubble để căn text vào giữa bubble thật
-                ocr_rect = (gx1, gy1, gx2, gy2)
+                # Khớp OCR group với bubble bằng coverage:
+                # (% OCR box nằm trong bubble) thay vì IoU — vì OCR box << bubble
+                ocr_rect    = (gx1, gy1, gx2, gy2)
                 best_bubble = None
-                best_iou    = 0.0
+                best_cov    = 0.0
                 for bubble in bubbles:
-                    iou = _iou_rect(ocr_rect, bubble)
-                    if iou > best_iou:
-                        best_iou    = iou
+                    cov = _bubble_coverage(ocr_rect, bubble)
+                    if cov > best_cov:
+                        best_cov    = cov
                         best_bubble = bubble
-                if best_bubble and best_iou > 0.15:
+                if best_bubble and best_cov > 0.4:
                     rx1, ry1, rx2, ry2 = best_bubble
                 else:
-                    rx1, ry1, rx2, ry2 = gx1, gy1, gx2, gy2
+                    # Không tìm được bubble — mở rộng bbox OCR để có vùng render hợp lý
+                    ih_img, iw_img = img_orig.shape[:2]
+                    pad_x = max(8, int((gx2 - gx1) * 0.30))
+                    pad_y = max(8, int((gy2 - gy1) * 0.40))
+                    rx1 = max(0,        gx1 - pad_x)
+                    ry1 = max(0,        gy1 - pad_y)
+                    rx2 = min(iw_img,   gx2 + pad_x)
+                    ry2 = min(ih_img,   gy2 + pad_y)
 
                 merged_bbox = [[rx1, ry1], [rx2, ry1], [rx2, ry2], [rx1, ry2]]
-                img_pil = render_text(img_pil, merged_bbox, full_text, self.font_path, layout=self.text_layout)
+                img_pil = render_text(img_pil, merged_bbox, full_text, self.font_path,
+                                      strict_clip=(best_cov > 0.4))
 
             # Lưu — giữ nguyên định dạng
             dst.parent.mkdir(parents=True, exist_ok=True)
@@ -901,7 +895,6 @@ class MITImageTranslator:
         font_size_minimum: str = "",
         font_size_fixed: str = "",
         font_color: str = "",
-        text_layout: str = "auto",
         verbose: bool = False,
         skip_no_text: bool = False,
         overwrite: bool = False,
@@ -923,7 +916,6 @@ class MITImageTranslator:
         self.font_size_minimum    = font_size_minimum
         self.font_size_fixed      = font_size_fixed
         self.font_color           = font_color
-        self.text_layout          = text_layout if text_layout in ("auto", "horizontal", "vertical") else "auto"
         self.verbose              = verbose
         self.skip_no_text         = skip_no_text
         self.overwrite            = overwrite
@@ -989,8 +981,6 @@ class MITImageTranslator:
             cfg.setdefault("render", {})["font_size"] = int(self.font_size_fixed)
         if self.font_color:
             cfg.setdefault("render", {})["font_color"] = self.font_color
-        if self.text_layout and self.text_layout != "auto":  # auto is default
-            cfg.setdefault("render", {})["direction"] = self.text_layout
 
         # Auto-inject gpt_config for custom_openai to improve translation quality
         if self.translator == "custom_openai":
