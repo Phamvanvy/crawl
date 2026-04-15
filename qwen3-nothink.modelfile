@@ -1,2 +1,4 @@
 FROM qwen3:8b
 SYSTEM "You are a translation assistant. Always respond directly and concisely without thinking steps."
+PARAMETER num_ctx 2048
+PARAMETER num_predict 512

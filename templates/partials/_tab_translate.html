@@ -91,6 +91,18 @@
               ⚠ Chưa cài: <code>pip install simple-lama-inpainting</code>
             </div>
           </div>
+          <div class="field">
+            <label title="Cách xếp chữ trong bong bóng hội thoại">Kiểu chữ trong bong bóng</label>
+            <select id="tTextLayout" class="field select">
+              <option value="auto" selected>Tự động (dọc khi khung cao, ngang khi khung rộng)</option>
+              <option value="horizontal">Ngang — wrap theo dòng</option>
+              <option value="vertical">Dọc — từng chữ xếp thành cột</option>
+            </select>
+          </div>
+          <label class="cb-item" style="margin-top:6px" title="Dịch lại những ảnh đã có trong thư mục output. Bỏ tick = chỉ dịch ảnh chưa có file đầu ra (xóa ảnh xấu rồi chạy lại sẽ tự dịch lại)">
+            <input type="checkbox" id="tOverwrite" />
+            ♻ Ghi đè ảnh đã dịch
+          </label>
         </div>
 
         <!-- ── MIT options ────────────────────────────────────────────── -->
@@ -130,6 +142,19 @@
 
           <!-- API key hint banner -->
           <div id="mitApiKeyHint" class="api-key-alert"></div>
+
+          <!-- Ollama model (only for custom_openai) -->
+          <div id="mitOllamaModelField" class="field" style="display:none;margin-bottom:0">
+            <label>Ollama Model <span style="font-size:.7rem;opacity:.7">(custom_openai)</span></label>
+            <div class="folder-row">
+              <input type="text" id="tMITOllamaModel" value="" placeholder="qwen3-14b-nothink:latest" />
+              <select id="tMITModelSelect"
+                style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:0 8px;font-family:inherit;font-size:.82rem;cursor:pointer"
+                onchange="if(this.value)setVal('tMITOllamaModel',this.value)">
+                <option value="">— models —</option>
+              </select>
+            </div>
+          </div>
 
           <!-- Target language -->
           <div class="field" style="margin-bottom:0">
@@ -175,14 +200,14 @@
 • default — tự chọn tốt nhất
 • ctd — chuyên cho manga Nhật, phát hiện bong bóng hội thoại
 • craft — tổng quát, tốt với scene text
-• dbnet_convnext — nhanh hơn, phù hợp CG/photo
+• paddle — dùng PaddleOCR detector, nhanh hơn
 
 Với truyện tranh dùng ctd. Với CG/ảnh 3D để default.</span></span></label>
                   <select id="tMITDetector" class="field select sm">
                     <option value="">default</option>
                     <option value="ctd">ctd (manga)</option>
                     <option value="craft">craft</option>
-                    <option value="dbnet_convnext">dbnet_convnext</option>
+                    <option value="paddle">paddle</option>
                   </select>
                 </div>
                 <div class="field" style="margin-bottom:0">
@@ -197,8 +222,8 @@ Khuyến nghị: lama_large nếu có GPU.</span></span></label>
                     <option value="">default</option>
                     <option value="lama_large" selected>lama_large ✦</option>
                     <option value="lama_mpe">lama_mpe</option>
-                    <option value="opencv">opencv</option>
-                    <option value="none">none</option>
+                    <option value="original">original (giữ nền)</option>
+                    <option value="none">none (không inpaint)</option>
                   </select>
                 </div>
                 <div class="field" style="margin-bottom:0">
@@ -325,6 +350,16 @@ CG/subtitle: dùng FFFFFF:000000 để đảm bảo đọc được trên mọi 
                 </label>
               </div>
 
+              <!-- Row 4: Text direction -->
+              <div class="field" style="margin-top:8px">
+                <label title="Hướng xếp chữ khi render (MIT render config: direction)">Hướng chữ (direction)</label>
+                <select id="tMITTextLayout" class="field select sm">
+                  <option value="auto" selected>auto — MIT tự chọn</option>
+                  <option value="horizontal">horizontal — nằm ngang</option>
+                  <option value="vertical">vertical — đứng dọc ↕</option>
+                </select>
+              </div>
+
             </div>
           </details>
 
@@ -370,6 +405,28 @@ CG/subtitle: dùng FFFFFF:000000 để đảm bảo đọc được trên mọi 
         <div class="action-row">
           <button class="btn btn-primary" id="tStartBtn" onclick="tStart()" data-i18n="btn.start_translate">▶ Bắt đầu dịch</button>
           <button class="btn btn-danger"  id="tStopBtn"  onclick="tStop()" disabled data-i18n="btn.stop">■ Dừng</button>
+        </div>
+
+        <!-- Auto-retry -->
+        <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <label class="cb-item" title="Tự động retry ảnh dịch lỗi sau khi hoàn thành">
+            <input type="checkbox" id="tAutoRetryChk" onchange="onTAutoRetryChkChange()" />
+            ↺ Tự động retry ảnh lỗi
+          </label>
+          <div style="display:flex;align-items:center;gap:4px">
+            <input type="number" id="tAutoRetryTimes" min="1" max="10" value="2"
+              style="width:52px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:4px 6px;font-size:.82rem"
+              disabled />
+            <span style="font-size:.78rem;color:var(--text-muted)">lần</span>
+          </div>
+        </div>
+
+        <!-- Failed images panel -->
+        <div id="tFailedPanel" style="display:none;margin-top:10px">
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <span class="stat-pill stat-red" id="tFailedBadge">0 ảnh lỗi</span>
+            <button class="btn btn-ghost" style="padding:3px 10px;font-size:.75rem" onclick="tRetryFailed()">↺ Retry ảnh lỗi</button>
+          </div>
         </div>
 
         <div class="progress-wrap" id="tProgressWrap" style="display:none">

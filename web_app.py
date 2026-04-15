@@ -26,6 +26,7 @@ from crawler import crawl, retry_failed_downloads
 import translator_engine as te
 
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024  # 1 MB — JSON payload only
 
 # ── Trạng thái toàn cục (một phiên crawl tại một thời điểm) ──────────────────
 _lock = threading.Lock()
@@ -324,6 +325,9 @@ _t_log_total: int = 0
 _t_state: dict = {
     "running": False, "done": 0, "total": 0,
     "success": 0, "failed": 0, "status": "ready",
+    "failed_images": [],   # list of src paths that failed
+    "input_dir": "",
+    "output_dir": "",
 }
 _t_stop = threading.Event()
 
@@ -358,7 +362,8 @@ def _t_reset() -> None:
     with _t_lock:
         _t_logs.clear()
         _t_log_total = 0
-        _t_state.update(running=True, done=0, total=0, success=0, failed=0, status="running")
+        _t_state.update(running=True, done=0, total=0, success=0, failed=0, status="running",
+                        failed_images=[])
     _t_stop.clear()
 
 
@@ -442,6 +447,10 @@ def api_translate_start():
     mit_verbose       = bool(data.get("mit_verbose",     False))
     mit_skip_no_text  = bool(data.get("mit_skip_no_text",False))
     mit_overwrite     = bool(data.get("mit_overwrite",   False))
+    overwrite         = bool(data.get("overwrite",       False))
+    text_layout       = str(data.get("text_layout",      "auto")).strip()
+    if text_layout not in ("auto", "horizontal", "vertical"):
+        text_layout = "auto"
     inpainter         = str(data.get("inpainter",        "opencv")).strip()
     if inpainter not in ("opencv", "lama"):
         inpainter = "opencv"
@@ -483,6 +492,7 @@ def api_translate_start():
                     python_path=mit_check.get("python"),
                     detector=mit_detector,
                     inpainter=mit_inpainter,
+                    ollama_model=model,
                     upscale_ratio=mit_upscale,
                     detection_size=mit_det_size,
                     mask_dilation_offset=mit_mask_dil,
@@ -491,6 +501,7 @@ def api_translate_start():
                     font_size_minimum=mit_font_min,
                     font_size_fixed=mit_font_fixed,
                     font_color=mit_font_color,
+                    text_layout=text_layout,
                     verbose=mit_verbose,
                     skip_no_text=mit_skip_no_text,
                     overwrite=mit_overwrite,
@@ -506,10 +517,12 @@ def api_translate_start():
                     use_gpu=use_gpu,
                     src_lang=src_lang,
                     inpainter=inpainter,
+                    overwrite=overwrite,
+                    text_layout=text_layout,
                     on_log=on_log,
                     on_progress=on_progress,
                 )
-            ok, fail = translator.process_folder(
+            ok, fail, failed_images = translator.process_folder(
                 input_dir=input_dir,
                 output_dir=output_dir,
                 stop_event=_t_stop,
@@ -517,7 +530,9 @@ def api_translate_start():
             _t_push({"type": "log",  "msg": f"\n✔  Xong: {ok} OK, {fail} lỗi."})
             _t_push({"type": "done", "success": ok, "failed": fail, "output_dir": output_dir})
             with _t_lock:
-                _t_state.update(running=False, success=ok, failed=fail, status="done")
+                _t_state.update(running=False, success=ok, failed=fail, status="done",
+                                 failed_images=failed_images,
+                                 input_dir=input_dir, output_dir=output_dir)
         except Exception as exc:
             _t_push({"type": "log",   "msg": f"✘  Lỗi: {exc}"})
             _t_push({"type": "error", "msg": str(exc)})
@@ -537,6 +552,108 @@ def api_translate_stop():
     _t_stop.set()
     _t_push({"type": "log", "msg": "⚠  Yêu cầu dừng đã gửi."})
     return jsonify({"ok": True})
+
+
+@app.route("/api/translate/failed")
+def api_translate_failed():
+    """Trả về danh sách ảnh bị lỗi từ lần dịch gần nhất."""
+    with _t_lock:
+        return jsonify({
+            "images":     list(_t_state.get("failed_images", [])),
+            "input_dir":  _t_state.get("input_dir", ""),
+            "output_dir": _t_state.get("output_dir", ""),
+        })
+
+
+@app.route("/api/translate/retry_failed", methods=["POST"])
+def api_translate_retry_failed():
+    """Retry chỉ các ảnh dịch bị lỗi."""
+    with _t_lock:
+        if _t_state["running"]:
+            return jsonify({"error": "Đang dịch rồi. Vui lòng dừng trước."}), 409
+
+    with _t_lock:
+        failed_images = list(_t_state.get("failed_images", []))
+        input_dir     = _t_state.get("input_dir", "")
+        output_dir    = _t_state.get("output_dir", "")
+
+    if not failed_images:
+        return jsonify({"error": "Không có ảnh lỗi để retry."}), 400
+    if not input_dir or not Path(input_dir).is_dir():
+        return jsonify({"error": "Thư mục nguồn không hợp lệ."}), 400
+
+    data        = request.get_json(silent=True) or {}
+    model       = str(data.get("model",      "qwen2.5:7b")).strip() or "qwen2.5:7b"
+    use_gpu     = bool(data.get("use_gpu", True))
+    src_lang    = str(data.get("src_lang", "zh")).strip().lower()
+    inpainter   = str(data.get("inpainter", "opencv")).strip()
+    if inpainter not in ("opencv", "lama"):
+        inpainter = "opencv"
+    if src_lang not in ("zh", "en"):
+        src_lang = "zh"
+
+    _t_reset()
+
+    def run() -> None:
+        try:
+            def on_log(msg: str):
+                _t_push({"type": "log", "msg": str(msg)})
+
+            def on_progress(done: int, total: int):
+                with _t_lock:
+                    _t_state["done"]  = done
+                    _t_state["total"] = total
+                _t_push({"type": "progress", "done": done, "total": total})
+
+            _t_push({"type": "log", "msg": "─" * 60})
+            _t_push({"type": "log", "msg": f"↺  Retry {len(failed_images)} ảnh dịch lỗi…"})
+
+            translator = te.ImageTranslator(
+                model=model,
+                font_path=_find_font(),
+                use_gpu=use_gpu,
+                src_lang=src_lang,
+                inpainter=inpainter,
+                on_log=on_log,
+                on_progress=on_progress,
+            )
+            ok, fail, new_failed = translator.process_folder(
+                input_dir=input_dir,
+                output_dir=output_dir,
+                stop_event=_t_stop,
+                images_override=failed_images,
+            )
+            _t_push({"type": "log",  "msg": f"\n✔  Retry xong: {ok} OK, {fail} lỗi."})
+            _t_push({"type": "done", "success": ok, "failed": fail, "output_dir": output_dir})
+            with _t_lock:
+                _t_state.update(running=False, success=ok, failed=fail, status="done",
+                                 failed_images=new_failed,
+                                 input_dir=input_dir, output_dir=output_dir)
+        except Exception as exc:
+            _t_push({"type": "log",   "msg": f"✘  Lỗi: {exc}"})
+            _t_push({"type": "error", "msg": str(exc)})
+            with _t_lock:
+                _t_state.update(running=False, status="error")
+
+    threading.Thread(target=run, daemon=True).start()
+    return jsonify({"ok": True, "output_dir": output_dir})
+
+
+@app.route("/api/viewer/delete", methods=["POST"])
+def api_viewer_delete():
+    """Xóa file ảnh khỏi đĩa (dùng trong viewer)."""
+    data = request.get_json(silent=True) or {}
+    path_str = str(data.get("path", "")).strip()
+    if not path_str:
+        return jsonify({"error": "Thiếu path"}), 400
+    p = Path(path_str).resolve()
+    if not p.is_file() or p.suffix.lower() not in te.IMAGE_EXTS:
+        return jsonify({"error": "File không hợp lệ"}), 400
+    try:
+        p.unlink()
+        return jsonify({"ok": True})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 @app.route("/api/translate/logs")

@@ -1,7 +1,32 @@
 <!-- ── Lightbox ─────────────────────────────────────────────────────────── -->
-<div class="lightbox" id="lightbox" onclick="closeLightbox()">
-  <button class="lightbox-close" onclick="closeLightbox()">✕</button>
-  <img id="lightboxImg" src="" alt="" />
+<div class="lightbox" id="lightbox">
+  <!-- backdrop closes -->
+  <div class="lb-backdrop" onclick="closeLightbox()"></div>
+
+  <!-- nav arrows -->
+  <button class="lb-nav lb-prev" id="lbPrevBtn" onclick="lbPrev()">&#8249;</button>
+  <button class="lb-nav lb-next" id="lbNextBtn" onclick="lbNext()">&#8250;</button>
+
+  <!-- image wrapper (zoom container) -->
+  <div class="lb-img-wrap" id="lbImgWrap">
+    <img id="lightboxImg" src="" alt="" draggable="false" />
+  </div>
+
+  <!-- top bar -->
+  <div class="lb-topbar">
+    <span class="lb-counter" id="lbCounter">1 / 1</span>
+    <span class="lb-name" id="lbName"></span>
+    <button class="lb-close" onclick="closeLightbox()">✕</button>
+  </div>
+
+  <!-- bottom toolbar -->
+  <div class="lb-toolbar" onclick="event.stopPropagation()">
+    <button class="lb-tool" onclick="lbZoomOut()" title="Thu nhỏ (−)">&#x2212;</button>
+    <button class="lb-tool lb-zoom-reset" id="lbZoomLabel" onclick="lbZoomReset()" title="Reset zoom">100%</button>
+    <button class="lb-tool" onclick="lbZoomIn()"  title="Phóng to (+)">+</button>
+    <div class="lb-sep"></div>
+    <button class="lb-tool lb-del" id="lbDelBtn" onclick="lbDelete()" title="Xóa ảnh này">🗑 Xóa</button>
+  </div>
 </div>
 
 <!-- ── Folder browser modal ────────────────────────────────────────────── -->

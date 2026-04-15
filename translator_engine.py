@@ -33,10 +33,13 @@ def _get_paddle_reader(gpu: bool = True, lang: str = "ch"):
         if key not in _paddle_readers:
             from paddleocr import PaddleOCR  # lazy
             _paddle_readers[key] = PaddleOCR(
-                use_angle_cls=True,  # phát hiện text xoay/dọc
+                use_angle_cls=True,     # phát hiện text xoay/dọc
                 lang=lang,
                 use_gpu=gpu,
                 show_log=False,
+                det_db_thresh=0.2,          # nhạy hơn với text nhạt/mờ
+                det_db_box_thresh=0.3,      # bắt box text có confidence thấp
+                det_db_unclip_ratio=2.0,    # mở rộng bbox bao quanh text
             )
     return _paddle_readers[key]
 
@@ -54,6 +57,21 @@ _reader_lock = _easyocr_lock
 def _get_reader(gpu: bool = True):
     return _get_easyocr_reader(gpu)
 
+def _preprocess_for_ocr(img_array):
+    """
+    Tăng contrast và khử nhiễu nền cho CG/VN/scene text.
+    Text màu + viền trên nền phức tạp → cần làm nổi bật text trước khi OCR.
+    """
+    import cv2
+    import numpy as np
+    gray = cv2.cvtColor(img_array, cv2.COLOR_BGR2GRAY)
+    # CLAHE — tăng contrast cục bộ, tốt hơn linear scale cho ảnh không đồng đều
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    enhanced = clahe.apply(gray)
+    # Chuyển lại BGR để PaddleOCR nhận
+    return cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
+
+
 def _run_ocr_engine(img_array, gpu: bool = True, src_lang: str = "zh") -> list[tuple]:
     """
     Raw OCR engine trên numpy array ảnh.
@@ -65,10 +83,17 @@ def _run_ocr_engine(img_array, gpu: bool = True, src_lang: str = "zh") -> list[t
     # PaddleOCR
     try:
         paddle = _get_paddle_reader(gpu, lang=paddle_lang)
+        # Thử OCR ảnh gốc trước
         result = paddle.ocr(img_array, cls=True)
-        if result and result[0]:
-            return [(line[0], line[1][0], float(line[1][1])) for line in result[0]]
-        return []
+        hits = [(line[0], line[1][0], float(line[1][1])) for line in result[0]] if result and result[0] else []
+        # Nếu detect ít — thử lại với ảnh đã tăng contrast (cho CG/scene text)
+        if len(hits) < 2:
+            processed = _preprocess_for_ocr(img_array)
+            result2 = paddle.ocr(processed, cls=True)
+            hits2 = [(line[0], line[1][0], float(line[1][1])) for line in result2[0]] if result2 and result2[0] else []
+            if len(hits2) > len(hits):
+                hits = hits2
+        return hits
     except ImportError:
         pass
     except Exception:
@@ -365,16 +390,25 @@ def inpaint_region(img, bbox, method: str = "opencv"):
 
 # ── Text rendering ────────────────────────────────────────────────────────────
 
+def _draw_text_with_shadow(draw, pos, text, font, text_color, shadow_color):
+    tx, ty = pos
+    for dx, dy in ((-1, -1), (1, -1), (-1, 1), (1, 1), (0, -1), (0, 1), (-1, 0), (1, 0)):
+        draw.text((tx + dx, ty + dy), text, font=font, fill=shadow_color)
+    draw.text((tx, ty), text, font=font, fill=text_color)
+
+
 def render_text(
     img_pil,
     bbox,
     text: str,
     font_path: str | None,
+    layout: str = "auto",
 ):
     """
-    Vẽ text vào vùng bbox:
-    - Vẽ background box (màu lấy từ vùng đã inpaint)
-    - Text căn giữa, màu tương phản, có viền shadow
+    Vẽ text vào vùng bbox.
+    layout: "auto"       – chọn tự động (vertical nếu bubble cao hơn rộng)
+            "horizontal" – ngang truyền thống, tự wrap
+            "vertical"   – dọc: mỗi chữ 1 hàng, các cột đọc từ phải sang trái
     """
     from PIL import ImageDraw
     import numpy as np
@@ -402,7 +436,84 @@ def render_text(
     text_color   = (255, 255, 255) if brightness < 140 else (15, 15, 15)
     shadow_color = (0, 0, 0)       if brightness < 140 else (255, 255, 255)
 
-    # Tìm cỡ chữ tốt nhất
+    # auto: vertical nếu bubble cao hơn rộng >= 1.4×
+    effective_layout = layout
+    if layout == "auto":
+        effective_layout = "vertical" if bh >= bw * 1.4 else "horizontal"
+
+    # ── VERTICAL layout ────────────────────────────────────────────────────
+    if effective_layout == "vertical":
+        # Chia chữ thành các cột đọc phải→trái (mỗi cột là 1 chuỗi ký tự dọc)
+        chars = list(text.replace("\n", "").replace(" ", ""))
+        if not chars:
+            return img_pil
+
+        # Tìm cỡ chữ: mỗi char chiếm 1 ô vuông cạnh `size`
+        # Cần số hàng (chars/col) × size ≤ bh, số cột × size ≤ bw
+        best_size  = 9
+        best_cols  = 1
+        best_rows  = len(chars)
+        for size in range(min(bw, bh, 32), 7, -1):
+            font_t = _load_font(font_path, size)
+            try:
+                bb  = draw.textbbox((0, 0), "国", font=font_t)
+                cw  = bb[2] - bb[0]
+                ch  = bb[3] - bb[1]
+            except Exception:
+                cw = ch = size
+            char_size = max(cw, ch, 1)
+            max_cols = max(1, int(bw * 0.95 / (char_size + 2)))
+            rows_needed = -(-len(chars) // max_cols)  # ceil div
+            rows_fit    = max(1, int(bh * 0.95 / (char_size + 2)))
+            if rows_needed <= rows_fit:
+                best_size = char_size
+                best_cols = max_cols
+                best_rows = rows_needed
+                break
+
+        font_v   = _load_font(font_path, best_size)
+        try:
+            bb = draw.textbbox((0, 0), "国", font=font_v)
+            cs = max(bb[2] - bb[0], bb[3] - bb[1], 1)
+        except Exception:
+            cs = best_size
+        gap = 2
+
+        # Phân phối chars vào cột (cột đầu tiên = phải nhất)
+        rows_per_col = -(-len(chars) // best_cols)
+        cols_data = []
+        for ci in range(best_cols):
+            cols_data.append(chars[ci * rows_per_col:(ci + 1) * rows_per_col])
+
+        total_w = best_cols * (cs + gap) - gap
+        total_h = rows_per_col * (cs + gap) - gap
+
+        actual_x1 = min(iw, max(x1i, x2i - total_w - 4))
+        actual_y2 = min(ih, max(y2i, y1i + total_h + 8))
+
+        draw.rectangle([actual_x1 - 3, y1i - 3, x2i + 3, actual_y2 + 3], fill=bg_rgb)
+
+        # Cột phải nhất đầu tiên, đọc từ trên xuống
+        start_x = x2i - total_w + (x2i - x1i - total_w) // 2
+        start_x = max(x1i + 2, min(start_x, x2i - cs - 2))
+        start_y = y1i + max(0, (actual_y2 - y1i - total_h) // 2)
+
+        for ci, col_chars in enumerate(cols_data):
+            cx = start_x + ci * (cs + gap)
+            cy = start_y
+            for ch_char in col_chars:
+                try:
+                    bb  = draw.textbbox((0, 0), ch_char, font=font_v)
+                    cbw = bb[2] - bb[0]
+                    off = max(0, (cs - cbw) // 2)
+                except Exception:
+                    off = 0
+                _draw_text_with_shadow(draw, (cx + off, cy), ch_char, font_v, text_color, shadow_color)
+                cy += cs + gap
+
+        return img_pil
+
+    # ── HORIZONTAL layout ──────────────────────────────────────────────────
     best_font  = None
     best_lines = [text]
     for size in range(min(bh, 28), 7, -1):
@@ -436,10 +547,8 @@ def render_text(
     total_h   = lh * len(best_lines)
     actual_y2 = min(ih, max(y2i, y1i + total_h + 8))
 
-    # Vẽ background box
     draw.rectangle([x1i - 3, y1i - 3, x2i + 3, actual_y2 + 3], fill=bg_rgb)
 
-    # Vẽ text căn giữa
     ty = y1i + max(0, (actual_y2 - y1i - total_h) // 2)
     for line in best_lines:
         try:
@@ -448,9 +557,7 @@ def render_text(
         except Exception:
             lw = len(line) * lh // 2
         tx = x1i + max(0, (bw - lw) // 2)
-        for dx, dy in ((-1, -1), (1, -1), (-1, 1), (1, 1), (0, -1), (0, 1), (-1, 0), (1, 0)):
-            draw.text((tx + dx, ty + dy), line, font=best_font, fill=shadow_color)
-        draw.text((tx, ty), line, font=best_font, fill=text_color)
+        _draw_text_with_shadow(draw, (tx, ty), line, best_font, text_color, shadow_color)
         ty += lh
 
     return img_pil
@@ -514,6 +621,8 @@ class ImageTranslator:
         use_gpu: bool = True,
         src_lang: str = "zh",
         inpainter: str = "opencv",
+        overwrite: bool = False,
+        text_layout: str = "auto",
         on_log=None,
         on_progress=None,
     ):
@@ -522,6 +631,8 @@ class ImageTranslator:
         self.use_gpu     = use_gpu
         self.src_lang    = src_lang if src_lang in ("zh", "en") else "zh"
         self.inpainter   = inpainter if inpainter in ("opencv", "lama") else "opencv"
+        self.overwrite   = overwrite
+        self.text_layout = text_layout if text_layout in ("auto", "horizontal", "vertical") else "auto"
         self.on_log      = on_log or print
         self.on_progress = on_progress or (lambda d, t: None)
 
@@ -603,9 +714,24 @@ class ImageTranslator:
                 gy1   = int(min(r[1] for r in rects))
                 gx2   = int(max(r[2] for r in rects))
                 gy2   = int(max(r[3] for r in rects))
-                full_text    = " ".join(t for t in trans_list if t.strip())
-                merged_bbox  = [[gx1, gy1], [gx2, gy1], [gx2, gy2], [gx1, gy2]]
-                img_pil = render_text(img_pil, merged_bbox, full_text, self.font_path)
+                full_text = " ".join(t for t in trans_list if t.strip())
+
+                # Thử khớp với speech bubble để căn text vào giữa bubble thật
+                ocr_rect = (gx1, gy1, gx2, gy2)
+                best_bubble = None
+                best_iou    = 0.0
+                for bubble in bubbles:
+                    iou = _iou_rect(ocr_rect, bubble)
+                    if iou > best_iou:
+                        best_iou    = iou
+                        best_bubble = bubble
+                if best_bubble and best_iou > 0.15:
+                    rx1, ry1, rx2, ry2 = best_bubble
+                else:
+                    rx1, ry1, rx2, ry2 = gx1, gy1, gx2, gy2
+
+                merged_bbox = [[rx1, ry1], [rx2, ry1], [rx2, ry2], [rx1, ry2]]
+                img_pil = render_text(img_pil, merged_bbox, full_text, self.font_path, layout=self.text_layout)
 
             # Lưu — giữ nguyên định dạng
             dst.parent.mkdir(parents=True, exist_ok=True)
@@ -630,33 +756,49 @@ class ImageTranslator:
         input_dir: str,
         output_dir: str,
         stop_event: threading.Event | None = None,
-    ) -> tuple[int, int]:
-        """Xử lý toàn bộ ảnh trong input_dir, lưu vào output_dir."""
+        images_override: list | None = None,
+    ) -> tuple[int, int, list[str]]:
+        """Xử lý toàn bộ ảnh trong input_dir, lưu vào output_dir.
+        Trả về (ok, fail, failed_paths).
+        images_override: nếu có, chỉ xử lý các file trong danh sách này (dùng cho retry).
+        """
         inp = Path(input_dir)
         out = Path(output_dir)
         out.mkdir(parents=True, exist_ok=True)
 
-        images = sorted(f for f in inp.iterdir() if f.suffix.lower() in IMAGE_EXTS)
+        if images_override is not None:
+            images = [Path(p) for p in images_override if Path(p).suffix.lower() in IMAGE_EXTS]
+        else:
+            images = sorted(f for f in inp.iterdir() if f.suffix.lower() in IMAGE_EXTS)
+
         if not images:
             self._log("Không tìm thấy ảnh trong thư mục.")
-            return 0, 0
+            return 0, 0, []
 
         total = len(images)
         self._log(f"Tổng: {total} ảnh cần xử lý")
         ok = fail = 0
+        failed_paths: list[str] = []
 
         for i, path in enumerate(images, 1):
             if stop_event and stop_event.is_set():
                 self._log("⚠  Đã dừng theo yêu cầu.")
                 break
-            success = self.process_image(path, out / path.name)
+            dst = out / path.name
+            if not self.overwrite and dst.exists():
+                self._log(f"  [SKIP] Đã có: {path.name}")
+                ok += 1
+                self.on_progress(i, total)
+                continue
+            success = self.process_image(path, dst)
             if success:
                 ok += 1
             else:
                 fail += 1
+                failed_paths.append(str(path))
             self.on_progress(i, total)
 
-        return ok, fail
+        return ok, fail, failed_paths
 
 
 # ── manga-image-translator backend ───────────────────────────────────────────
@@ -750,6 +892,7 @@ class MITImageTranslator:
         python_path: str | None = None,
         detector: str = "",
         inpainter: str = "lama_large",
+        ollama_model: str = "",
         upscale_ratio: str = "",
         detection_size: str = "",
         mask_dilation_offset: str = "",
@@ -758,6 +901,7 @@ class MITImageTranslator:
         font_size_minimum: str = "",
         font_size_fixed: str = "",
         font_color: str = "",
+        text_layout: str = "auto",
         verbose: bool = False,
         skip_no_text: bool = False,
         overwrite: bool = False,
@@ -770,6 +914,7 @@ class MITImageTranslator:
         self.python_path          = python_path or _find_mit_python()
         self.detector             = detector
         self.inpainter            = inpainter
+        self.ollama_model         = ollama_model
         self.upscale_ratio        = upscale_ratio
         self.detection_size       = detection_size
         self.mask_dilation_offset = mask_dilation_offset
@@ -778,6 +923,7 @@ class MITImageTranslator:
         self.font_size_minimum    = font_size_minimum
         self.font_size_fixed      = font_size_fixed
         self.font_color           = font_color
+        self.text_layout          = text_layout if text_layout in ("auto", "horizontal", "vertical") else "auto"
         self.verbose              = verbose
         self.skip_no_text         = skip_no_text
         self.overwrite            = overwrite
@@ -792,14 +938,14 @@ class MITImageTranslator:
         input_dir: str,
         output_dir: str,
         stop_event: threading.Event | None = None,
-    ) -> tuple[int, int]:
+    ) -> tuple[int, int, list[str]]:
         import subprocess
         import time
 
         if not self.python_path:
             self._log(f"  [FAIL] Không tìm thấy Python có manga_translator.")
             self._log(f"  [FAIL] {_MIT_INSTALL_HINT}")
-            return 0, 0
+            return 0, 0, []
 
         inp = Path(input_dir)
         out = Path(output_dir)
@@ -808,7 +954,7 @@ class MITImageTranslator:
         images = sorted(f for f in inp.iterdir() if f.suffix.lower() in IMAGE_EXTS)
         if not images:
             self._log("Không tìm thấy ảnh trong thư mục.")
-            return 0, 0
+            return 0, 0, []
 
         total = len(images)
         self._log(f"Tổng: {total} ảnh — manga-image-translator")
@@ -843,6 +989,8 @@ class MITImageTranslator:
             cfg.setdefault("render", {})["font_size"] = int(self.font_size_fixed)
         if self.font_color:
             cfg.setdefault("render", {})["font_color"] = self.font_color
+        if self.text_layout and self.text_layout != "auto":  # auto is default
+            cfg.setdefault("render", {})["direction"] = self.text_layout
 
         # Auto-inject gpt_config for custom_openai to improve translation quality
         if self.translator == "custom_openai":
@@ -893,6 +1041,11 @@ class MITImageTranslator:
         wt.start()
 
         try:
+            import os as _os
+            sub_env = _os.environ.copy()
+            if self.translator == "custom_openai" and self.ollama_model:
+                sub_env["CUSTOM_OPENAI_MODEL"] = self.ollama_model
+                self._log(f"  [ENV] CUSTOM_OPENAI_MODEL={self.ollama_model}")
             proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -900,6 +1053,7 @@ class MITImageTranslator:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
+                env=sub_env,
             )
             for line in proc.stdout:
                 line = line.rstrip("\n")
@@ -927,4 +1081,4 @@ class MITImageTranslator:
         fail = max(0, total - ok)
         self.on_progress(ok, total)
         self._log(f"  [OK] Kết quả: {ok} ảnh trong {out}")
-        return ok, fail
+        return ok, fail, []
