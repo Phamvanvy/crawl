@@ -986,6 +986,8 @@ class MITImageTranslator:
         detector: str = "",
         inpainter: str = "lama_large",
         ollama_model: str = "",
+        custom_openai_api_base: str = "",
+        custom_openai_api_key: str = "",
         upscale_ratio: str = "",
         detection_size: str = "",
         mask_dilation_offset: str = "",
@@ -1007,6 +1009,8 @@ class MITImageTranslator:
         self.detector             = detector
         self.inpainter            = inpainter
         self.ollama_model         = ollama_model
+        self.custom_openai_api_base = custom_openai_api_base
+        self.custom_openai_api_key  = custom_openai_api_key
         self.upscale_ratio        = upscale_ratio
         self.detection_size       = detection_size
         self.mask_dilation_offset = mask_dilation_offset
@@ -1144,6 +1148,12 @@ class MITImageTranslator:
             if self.translator == "custom_openai" and self.ollama_model:
                 sub_env["CUSTOM_OPENAI_MODEL"] = self.ollama_model
                 self._log(f"  [ENV] CUSTOM_OPENAI_MODEL={self.ollama_model}")
+            if self.translator == "custom_openai" and self.custom_openai_api_base:
+                sub_env["CUSTOM_OPENAI_API_BASE"] = self.custom_openai_api_base
+                self._log(f"  [ENV] CUSTOM_OPENAI_API_BASE={self.custom_openai_api_base}")
+            if self.translator == "custom_openai" and self.custom_openai_api_key:
+                sub_env["CUSTOM_OPENAI_API_KEY"] = self.custom_openai_api_key
+                self._log(f"  [ENV] CUSTOM_OPENAI_API_KEY=***")
             proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,

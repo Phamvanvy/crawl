@@ -137,15 +137,26 @@
 
           <!-- Ollama model (only for custom_openai) -->
           <div id="mitOllamaModelField" class="field" style="display:none;margin-bottom:0">
-            <label>Ollama Model <span style="font-size:.7rem;opacity:.7">(custom_openai)</span></label>
-            <div class="folder-row">
-              <input type="text" id="tMITOllamaModel" value="" placeholder="qwen3-14b-nothink:latest" />
-              <select id="tMITModelSelect"
-                style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:0 8px;font-family:inherit;font-size:.82rem;cursor:pointer"
-                onchange="if(this.value)setVal('tMITOllamaModel',this.value)">
-                <option value="">— models —</option>
-              </select>
-            </div>
+            <label>Ollama / LM Studio Model <span style="font-size:.7rem;opacity:.7">(custom_openai)</span></label>
+            <input type="text" id="tMITOllamaModel" value="" placeholder="Nhập qwen2.5-vl-7b-instruct" 
+              style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-family:inherit;font-size:.9rem;outline:none;margin-bottom:6px" />
+            <select id="tMITModelSelect"
+              style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-family:inherit;font-size:.9rem;cursor:pointer"
+              onchange="if(this.value)setVal('tMITOllamaModel',this.value)">
+              <option value="">— models —</option>
+            </select>
+            <div class="field-hint">Gõ model trực tiếp hoặc chọn nếu có list. Ví dụ: qwen2.5-vl-7b-instruct.</div>
+          </div>
+          <div id="mitCustomOpenAiBaseField" class="field" style="display:none;margin-bottom:0">
+            <label>Custom API Base <span style="font-size:.7rem;opacity:.7">(LM Studio / OpenAI-compatible)</span></label>
+            <input type="text" id="tMITCustomOpenAiApiBase" value="" placeholder="http://127.0.0.1:8080/v1" 
+              style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-family:inherit;font-size:.82rem;outline:none;width:100%" />
+            <div class="field-hint">Chỉ cần khi dùng LM Studio / OpenAI-compatible API.</div>
+          </div>
+          <div id="mitCustomOpenAiKeyField" class="field" style="display:none;margin-bottom:0">
+            <label>Custom API Key <span style="font-size:.7rem;opacity:.7">(nếu cần)</span></label>
+            <input type="text" id="tMITCustomOpenAiApiKey" value="" placeholder="api_key_here" 
+              style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-family:inherit;font-size:.82rem;outline:none;width:100%" />
           </div>
 
           <!-- Target language -->

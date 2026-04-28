@@ -1056,7 +1056,7 @@ const MIT_API_KEYS = {
   caiyun:       'Cần env: CAIYUN_TOKEN=xxx',
   groq:         'Cần env: GROQ_API_KEY=xxx  |  GROQ_MODEL=mixtral-8x7b-32768',
   sakura:       'Cần env: SAKURA_API_BASE=http://127.0.0.1:8080/v1',
-  custom_openai:'Cần env: CUSTOM_OPENAI_API_BASE=http://localhost:11434/v1  CUSTOM_OPENAI_MODEL=qwen3-14b-nothink  (hoặc qwen3-nothink cho 8b)',
+  custom_openai:'Cần API Base: CUSTOM_OPENAI_API_BASE=http://localhost:11434/v1 (Ollama) hoặc http://127.0.0.1:8080/v1 (LM Studio), và model qwen2.5-vl-7b-instruct',
 };
 
 function onMITTranslatorChange() {
@@ -1069,7 +1069,11 @@ function onMITTranslatorChange() {
     hint.classList.remove('visible');
   }
   const modelField = $('mitOllamaModelField');
+  const baseField  = $('mitCustomOpenAiBaseField');
+  const keyField   = $('mitCustomOpenAiKeyField');
   if (modelField) modelField.style.display = val === 'custom_openai' ? '' : 'none';
+  if (baseField)  baseField.style.display  = val === 'custom_openai' ? '' : 'none';
+  if (keyField)   keyField.style.display   = val === 'custom_openai' ? '' : 'none';
 }
 
 function mitPreset(mode) {
@@ -1135,6 +1139,8 @@ async function tStart() {
   const mit_verbose      = $('tMITVerbose').checked;
   const mit_skip_no_text = $('tMITSkipNoText').checked;
   const mit_overwrite    = $('tMITOverwrite').checked;
+  const mit_custom_api_base = getVal('tMITCustomOpenAiApiBase');
+  const mit_custom_api_key  = getVal('tMITCustomOpenAiApiKey');
   const inpainter        = getVal('tInpainter') || 'opencv';
   const overwrite        = $('tOverwrite') ? $('tOverwrite').checked : false;
   const model            = (backend === 'mit' && getVal('tMITTranslator') === 'custom_openai' && _mitOllamaModel)
@@ -1164,6 +1170,7 @@ async function tStart() {
         mit_translator, mit_target_lang,
         mit_detector, mit_inpainter, mit_upscale, mit_det_size,
         mit_mask_dil, mit_unclip, mit_font_ofs, mit_font_min, mit_font_fixed, mit_font_color,
+        mit_custom_api_base, mit_custom_api_key,
         mit_verbose, mit_skip_no_text, mit_overwrite,
         inpainter, overwrite,
       }),

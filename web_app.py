@@ -444,6 +444,8 @@ def api_translate_start():
     mit_font_min      = str(data.get("mit_font_min",     "")).strip()
     mit_font_fixed    = str(data.get("mit_font_fixed",   "")).strip()
     mit_font_color    = str(data.get("mit_font_color",   "")).strip()
+    mit_custom_api_base = str(data.get("mit_custom_api_base", "")).strip()
+    mit_custom_api_key  = str(data.get("mit_custom_api_key",  "")).strip()
     mit_verbose       = bool(data.get("mit_verbose",     False))
     mit_skip_no_text  = bool(data.get("mit_skip_no_text",False))
     mit_overwrite     = bool(data.get("mit_overwrite",   False))
@@ -490,6 +492,8 @@ def api_translate_start():
                     detector=mit_detector,
                     inpainter=mit_inpainter,
                     ollama_model=model,
+                    custom_openai_api_base=mit_custom_api_base,
+                    custom_openai_api_key=mit_custom_api_key,
                     upscale_ratio=mit_upscale,
                     detection_size=mit_det_size,
                     mask_dilation_offset=mit_mask_dil,
