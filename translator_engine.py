@@ -291,6 +291,63 @@ def has_chinese(text: str) -> bool:
 def has_english(text: str) -> bool:
     return bool(_EN_RE.search(text))
 
+_URL_LIKE_RE = re.compile(
+    r"\b(?:https?://)?(?:www\.)?[A-Za-z0-9\-_.]+\.(?:com|net|org|info|xyz|top|site|online|tv|cc)\b",
+    re.IGNORECASE,
+)
+
+def _looks_like_watermark(text: str) -> bool:
+    if not text or len(text.strip()) < 4:
+        return False
+    text_lower = text.strip().lower()
+    cleaned = re.sub(r'[^a-z0-9\-_.]', '', text_lower)
+
+    if ".com" in cleaned:
+        return True
+
+    return False
+
+
+def _union_bboxes(bboxes: list[list[list[int]]]) -> list[list[int]]:
+    if not bboxes:
+        return [[0, 0], [0, 0], [0, 0], [0, 0]]
+    xs = []
+    ys = []
+    for bbox in bboxes:
+        x1, y1, x2, y2 = _bbox_xyxy(bbox)
+        xs.extend([x1, x2])
+        ys.extend([y1, y2])
+    return [[min(xs), min(ys)], [max(xs), min(ys)], [max(xs), max(ys)], [min(xs), max(ys)]]
+
+
+def _rect_expand(rect: tuple[int, int, int, int], img_shape, pad: int = 24) -> tuple[int, int, int, int]:
+    h, w = img_shape[:2]
+    x1, y1, x2, y2 = rect
+    return (
+        max(0, x1 - pad),
+        max(0, y1 - pad),
+        min(w, x2 + pad),
+        min(h, y2 + pad),
+    )
+
+
+def _rect_intersects(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> bool:
+    ax1, ay1, ax2, ay2 = a
+    bx1, by1, bx2, by2 = b
+    return not (ax2 <= bx1 or ay2 <= by1 or bx2 <= ax1 or by2 <= ay1)
+
+
+def _expand_bbox(bbox, img_shape, pad: int = 24):
+    import numpy as np
+    h, w = img_shape[:2]
+    x1, y1, x2, y2 = _bbox_xyxy(bbox)
+    return [
+        max(0, x1 - pad),
+        max(0, y1 - pad),
+        min(w, x2 + pad),
+        min(h, y2 + pad),
+    ]
+
 
 # ── Font helper ───────────────────────────────────────────────────────────────
 _font_cache: dict = {}
@@ -304,12 +361,15 @@ def _load_font(font_path: str | None, size: int):
     candidates = []
     if font_path:
         candidates.append(font_path)
-    # System fonts first — Arial & Segoe UI have full Vietnamese (Latin Extended Additional)
-    # NotoSans from the latin-greek-cyrillic repo may lack Vietnamese glyphs
+    # System fonts first — Arial & Segoe UI have full Vietnamese (Latin Extended Additional).
+    # If Chinese text is rendered, try common Windows CJK fonts before falling back to Latin-only NotoSans.
     candidates += [
         str(Path(__file__).parent / "fonts" / "BeVietnamPro-Regular.ttf"),
         r"C:\Windows\Fonts\arial.ttf",
         r"C:\Windows\Fonts\segoeui.ttf",
+        r"C:\Windows\Fonts\msyh.ttc",
+        r"C:\Windows\Fonts\msyh.ttf",
+        r"C:\Windows\Fonts\simhei.ttf",
         str(Path(__file__).parent / "fonts" / "NotoSans-Regular.ttf"),
         r"C:\Windows\Fonts\tahoma.ttf",
     ]
@@ -337,17 +397,76 @@ def check_ollama() -> dict:
         return {"ok": False, "error": str(e)}
 
 
-def translate_batch(texts: list[str], model: str, src_lang: str = "zh") -> list[str]:
+def _normalize_newlines(text: str) -> str:
+    if not isinstance(text, str):
+        return text
+    text = text.replace('\\r\\n', '\n')
+    text = text.replace('\\n', '\n')
+    text = text.replace('\\r', '\n')
+    text = text.replace('/r/n', '\n')
+    text = text.replace('/n', '\n')
+    text = text.replace('/r', '\n')
+
+    lines = [line.rstrip() for line in text.splitlines()]
+    if len(lines) > 1:
+        merged: list[str] = []
+        for line in lines:
+            stripped = line.strip()
+            if merged and stripped and len(stripped) <= 2 and not re.search(r'[!\?\.,:;\-]$', merged[-1]):
+                merged[-1] += stripped
+            else:
+                merged.append(line)
+        text = "\n".join(merged)
+
+    return text
+
+
+def _normalize_vietnamese(text: str) -> str:
+    if not isinstance(text, str):
+        return text
+    replacements = {
+        'thoi mien': 'thôi miên',
+        'phan ngoai truyen': 'phần ngoại truyện',
+        'su tra thu': 'sự trả thù',
+        'chu': 'chủ',
+        'đong': 'đông',
+        'don': 'đơn',
+    }
+    normalized = text
+    for wrong, right in replacements.items():
+        normalized = re.sub(rf'\b{re.escape(wrong)}\b', right, normalized, flags=re.IGNORECASE)
+
+    # If the segment contains parent address, convert child pronouns to 'con'.
+    if re.search(r"\b(mẹ|mẹ ơi|ba|ba ơi|bố|cha)\b", normalized, flags=re.IGNORECASE):
+        normalized = re.sub(r"\bEm\b", "Con", normalized)
+        normalized = re.sub(r"\bem\b", "con", normalized)
+        normalized = re.sub(r"\btôi\b", "con", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r"\bmình\b", "con", normalized, flags=re.IGNORECASE)
+
+    # Fix parent-child phrasing like 'bố con em' / 'mẹ con em' to natural Vietnamese.
+    normalized = re.sub(r"\b(bố|ba|mẹ|cha)\s+con\s+em\b", r"\1", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"\b(bố|ba|mẹ|cha)\s+con\s+tôi\b", r"\1", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"\bcon\s+em\b", "con", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"\bcon\s+tôi\b", "con", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"\bcon\s+mình\b", "con", normalized, flags=re.IGNORECASE)
+
+    return normalized
+
+
+def translate_batch(texts: list[str], model: str, src_lang: str = "zh", constraints: list[dict] | None = None) -> list[str]:
     """Dịch batch texts qua Ollama API, trả về list cùng thứ tự."""
     if not texts:
         return []
     numbered = "\n".join(f"{i+1}. {t}" for i, t in enumerate(texts))
-    lang_name = "tiếng Trung" if src_lang == "zh" else "tiếng Anh"
     prompt = (
-        f"Dịch các đoạn text {lang_name} sau sang tiếng Việt.\n"
+        "Dịch các đoạn text sau sang tiếng Việt. Các đoạn text có thể là tiếng Trung hoặc tiếng Anh.\n"
         "Đây là hội thoại trong manhwa/manga, giữ nguyên cảm xúc và sự ngắn gọn.\n"
         "QUAN TRỌNG: Bản dịch phải NGẮN GỌN nhất có thể vì text sẽ nằm trong bong bóng hội thoại nhỏ.\n"
+        "Không chia ký tự. Nếu xuống dòng thì chỉ chia giữa từ/cụm từ, không chặn giữa các chữ cái.\n"
         "Dùng từ ngắn, tránh từ dài không cần thiết. Dùng \\n để xuống dòng nếu câu dài.\n"
+        "Kết quả phải là tiếng Việt chuẩn có dấu đầy đủ, không để lại chữ không dấu.\n"
+        "Không để lại phần tiếng Anh trong kết quả.\n"
+        "Nếu trong câu có xưng Mẹ hoặc Ba, hãy dùng 'con' cho người nói, không dùng 'em' hoặc 'tôi'.\n"
         "Trả về ĐÚNG MỘT JSON array, không giải thích thêm. /no_think\n\n"
         f"Texts:\n{numbered}\n\n"
         "Kết quả (chỉ JSON array):"
@@ -369,16 +488,16 @@ def translate_batch(texts: list[str], model: str, src_lang: str = "zh") -> list[
             if isinstance(parsed, list) and len(parsed) == len(texts):
                 def _extract(t):
                     if isinstance(t, str):
-                        return t
+                        return _normalize_vietnamese(_normalize_newlines(t))
                     if isinstance(t, dict):
                         for k in ("text", "translation", "result", "output", "translated", "vi"):
                             if k in t and isinstance(t[k], str):
-                                return t[k]
+                                return _normalize_vietnamese(_normalize_newlines(t[k]))
                         # lấy value đầu tiên là str
                         for v in t.values():
                             if isinstance(v, str):
-                                return v
-                    return str(t)
+                                return _normalize_vietnamese(_normalize_newlines(v))
+                    return _normalize_vietnamese(_normalize_newlines(str(t)))
                 return [_extract(t) for t in parsed]
     except Exception:
         pass
@@ -396,7 +515,7 @@ def _bbox_xyxy(bbox) -> tuple[int, int, int, int]:
     return int(x1), int(y1), int(x2), int(y2)
 
 
-def inpaint_region(img, bbox, method: str = "opencv"):
+def inpaint_region(img, bbox, method: str = "opencv", dilate_ksize: int = 5, dilate_iters: int = 2, inpaint_radius: int = 6):
     """Xóa text khỏi vùng bbox bằng openCV hoặc LAMA."""
     import cv2
     import numpy as np
@@ -408,7 +527,7 @@ def inpaint_region(img, bbox, method: str = "opencv"):
 
     mask = np.zeros((h, w), dtype=np.uint8)
     cv2.fillPoly(mask, [pts], 255)
-    mask = cv2.dilate(mask, np.ones((5, 5), np.uint8), iterations=2)
+    mask = cv2.dilate(mask, np.ones((dilate_ksize, dilate_ksize), np.uint8), iterations=dilate_iters)
 
     if method == "lama" and check_lama_available():
         try:
@@ -422,16 +541,15 @@ def inpaint_region(img, bbox, method: str = "opencv"):
             pass
 
     # Fallback: OpenCV inpaint
-    return cv2.inpaint(img, mask, inpaintRadius=6, flags=cv2.INPAINT_TELEA)
+    return cv2.inpaint(img, mask, inpaintRadius=inpaint_radius, flags=cv2.INPAINT_TELEA)
 
 
 # ── Text rendering ────────────────────────────────────────────────────────────
 
 def _draw_text_with_shadow(draw, pos, text, font, text_color, shadow_color):
     tx, ty = pos
-    for dx, dy in ((-1, -1), (1, -1), (-1, 1), (1, 1), (0, -1), (0, 1), (-1, 0), (1, 0)):
-        draw.text((tx + dx, ty + dy), text, font=font, fill=shadow_color)
-    draw.text((tx, ty), text, font=font, fill=text_color)
+    draw.text((tx, ty), text, font=font, fill=text_color,
+              stroke_width=1, stroke_fill=shadow_color)
 
 
 def _wrap_text_px(draw, text: str, font, max_px: int, allow_hard_split: bool = False) -> list | None:
@@ -501,20 +619,37 @@ def _wrap_text_px(draw, text: str, font, max_px: int, allow_hard_split: bool = F
     return lines or [""]
 
 
+def _render_line_height_sample(text: str) -> str:
+    if has_chinese(text):
+        for ch in text:
+            if '\u4e00' <= ch <= '\u9fff' or '\u3400' <= ch <= '\u4dbf':
+                return ch
+        return "測"
+    if has_english(text):
+        return "Ab"
+    return "Ắp"
+
+
 def render_text(
     img_pil,
     bbox,
     text: str,
     font_path: str | None,
     strict_clip: bool = False,
+    font_scale: float = 1.0,
 ):
     """Vẽ text ngang vào vùng bbox với pixel-accurate word wrap.
     strict_clip=True: cắp text trong bbox (khi đã khớp với bubble thật).
+    font_scale: hệ số điều chỉnh cỡ chữ, mặc định 1.0. Dùng < 1.0 để giảm cỡ chữ.
     """
     from PIL import ImageDraw
     import numpy as np
     if not text.strip():
         return img_pil
+
+    # Đảm bảo ảnh ở mode RGB để draw text không bị lỗi alpha
+    if img_pil.mode != "RGB":
+        img_pil = img_pil.convert("RGB")
 
     draw = ImageDraw.Draw(img_pil)
     x1, y1, x2, y2 = _bbox_xyxy(bbox)
@@ -534,42 +669,46 @@ def render_text(
         bg_rgb = (20, 20, 20)
 
     brightness   = sum(bg_rgb) / 3
-    text_color   = (255, 255, 255) if brightness < 140 else (15, 15, 15)
+    text_color   = (255, 255, 255) if brightness < 140 else (0, 0, 0)
     shadow_color = (0, 0, 0)       if brightness < 140 else (255, 255, 255)
 
     # always horizontal — Vietnamese is Latin script
     pad     = max(4, int(min(bw, bh) * 0.07))
     inner_w = max(bw - pad * 2, 20)
     inner_h = max(bh - pad * 2, 12)
-    # start from the largest font that can still fit the bubble height
-    max_start = max(min(inner_h, 56), 10)
-    # strict_clip: dùng đúng chiều rộng bubble; không có: giới hạn 220px vìOCR box có thể rất rộng
-    wrap_w  = inner_w if strict_clip else min(inner_w, 220)
+    # start from a font size based on available height using ratios
+    max_start = max(min(inner_h // 4, 24), 8)
+    if not strict_clip:
+        max_start = min(max_start, max(8, inner_h // 5))
+    # Apply font_scale — values < 1.0 reduce max starting size
+    max_start = max(6, int(max_start * font_scale))
+    # strict_clip: dùng đúng chiều rộng bubble; không có: giới hạn 180px vì OCR box có thể rất rộng
+    wrap_w  = inner_w if strict_clip else min(inner_w, 180)
 
     best_font  = None
     best_lines = [text]
     best_lh    = 11
-    wrap_candidates = [wrap_w]
-    if strict_clip:
-        wrap_candidates.extend([
-            max(10, int(wrap_w * 0.85)),
-            max(10, int(wrap_w * 0.70)),
-            max(10, int(wrap_w * 0.55)),
-        ])
+    wrap_candidates = [
+        wrap_w,
+        max(10, int(wrap_w * 0.85)),
+        max(10, int(wrap_w * 0.70)),
+        max(10, int(wrap_w * 0.55)),
+    ]
 
+    sample_text = _render_line_height_sample(text)
     for size in range(max_start, 4, -1):
         font = _load_font(font_path, size)
         try:
-            bb = draw.textbbox((0, 0), "Ắp", font=font)
-            lh = bb[3] - bb[1] + 2
+            bb = draw.textbbox((0, 0), sample_text, font=font)
+            lh = bb[3] - bb[1] + 3
         except Exception:
-            lh = size + 2
+            lh = size + 3
 
         for current_wrap in wrap_candidates:
             lines = _wrap_text_px(draw, text, font, current_wrap, allow_hard_split=False)
             if lines is None:
                 continue
-            if lh * len(lines) <= inner_h:
+            if (lh + 2) * len(lines) <= inner_h:
                 best_font  = font
                 best_lines = lines
                 best_lh    = lh
@@ -584,17 +723,18 @@ def render_text(
         if best_lines is None:
             best_lines = [text]
         try:
-            bb = draw.textbbox((0, 0), "Ắp", font=best_font)
+            bb = draw.textbbox((0, 0), sample_text, font=best_font)
             best_lh = bb[3] - bb[1] + 2
         except Exception:
             best_lh = 8
 
+    line_spacing = max(2, best_lh // 5)
     if strict_clip:
-        max_lines = max(1, inner_h // best_lh)
+        max_lines = max(1, inner_h // (best_lh + line_spacing))
         if len(best_lines) > max_lines:
             best_lines = best_lines[:max_lines]
 
-    total_h   = best_lh * len(best_lines)
+    total_h   = len(best_lines) * (best_lh + line_spacing) - line_spacing
     if strict_clip:
         # Giữ text trong bubble: không mở rộng xuống dưới y2i
         actual_y2 = min(y2i, y1i + total_h + pad * 2)
@@ -613,7 +753,7 @@ def render_text(
             lw = len(line) * best_lh // 2
         tx = x1i + max(pad, (bw - lw) // 2)
         _draw_text_with_shadow(draw, (tx, ty), line, best_font, text_color, shadow_color)
-        ty += best_lh
+        ty += best_lh + line_spacing
 
     return img_pil
 
@@ -677,6 +817,7 @@ class ImageTranslator:
         src_lang: str = "zh",
         inpainter: str = "opencv",
         overwrite: bool = False,
+        font_scale: float = 0.75,
         on_log=None,
         on_progress=None,
     ):
@@ -686,6 +827,7 @@ class ImageTranslator:
         self.src_lang    = src_lang if src_lang in ("zh", "en") else "zh"
         self.inpainter   = inpainter if inpainter in ("opencv", "lama") else "opencv"
         self.overwrite   = overwrite
+        self.font_scale  = max(0.3, min(2.0, float(font_scale)))
         self.on_log      = on_log or print
         self.on_progress = on_progress or (lambda d, t: None)
 
@@ -709,6 +851,30 @@ class ImageTranslator:
             raw_results = _run_ocr(img_orig, gpu=self.use_gpu, src_lang=self.src_lang)
 
             self._log(f"  [OCR] Phát hiện {len(raw_results)} vùng thô (full+crop)")
+
+            watermark_boxes = [
+                b for b, t, c in raw_results
+                if _looks_like_watermark(t)
+            ]
+            if watermark_boxes:
+                watermark_region = _union_bboxes(watermark_boxes)
+                expanded_rect = _rect_expand(_bbox_xyxy(watermark_region), img_orig.shape, pad=80)
+                self._log(f"  [OCR] Phát hiện {len(watermark_boxes)} watermark/logo (xóa)")
+                extra_boxes = []
+                for b, t, c in raw_results:
+                    if b in watermark_boxes:
+                        continue
+                    rect = _bbox_xyxy(b)
+                    if _rect_intersects(rect, expanded_rect):
+                        extra_boxes.append(b)
+                if extra_boxes:
+                    self._log(f"  [OCR] Mở rộng {len(extra_boxes)} bbox gần watermark")
+                    watermark_boxes.extend(extra_boxes)
+                raw_results = [
+                    (b, t, c) for b, t, c in raw_results
+                    if b not in watermark_boxes and not _rect_intersects(_bbox_xyxy(b), expanded_rect)
+                ]
+
             if self.src_lang == "zh":
                 for b, t, c in raw_results:
                     zh_len = len([ch for ch in t if '\u4e00' <= ch <= '\u9fff' or '\u3400' <= ch <= '\u4dbf'])
@@ -790,6 +956,29 @@ class ImageTranslator:
                 for bbox, _, _ in grp:
                     img = inpaint_region(img, bbox, method=self.inpainter)
 
+            # Inpaint watermark/logo candidates riêng, mở rộng vùng để gồm cả icon nhỏ
+            if watermark_boxes:
+                # Inpaint union bbox trước (gom icon + text cùng một lần)
+                wx1, wy1, wx2, wy2 = _bbox_xyxy(_union_bboxes(watermark_boxes))
+                wx1, wy1, wx2, wy2 = _rect_expand((wx1, wy1, wx2, wy2), img_orig.shape, pad=90)
+                union_wm = [[wx1, wy1], [wx2, wy1], [wx2, wy2], [wx1, wy2]]
+                img = inpaint_region(
+                    img, union_wm, method=self.inpainter,
+                    dilate_ksize=9, dilate_iters=4, inpaint_radius=12,
+                )
+                # Sau đó tinh chỉnh từng box nhỏ
+                for bbox in watermark_boxes:
+                    x1, y1, x2, y2 = _expand_bbox(bbox, img_orig.shape, pad=64)
+                    logo_bbox = [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]
+                    img = inpaint_region(
+                        img,
+                        logo_bbox,
+                        method=self.inpainter,
+                        dilate_ksize=9,
+                        dilate_iters=4,
+                        inpaint_radius=10,
+                    )
+
             # Render mỗi group thành một text block sạch
             img_pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
             for grp, trans_list in zip(groups, group_trans):
@@ -824,7 +1013,8 @@ class ImageTranslator:
 
                 merged_bbox = [[rx1, ry1], [rx2, ry1], [rx2, ry2], [rx1, ry2]]
                 img_pil = render_text(img_pil, merged_bbox, full_text, self.font_path,
-                                      strict_clip=(best_cov > 0.4))
+                                      strict_clip=(best_cov > 0.4),
+                                      font_scale=self.font_scale)
 
             # Lưu — giữ nguyên định dạng
             dst.parent.mkdir(parents=True, exist_ok=True)
@@ -1085,9 +1275,9 @@ class MITImageTranslator:
         if self.font_color:
             cfg.setdefault("render", {})["font_color"] = self.font_color
 
-        # Vietnamese: auto-apply stronger font shrink if user hasn't set one
-        # Vietnamese text is significantly longer than Chinese, so reduce font to fit bubbles
-        if self.target_lang in ("VIN", "vi") and not self.font_size_offset:
+        # Vietnamese: auto-apply stronger font shrink if user hasn't set fixed size or offset.
+        # If font fixed is explicitly requested, do not override it with auto offset.
+        if self.target_lang in ("VIN", "vi") and not self.font_size_offset and not self.font_size_fixed:
             cfg.setdefault("render", {})["font_size_offset"] = -6
             self._log("  [RENDER] Auto font_size_offset=-6 (Vietnamese text fitting)")
         # Vietnamese: set font_size_minimum=10 if not specified to keep readability

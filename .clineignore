@@ -1,0 +1,11 @@
+# Cline ignore file
+mit_venv/
+__pycache__/
+*.pyc
+*.pyo
+models/
+fonts/
+images/
+*.whl
+*.egg-info/
+.venv/

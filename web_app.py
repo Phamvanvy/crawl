@@ -451,6 +451,11 @@ def api_translate_start():
     mit_overwrite     = bool(data.get("mit_overwrite",   False))
     overwrite         = bool(data.get("overwrite",       False))
     inpainter         = str(data.get("inpainter",        "opencv")).strip()
+    try:
+        font_scale = float(data.get("font_scale", 0.75))
+        font_scale = max(0.3, min(2.0, font_scale))
+    except (TypeError, ValueError):
+        font_scale = 0.75
     if inpainter not in ("opencv", "lama"):
         inpainter = "opencv"
     if src_lang not in ("zh", "en"):
@@ -518,6 +523,7 @@ def api_translate_start():
                     src_lang=src_lang,
                     inpainter=inpainter,
                     overwrite=overwrite,
+                    font_scale=font_scale,
                     on_log=on_log,
                     on_progress=on_progress,
                 )
@@ -613,6 +619,7 @@ def api_translate_retry_failed():
                 use_gpu=use_gpu,
                 src_lang=src_lang,
                 inpainter=inpainter,
+                font_scale=font_scale,
                 on_log=on_log,
                 on_progress=on_progress,
             )

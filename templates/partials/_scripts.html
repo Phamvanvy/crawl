@@ -1085,7 +1085,8 @@ function mitPreset(mode) {
     setSel('tMITDetSize',  '');          // default
     set('tMITMaskDil',  '20');
     set('tMITUnclip',   '6.0');          // mở rộng bbox lớn → đủ cho text VN dài hơn TQ
-    set('tMITFontOfs',  '-2');           // giảm 2px so với auto để VN text vừa hơn
+    set('tMITFontOfs',  '-8');           // giảm 8px — ZH→VI text dài hơn, cần font nhỏ hơn
+    document.getElementById('tMITFontOfsVal') && (document.getElementById('tMITFontOfsVal').textContent = '-8');
     set('tMITFontMin',  '10');           // tối thiểu 10px — đủ đọc
     set('tMITFontFixed','');             // KHÔNG cố định → để MIT tự scale theo bbox
     set('tMITFontColor','FFFFFF:000000');// trắng nền đen
@@ -1095,7 +1096,8 @@ function mitPreset(mode) {
     setSel('tMITDetSize',  '');
     set('tMITMaskDil',  '0');
     set('tMITUnclip',   '2.3');
-    set('tMITFontOfs',  '0');
+    set('tMITFontOfs',  '-4');
+    document.getElementById('tMITFontOfsVal') && (document.getElementById('tMITFontOfsVal').textContent = '-4');
     set('tMITFontMin',  '');
     set('tMITFontFixed','');
     set('tMITFontColor','');
@@ -1143,6 +1145,7 @@ async function tStart() {
   const mit_custom_api_key  = getVal('tMITCustomOpenAiApiKey');
   const inpainter        = getVal('tInpainter') || 'opencv';
   const overwrite        = $('tOverwrite') ? $('tOverwrite').checked : false;
+  const font_scale       = parseFloat($('tFontScale') ? $('tFontScale').value : '0.75') || 0.75;
   const model            = (backend === 'mit' && getVal('tMITTranslator') === 'custom_openai' && _mitOllamaModel)
                            ? _mitOllamaModel
                            : (getVal('tModel').trim() || 'qwen3:8b');
@@ -1172,7 +1175,7 @@ async function tStart() {
         mit_mask_dil, mit_unclip, mit_font_ofs, mit_font_min, mit_font_fixed, mit_font_color,
         mit_custom_api_base, mit_custom_api_key,
         mit_verbose, mit_skip_no_text, mit_overwrite,
-        inpainter, overwrite,
+        inpainter, overwrite, font_scale,
       }),
     });
     json = await res.json();

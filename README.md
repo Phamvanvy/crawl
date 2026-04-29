@@ -1,5 +1,9 @@
 # Image Crawler & Translator
 
+![Python](https://img.shields.io/badge/python-3.11%2B-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
+
 Ứng dụng web để **crawl ảnh** từ trang web và **dịch text Trung → Việt** trong ảnh (manhwa/manhua).
 
 ---
@@ -175,6 +179,48 @@ crawl/
 | CPU only | ~5–10s | ~5–15s |
 
 Thắt cổ chai chính là Ollama — thời gian dịch phụ thuộc model và số vùng text.
+
+---
+
+## Cấu trúc dự án
+
+```
+crawl/
+├── web_app.py              — Flask server, routes API và giao diện
+├── crawler.py             — Crawl trang web và tải ảnh
+├── translator_engine.py   — Pipeline OCR → inpaint → dịch → render
+├── gpt_config_vi.yaml     — Cấu hình model, ngôn ngữ, inpainter
+├── requirements.txt       — Dependencies
+├── start.bat              — Script khởi động nhanh (Windows)
+├── setup_translator.py    — Cài AI dependencies tự động
+├── templates/             — HTML/JS/CSS giao diện web
+├── fonts/                 — Font hỗ trợ tiếng Việt
+└── models/                — Model detector (PaddleOCR)
+```
+
+---
+
+## Roadmap
+
+- [ ] Hỗ trợ dịch nhiều ngôn ngữ đầu ra (JP, KO, EN)
+- [ ] Batch download + dịch từ danh sách URL
+- [ ] Docker image
+- [ ] Plugin trình duyệt (Chrome extension)
+- [ ] LaMa inpainting mặc định khi GPU có đủ VRAM
+
+---
+
+## Đóng góp
+
+Pull request luôn được chào đón! Để bắt đầu:
+
+1. Fork repo
+2. Tạo branch mới: `git checkout -b feature/ten-tinh-nang`
+3. Commit thay đổi: `git commit -m "feat: mô tả ngắn"`
+4. Push: `git push origin feature/ten-tinh-nang`
+5. Mở Pull Request
+
+> Xin hãy viết test (nếu có) và đảm bảo `python -m py_compile translator_engine.py` không lỗi.
 
 ---
 

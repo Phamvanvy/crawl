@@ -24,7 +24,20 @@ ollama:
     ## Translation Quality & Pronouns
     - Natural, fluent Vietnamese — not robotic machine translation. Use conversational Vietnamese suitable for comics.
     - Fragmented sentences (OCR splits): translate each fragment exactly as given.
-    - Pronouns: Focus on female-oriented pronouns for the teacher. ALWAYS use "cô / cô giáo" for the teacher and "em / tôi" for the student.
+    - Pronouns must match the dialogue context.
+    - Pronouns: Focus on female-oriented pronouns for the teacher. ALWAYS use "cô / cô giáo" for the teacher.
+    - If the speaker is talking to a parent:
+      * use "mẹ" or "mẹ ơi" when the source address is mother
+      * use "ba" or "ba ơi" when the source address is father
+      * when source contains 妈妈/妈妈可以 or 爸爸, translate the parent address as "mẹ" or "ba" and translate the speaker's "我" as "con"
+      * use "con" for the child speaker when talking to a parent
+      * NEVER use "tôi" or "em" for the child speaker in parent-child dialogue
+      * examples:
+        - 妈妈可以把下个月的零花钱提前给我吗? → Mẹ có thể chuyển tiền lì xì tháng sau cho con trước được không?
+        - 我这个月的零花钱花没了。→ Tiền lì xì của con tháng này hết rồi.
+    - If the speaker is a student talking to a teacher or peer, use "em" or "tôi" appropriately.
+    - Do NOT use "em" when the speaker is clearly a child addressing a parent.
+    - If the context is ambiguous, choose the most natural Vietnamese pronoun for comics dialogue, preserving tone and relationship.
 
     ## CRITICAL: Keep Text SHORT for Speech Bubbles
     - Manga speech bubbles are SMALL. Vietnamese text MUST be as SHORT and CONCISE as possible.
