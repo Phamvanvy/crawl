@@ -11,6 +11,80 @@ OLLAMA_BASE = "http://localhost:11434"
 
 # ── Compiled regex patterns (must be at top — used by helper functions below) ─
 CHINESE_RE = re.compile(r'[\u4e00-\u9fff\u3400-\u4dbf]')
+_WATERMARK_DOMAIN_RE = re.compile(
+    r"[a-z0-9][a-z0-9._-]{1,64}\.(?:com|net|org|info|xyz|top|site|online|tv|cc)\b",
+    re.IGNORECASE,
+)
+# Vietnamese has unique diacritical marks — their presence confirms Vietnamese output
+_VI_DIACRITIC_RE = re.compile(
+    r"[àáâãèéêìíòóôõùúăđơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ]",
+    re.IGNORECASE,
+)
+# 3+ letter Latin words — 2+ with no VI diacritics = likely English
+_EN_WORD_RE = re.compile(r"\b[a-zA-Z]{3,}\b")
+
+
+def _contains_watermark_text(text: str) -> bool:
+    if not isinstance(text, str) or not text.strip():
+        return False
+
+    compact = re.sub(r"\s+", "", text.lower())
+    compact = re.sub(r"[^a-z0-9._:/-]", "", compact)
+    return (
+        "acg" in compact
+        or ".com" in compact
+        or compact.endswith("com")
+        or "www." in compact
+        or "http://" in compact
+        or "https://" in compact
+        or bool(_WATERMARK_DOMAIN_RE.search(compact))
+    )
+
+
+def _strip_generation_artifacts(text: str, preserve_segment_tokens: bool = False) -> str:
+    if not isinstance(text, str) or not text:
+        return text
+
+    cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE)
+    cleaned = re.sub(r"</\|\d+\|>", "", cleaned)
+    cleaned = re.sub(
+        r"<\|(?:assistant|user|system|im_start|im_end|eot_id|end_of_text|endoftext|begin_of_text|bos|eos|pad|unk)\|>",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(r"</?(?:s|bos|eos|pad|unk)>", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\[/?INST\]|<<SYS>>|<</SYS>>", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"</(?=[^a-zA-Z]|$)", "", cleaned)
+    if not preserve_segment_tokens:
+        cleaned = re.sub(r"<\|\d+\|>", "", cleaned)
+    cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
+def _needs_vietnamese_retry(text: str) -> bool:
+    """True if text is likely English/Chinese rather than Vietnamese."""
+    cleaned = _clean_watermark_fragments(_strip_generation_artifacts(text))
+    if not cleaned or len(cleaned.strip()) < 4:
+        return False
+    if CHINESE_RE.search(cleaned):
+        return True  # Untranslated Chinese
+    if _VI_DIACRITIC_RE.search(cleaned):
+        return False  # Vietnamese diacritics present = Vietnamese
+    en_words = _EN_WORD_RE.findall(cleaned)
+    return len(en_words) >= 2  # 2+ plain Latin words, no VI diacritics = English
+
+
+def _build_vietnamese_retry_prompt(prompt: str) -> str:
+    return (
+        "LẦN THỬ LẠI BẮT BUỘC:\n"
+        "- Chỉ được trả về tiếng Việt tự nhiên.\n"
+        "- Mỗi phần tử trong JSON array phải tương ứng đúng 1 câu nguồn theo đúng thứ tự.\n"
+        "- Nếu phần tử là watermark/logo hoặc chứa ACG, com, .com, .net, .org thì trả về chuỗi rỗng \"\" ở đúng vị trí đó.\n"
+        "- CẤM tiếng Anh, tiếng Trung, và token rác như </, </|3|>, <|assistant|>, </s>.\n\n"
+        f"{prompt}"
+    )
 
 
 def check_ollama() -> dict:
@@ -28,6 +102,7 @@ def check_ollama() -> dict:
 def _normalize_newlines(text: str) -> str:
     if not isinstance(text, str):
         return text
+    text = _strip_generation_artifacts(text)
     text = text.replace('\\r\\n', '\n')
     text = text.replace('\\n', '\n')
     text = text.replace('\\r', '\n')
@@ -149,16 +224,19 @@ def _clean_watermark_fragments(translated: str, source: str = "") -> str:
     """Xóa watermark/brand names chưa dịch (ACG, .com, v.v.)."""
     if not translated or not translated.strip():
         return translated
-    
-    keep_as_is = [
-        'ACG', 'VIP', 'HD', '4K', '3D', '2D', 'CG', 'AI',
-        '.com', '.net', '.org', '©', '®', '™', '℗'
-    ]
-    
-    for brand in keep_as_is:
-        if brand in translated and brand not in source.lower():
-            pass
-    
+
+    translated = _strip_generation_artifacts(translated)
+    lines = [line.strip() for line in translated.splitlines() if line.strip()]
+    if not lines:
+        return ""
+
+    filtered_lines = [line for line in lines if not _contains_watermark_text(line)]
+    if filtered_lines:
+        return "\n".join(filtered_lines)
+
+    if _contains_watermark_text(translated) or _contains_watermark_text(source):
+        return ""
+
     return translated
 
 
@@ -166,6 +244,7 @@ def comprehensive_post_processing(translated: str, source: str = "") -> str:
     """Xử lý toàn diện cho kết quả dịch."""
     if not translated or not translated.strip():
         return translated
+    translated = _strip_generation_artifacts(translated)
     
     # Bước 1: Sửa lỗi đại từ nhân xưng bằng regex (lớp bảo vệ cuối)
     translated = _fix_pronoun_patterns(translated, source)
@@ -241,6 +320,9 @@ def post_process_translation(translated_text: str, source_text: str = "") -> str
     """Xử lý hậu kỳ để cải thiện đại từ nhân xưng và đảm bảo dịch đầy đủ."""
     if not translated_text or not translated_text.strip():
         return translated_text
+    translated_text = _strip_generation_artifacts(translated_text)
+    if _contains_watermark_text(translated_text) or _contains_watermark_text(source_text):
+        return ""
     
     remaining_zh = CHINESE_RE.findall(translated_text)
     
@@ -249,8 +331,8 @@ def post_process_translation(translated_text: str, source_text: str = "") -> str
     
     relationship = _detect_relationship_context(source_text)
     translated_text = _apply_relationship_pronouns(translated_text, relationship)
-    
-    return translated_text
+
+    return _clean_watermark_fragments(translated_text, source_text)
 
 
 def translate_batch(texts: list[str], model: str, src_lang: str = "zh",
@@ -312,9 +394,10 @@ def translate_batch(texts: list[str], model: str, src_lang: str = "zh",
         "QUY TẮC BẮT BUỘC (TỐI THƯỢNG):\n"
         "1. KHÔNG bao giờ để lại chữ Hán, Anh, hay bất kỳ ngôn ngữ nào khác\n"
         "2. Tên riêng: Dịch âm Hán-Việt (佳佳→Giai Giai, 小明→Tiểu Minh, 美香→Mỹ Hương)\n"
-        "3. Từ viết tắt: ACG → Anime/Comic/Game, VIP → Thành viên đặc biệt\n"
+        "3. Nếu text là watermark/logo hoặc chứa ACG, com, .com, .net, .org: trả về chuỗi rỗng \"\"\n"
         "4. Emoji và ký tự đặc biệt: Giữ nguyên\n"
-        "5. CẤM tuyệt đối đầu ra tiếng Anh hoặc Trung Quốc\n\n"
+        "5. CẤM tuyệt đối đầu ra tiếng Anh hoặc Trung Quốc\n"
+        "6. CẤM xuất token hệ thống hoặc rác như </, </|3|>, <|assistant|>, <|user|>, </s>\n\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         "XỬ LÝ ĐẠI TỪ NHÂN XƯNG (QUAN TRỌNG):\n"
         "\n"
@@ -361,43 +444,49 @@ def translate_batch(texts: list[str], model: str, src_lang: str = "zh",
             "Mục tiêu: 100% tiếng Việt, không sót ký tự nào.\n\n"
         )
     
-    full_prompt = PROMPT_RULES + f"{full_prompt}DỊCH NGAY:\n\n{numbered}\n\n---KẾT QUẢ (chỉ JSON array):---"
-    
-    try:
-        payload = {"model": model, "prompt": full_prompt, "stream": False}
-        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        headers = {"Content-Type": "application/json; charset=utf-8"}
-        resp = requests.post(
-            f"{OLLAMA_BASE}/api/generate",
-            data=body,
-            headers=headers,
-            timeout=180,
-        )
-        resp.raise_for_status()
-        raw = resp.json().get("response", "").strip()
-        
-        # Remove <think>...</think> blocks (Qwen3 extended thinking mode)
-        raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
-        
-        s = raw.find("[")
-        e = raw.rfind("]") + 1
-        if s >= 0 and e > s:
-            parsed = json.loads(raw[s:e])
-            if isinstance(parsed, list) and len(parsed) == len(texts):
-                def _extract(t):
-                    if isinstance(t, str):
-                        return _normalize_vietnamese(_normalize_newlines(t))
-                    if isinstance(t, dict):
-                        for k in ("text", "translation", "result", "output", "translated", "vi"):
-                            if k in t and isinstance(t[k], str):
-                                return _normalize_vietnamese(_normalize_newlines(t[k]))
-                        for v in t.values():
-                            if isinstance(v, str):
-                                return _normalize_vietnamese(_normalize_newlines(v))
-                    return _normalize_vietnamese(_normalize_newlines(str(t)))
-                return [_extract(t) for t in parsed]
-    except Exception:
-        pass
+    base_prompt = PROMPT_RULES + f"{full_prompt}DỊCH NGAY:\n\n{numbered}\n\n---KẾT QUẢ (chỉ JSON array):---"
+
+    prompt_attempts = [base_prompt]
+    if force_vietnamese:
+        prompt_attempts.extend([_build_vietnamese_retry_prompt(base_prompt)] * 2)
+
+    def _extract(t):
+        if isinstance(t, str):
+            return _clean_watermark_fragments(_normalize_vietnamese(_normalize_newlines(t)))
+        if isinstance(t, dict):
+            for k in ("text", "translation", "result", "output", "translated", "vi"):
+                if k in t and isinstance(t[k], str):
+                    return _clean_watermark_fragments(_normalize_vietnamese(_normalize_newlines(t[k])))
+            for v in t.values():
+                if isinstance(v, str):
+                    return _clean_watermark_fragments(_normalize_vietnamese(_normalize_newlines(v)))
+        return _clean_watermark_fragments(_normalize_vietnamese(_normalize_newlines(str(t))))
+
+    for prompt_attempt in prompt_attempts:
+        try:
+            payload = {"model": model, "prompt": prompt_attempt, "stream": False}
+            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            headers = {"Content-Type": "application/json; charset=utf-8"}
+            resp = requests.post(
+                f"{OLLAMA_BASE}/api/generate",
+                data=body,
+                headers=headers,
+                timeout=180,
+            )
+            resp.raise_for_status()
+            raw = _strip_generation_artifacts(resp.json().get("response", "") or "")
+
+            s = raw.find("[")
+            e = raw.rfind("]") + 1
+            if s >= 0 and e > s:
+                parsed = json.loads(raw[s:e])
+                if isinstance(parsed, list) and len(parsed) == len(texts):
+                    extracted = [_extract(t) for t in parsed]
+                    if force_vietnamese and any(_needs_vietnamese_retry(t) for t in extracted):
+                        continue
+                    return extracted
+        except Exception:
+            continue
     
     # Fallback: return original texts if translation fails completely
     return texts

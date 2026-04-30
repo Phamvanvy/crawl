@@ -55,6 +55,10 @@ def apply():
             PATCHES_DIR / "manga_translator_rendering_init.py",
             sp / "manga_translator" / "rendering" / "__init__.py",
         ),
+        (
+            PATCHES_DIR / "manga_translator_translators_custom_openai.py",
+            sp / "manga_translator" / "translators" / "custom_openai.py",
+        ),
     ]
 
     for src, dst in patches:

@@ -38,9 +38,13 @@ def _looks_like_watermark(text: str) -> bool:
     if not text or len(text.strip()) < 4:
         return False
     
-    # Tiêu chí chính: Chứa domain (đơn giản hóa theo yêu cầu)
-    cleaned = re.sub(r'[^a-z0-9\-_.]', '', text.lower())
-    if ".com" in cleaned:
+    # Tiêu chí chính: text chứa ACG/com theo kiểu substring, không cần khớp bằng tuyệt đối
+    cleaned = re.sub(r'\s+', '', text.lower())
+    cleaned = re.sub(r'[^a-z0-9\-_.:/]', '', cleaned)
+    if "acg" in cleaned or ".com" in cleaned or cleaned.endswith("com"):
+        return True
+
+    if _URL_LIKE_RE.search(text):
         return True
     
     # Tiêu chí phụ: Từ khóa watermark phổ biến
@@ -49,7 +53,7 @@ def _looks_like_watermark(text: str) -> bool:
         'fanart', 'copyright', 'trademark', 'logo', 'official',
     ]
     for keyword in watermark_keywords:
-        if keyword in text.lower():
+        if keyword in cleaned:
             return True
     
     # Tiêu chí phụ: Ký tự đặc biệt trong logo
@@ -101,7 +105,6 @@ def _rect_intersects(a: tuple[int, int, int, int], b: tuple[int, int, int, int])
 
 
 def _expand_bbox(bbox, img_shape, pad: int = 24):
-    import numpy as np
     h, w = img_shape[:2]
     x1, y1, x2, y2 = _bbox_xyxy(bbox)
     return [

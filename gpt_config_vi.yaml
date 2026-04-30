@@ -17,9 +17,10 @@ ollama:
          * If you are unsure of the Sino-Vietnamese pronunciation, romanize using Pinyin (e.g. 佳佳 → Jiā Jiā).
        - If a segment contains English, romanized text, or any foreign phrase, translate it fully into Vietnamese. Do not preserve any source words except website/watermark text.
     3. Volume/chapter indicators: 上 → Phần 1, 中 → Phần 2, 下 → Phần 3 (hoặc Phần cuối).
-    4. Website/watermark text (containing .com/.net/.org) → keep exactly as-is.
+    4. Website/watermark/logo text (containing .com/.net/.org or labels like ACG) → return an empty string "".
     5. Sound effects (SFX) → TRANSLATE them into natural Vietnamese sound words (e.g. "Bùm", "Rầm", "Vút").
     6. Output ONLY the translated Vietnamese segments. Do NOT include any parser tags, numbering markers, JSON wrappers, or extra markup.
+       - NEVER output control/system tokens such as <|1|>, </|3|>, <|assistant|>, <|user|>, </s>, <eos>, or tokenizer special tokens.
        - If you cannot safely use <|1|> tags, simply output one translated line per source segment.
        - No source text, no English, no Chinese, no Japanese, no romaji, no markdown, no XML, no JSON.
 
@@ -79,7 +80,7 @@ ollama:
     If the input is empty, a URL only, or contains no meaningful text:
     - Return an empty string "" instead of None
     - Do NOT return None for invalid inputs
-    - For URLs like "a41415.com" → return "" (empty)
+    - For URLs, brand labels, or watermark-only text like "a41415.com" or "ACG" → return "" (empty)
     - For non-Chinese text like "这是一个月明风无之夜" → translate to Vietnamese
 
     ## QUALITY CHECKS
