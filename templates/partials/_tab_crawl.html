@@ -10,13 +10,16 @@
       <div class="card-body">
         <div class="field">
           <label data-i18n="crawl.url.label">URL trang web</label>
-          <div class="folder-row">
-            <input type="url" id="urlInput" placeholder="https://example.com/gallery"
-                   oninput="onUrlChange()" />
-            <button class="btn btn-ghost btn-browse" onclick="clearUrl()" title="Xóa URL"
-                    data-i18n="crawl.url.clear" data-i18n-title="crawl.url.clear.title">✕ Xóa</button>
+          <div class="url-tag-box" id="urlTagBox" onclick="document.getElementById('urlTagInput').focus()">
+            <input type="text" id="urlTagInput" class="url-tag-input"
+                   placeholder="Dán hoặc gõ URL rồi nhấn Enter / Tab…"
+                   onkeydown="urlTagKeyDown(event)"
+                   onpaste="urlTagPaste(event)" />
           </div>
-          <div class="field-hint" id="urlHint"></div>
+          <div class="url-tag-footer">
+            <span class="field-hint" id="urlHint">Nhấn Enter / Tab / <kbd>,</kbd> để thêm · Dán nhiều URL cùng lúc</span>
+            <button class="btn btn-ghost" style="padding:2px 9px;font-size:.75rem;flex-shrink:0" onclick="clearUrl()">✕ Xóa tất cả</button>
+          </div>
         </div>
         <div class="field">
           <label data-i18n="crawl.folder.label">Thư mục lưu ảnh</label>
@@ -75,7 +78,8 @@
     <div class="card">
       <div class="card-body">
         <div class="action-row">
-          <button class="btn btn-primary"  id="startBtn" onclick="startCrawl()" data-i18n="btn.start">▶ Bắt đầu</button>
+          <button class="btn btn-primary"  id="startBtn" onclick="startCrawl()" title="Bắt đầu crawl mới, xóa queue trước đó nếu có" data-i18n="btn.start">▶ Bắt đầu</button>
+          <button class="btn btn-secondary" id="enqueueBtn" onclick="enqueueCrawl()" title="Thêm URL vào queue hiện tại hoặc bắt đầu queue nếu chưa chạy">➕ Xếp hàng</button>
           <button class="btn btn-danger"   id="stopBtn"  onclick="stopCrawl()" disabled data-i18n="btn.stop">■ Dừng</button>
           <button class="btn btn-ghost"    onclick="saveConfig()" title="Lưu cấu hình vào trình duyệt"
                   data-i18n="btn.save_config" data-i18n-title="btn.save_config.title">💾 Lưu</button>
@@ -109,9 +113,13 @@
           </div>
         </div>
 
+        <div class="field-hint" style="margin-top:8px; color:var(--text-muted); font-size:.92rem;">
+          ▶ Bắt đầu = chạy lại từ đầu và reset queue cũ; ➕ Xếp hàng = thêm URL vào queue hiện tại hoặc bắt đầu queue mới nếu đang rảnh.
+        </div>
         <div class="status-row">
           <div class="status-dot" id="statusDot"></div>
           <span class="status-text" id="statusText" data-i18n="status.ready">Sẵn sàng</span>
+          <span class="status-text" id="queueText" style="margin-left:12px; font-size:.95rem; color:var(--text-muted)"></span>
         </div>
       </div>
     </div>

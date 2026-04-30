@@ -6,6 +6,14 @@ Các thư viện nặng (cv2, numpy, PIL, paddleocr/easyocr) được import laz
 web_app.py có thể import module này mà không báo lỗi khi chưa cài.
 """
 
+import os as _os_env
+# Giới hạn thread của ML libs trước khi import bất cứ thứ gì
+# Tránh tranh nhân với Windows UI/mouse
+_ML_THREAD_LIMIT = "2"
+for _k in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
+           "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS"):
+    _os_env.environ.setdefault(_k, _ML_THREAD_LIMIT)
+
 import json
 import re
 import shutil
@@ -37,6 +45,8 @@ def _get_paddle_reader(gpu: bool = True, lang: str = "ch"):
                 lang=lang,
                 use_gpu=gpu,
                 show_log=False,
+                enable_mkldnn=False if not gpu else True,  # tắt MKLDNN khi chạy CPU
+                cpu_threads=int(_ML_THREAD_LIMIT),          # ép số luồng theo env limit
                 det_db_thresh=0.2,          # nhạy hơn với text nhạt/mờ
                 det_db_box_thresh=0.3,      # bắt box text có confidence thấp
                 det_db_unclip_ratio=2.0,    # mở rộng bbox bao quanh text
@@ -472,9 +482,13 @@ def translate_batch(texts: list[str], model: str, src_lang: str = "zh", constrai
         "Kết quả (chỉ JSON array):"
     )
     try:
+        payload = {"model": model, "prompt": prompt, "stream": False}
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        headers = {"Content-Type": "application/json; charset=utf-8"}
         resp = requests.post(
             f"{OLLAMA_BASE}/api/generate",
-            json={"model": model, "prompt": prompt, "stream": False},
+            data=body,
+            headers=headers,
             timeout=180,
         )
         resp.raise_for_status()
@@ -729,18 +743,17 @@ def render_text(
             best_lh = 8
 
     line_spacing = max(2, best_lh // 5)
-    if strict_clip:
-        max_lines = max(1, inner_h // (best_lh + line_spacing))
-        if len(best_lines) > max_lines:
-            best_lines = best_lines[:max_lines]
+    max_lines = max(1, inner_h // (best_lh + line_spacing))
+    if len(best_lines) > max_lines:
+        best_lines = best_lines[:max_lines]
+        # Keep bubble readable when clipped instead of drawing into nearby regions.
+        if best_lines:
+            tail = best_lines[-1].rstrip()
+            best_lines[-1] = (tail + "...") if tail else "..."
 
     total_h   = len(best_lines) * (best_lh + line_spacing) - line_spacing
-    if strict_clip:
-        # Giữ text trong bubble: không mở rộng xuống dưới y2i
-        actual_y2 = min(y2i, y1i + total_h + pad * 2)
-    else:
-        # Không có bubble khớp: cho phép mở rộng xuống để thấy đủ text
-        actual_y2 = min(ih, max(y2i, y1i + total_h + pad * 2))
+    # Always keep rendering inside the selected bbox to avoid line overlap between groups.
+    actual_y2 = min(y2i, y1i + total_h + pad * 2)
 
     draw.rectangle([x1i - 3, y1i - 3, x2i + 3, actual_y2 + 3], fill=bg_rgb)
 
@@ -817,7 +830,8 @@ class ImageTranslator:
         src_lang: str = "zh",
         inpainter: str = "opencv",
         overwrite: bool = False,
-        font_scale: float = 0.75,
+        font_scale: float = 0.60,
+        cpu_priority: str = "below_normal",
         on_log=None,
         on_progress=None,
     ):
@@ -828,6 +842,7 @@ class ImageTranslator:
         self.inpainter   = inpainter if inpainter in ("opencv", "lama") else "opencv"
         self.overwrite   = overwrite
         self.font_scale  = max(0.3, min(2.0, float(font_scale)))
+        self.cpu_priority = cpu_priority if cpu_priority in ("normal", "below_normal", "idle") else "below_normal"
         self.on_log      = on_log or print
         self.on_progress = on_progress or (lambda d, t: None)
 
@@ -1080,7 +1095,6 @@ class ImageTranslator:
                 fail += 1
                 failed_paths.append(str(path))
             self.on_progress(i, total)
-
         return ok, fail, failed_paths
 
 
@@ -1189,6 +1203,7 @@ class MITImageTranslator:
         verbose: bool = False,
         skip_no_text: bool = False,
         overwrite: bool = False,
+        cpu_priority: str = "below_normal",
         on_log=None,
         on_progress=None,
     ):
@@ -1212,6 +1227,7 @@ class MITImageTranslator:
         self.verbose              = verbose
         self.skip_no_text         = skip_no_text
         self.overwrite            = overwrite
+        self.cpu_priority         = cpu_priority if cpu_priority in ("normal", "below_normal", "idle") else "below_normal"
         self.on_log               = on_log or print
         self.on_progress          = on_progress or (lambda d, t: None)
 
@@ -1269,7 +1285,27 @@ class MITImageTranslator:
         if self.font_size_offset:
             cfg.setdefault("render", {})["font_size_offset"] = int(self.font_size_offset)
         if self.font_size_minimum:
-            cfg.setdefault("render", {})["font_size_minimum"] = int(self.font_size_minimum)
+            min_val = int(self.font_size_minimum)
+            # Nếu user đặt offset âm lớn, đảm bảo font_size_minimum không triệt tiêu offset đó.
+            # MIT tính: effective = max(font_size_minimum, auto_size + offset)
+            # → nếu font_size_minimum > auto_size + offset, offset bị vô hiệu hoá hoàn toàn.
+            # Fix: khi offset âm đủ lớn, scale-down minimum = max(8, min + offset // 2)
+            if self.font_size_offset:
+                ofs_val = int(self.font_size_offset)
+                if ofs_val < -8:
+                    adjusted = max(8, min_val + ofs_val // 2)
+                    if adjusted < min_val:
+                        cfg.setdefault("render", {})["font_size_minimum"] = adjusted
+                        self._log(
+                            f"  [RENDER] font_size_minimum {min_val}→{adjusted} "
+                            f"(tránh triệt tiêu offset={ofs_val}, text VI dài hơn TQ)"
+                        )
+                    else:
+                        cfg.setdefault("render", {})["font_size_minimum"] = min_val
+                else:
+                    cfg.setdefault("render", {})["font_size_minimum"] = min_val
+            else:
+                cfg.setdefault("render", {})["font_size_minimum"] = min_val
         if self.font_size_fixed:
             cfg.setdefault("render", {})["font_size"] = int(self.font_size_fixed)
         if self.font_color:
@@ -1277,12 +1313,24 @@ class MITImageTranslator:
 
         # Vietnamese: auto-apply stronger font shrink if user hasn't set fixed size or offset.
         # If font fixed is explicitly requested, do not override it with auto offset.
+        # Vietnamese: auto-apply hard font_size cap to prevent overflow on large images.
+        # MIT auto-calculates font from image perimeter (~21-28px on 1368x768), which is too large for Latin.
+        # Apply fixed cap of 16px unless user has explicitly set font_size_fixed.
+        if self.target_lang in ("VIN", "vi") and not self.font_size_fixed:
+            cfg.setdefault("render", {})["font_size"] = 16
+            self._log("  [RENDER] Auto font_size=16 (hard cap – Latin wider than CJK, prevent right-edge overflow)")
         if self.target_lang in ("VIN", "vi") and not self.font_size_offset and not self.font_size_fixed:
-            cfg.setdefault("render", {})["font_size_offset"] = -6
-            self._log("  [RENDER] Auto font_size_offset=-6 (Vietnamese text fitting)")
+            cfg.setdefault("render", {})["font_size_offset"] = -16
+            self._log("  [RENDER] Auto font_size_offset=-16 (Latin ~1.6x wider than CJK, prevent overflow)")
         # Vietnamese: set font_size_minimum=10 if not specified to keep readability
         if self.target_lang in ("VIN", "vi") and not self.font_size_minimum:
             cfg.setdefault("render", {})["font_size_minimum"] = 10
+        # Vietnamese: Latin script is significantly wider than CJK per character.
+        # Auto-apply unclip_ratio=3.5 so the rendered bbox has enough width for the translation.
+        # Only applies when user leaves Unclip blank (does not override explicit value).
+        if self.target_lang in ("VIN", "vi") and not self.unclip_ratio:
+            cfg.setdefault("detector", {})["unclip_ratio"] = 3.5
+            self._log("  [DETECT] Auto unclip_ratio=3.5 (Latin/VI text rộng hơn CJK)")
 
         # Auto-inject gpt_config for custom_openai to improve translation quality
         if self.translator == "custom_openai":
@@ -1344,6 +1392,11 @@ class MITImageTranslator:
             if self.translator == "custom_openai" and self.custom_openai_api_key:
                 sub_env["CUSTOM_OPENAI_API_KEY"] = self.custom_openai_api_key
                 self._log(f"  [ENV] CUSTOM_OPENAI_API_KEY=***")
+            # Giới hạn số thread của các thư viện ML để tránh tranh nhân với Windows
+            _thread_limit = "4" if self.cpu_priority == "normal" else "3" if self.cpu_priority == "below_normal" else "2"
+            for _env_key in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
+                             "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS"):
+                sub_env[_env_key] = _thread_limit
             proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
@@ -1353,14 +1406,58 @@ class MITImageTranslator:
                 errors="replace",
                 env=sub_env,
             )
+            # Cách ly CPU: gán subprocess vào core 4+ để core 0-3 phục vụ Windows UI
+            try:
+                import psutil as _psutil
+                _PRIORITY_MAP = {
+                    "normal":       _psutil.NORMAL_PRIORITY_CLASS,
+                    "below_normal": _psutil.BELOW_NORMAL_PRIORITY_CLASS,
+                    "idle":         _psutil.IDLE_PRIORITY_CLASS,
+                }
+                p = _psutil.Process(proc.pid)
+                p.nice(_PRIORITY_MAP.get(self.cpu_priority, _psutil.BELOW_NORMAL_PRIORITY_CLASS))
+                total_cores = _psutil.cpu_count(logical=True) or 4
+                if total_cores > 4 and self.cpu_priority != "normal":
+                    # Chỉ dùng core riêng biệt để tránh tranh chấp Bus/Cache với UI.
+                    # Dùng P-core cho below_normal, thử dùng E-core cho idle nếu khả thi.
+                    p_cores = [c for c in range(2, min(total_cores, 12), 2)]  # [2,4,6,8,10]
+                    e_cores = [c for c in range(12, min(total_cores, 16))]  # [12,13,14,15] trên i5-14400F
+                    if self.cpu_priority == "idle" and e_cores:
+                        ai_cores = e_cores
+                    else:
+                        ai_cores = p_cores
+                    p.cpu_affinity(ai_cores)
+                    self._log(f"  [CPU] Affinity={ai_cores}, priority={self.cpu_priority} (PID={proc.pid})")
+                else:
+                    self._log(f"  [CPU] Priority={self.cpu_priority} (PID={proc.pid}, all cores)")
+            except Exception as _pe:
+                self._log(f"  [CPU] Không set được affinity: {_pe}")
+            import time as _t2
+            _LOG_BATCH_INTERVAL = {"normal": 0.05, "below_normal": 0.1, "idle": 0.2}
+            _flush_interval = _LOG_BATCH_INTERVAL.get(self.cpu_priority, 0.1)
+            _log_buf: list[str] = []
+            _last_flush = _t2.monotonic()
             for line in proc.stdout:
                 line = line.rstrip("\n")
                 if line:
-                    self._log(f"  {line}")
+                    _log_buf.append(line)
                 if stop_event and stop_event.is_set():
                     proc.terminate()
+                    for _bl in _log_buf:
+                        self._log(f"  {_bl}")
                     self._log("⚠  Đã dừng theo yêu cầu.")
+                    _log_buf.clear()
                     break
+                # Flush batch sau mỗi N giây thay vì in từng dòng
+                _now = _t2.monotonic()
+                if _now - _last_flush >= _flush_interval:
+                    for _bl in _log_buf:
+                        self._log(f"  {_bl}")
+                    _log_buf.clear()
+                    _last_flush = _now
+            # Flush phần còn lại
+            for _bl in _log_buf:
+                self._log(f"  {_bl}")
             proc.wait()
         except Exception as exc:
             self._log(f"  [FAIL] Lỗi chạy manga_translator: {exc}")

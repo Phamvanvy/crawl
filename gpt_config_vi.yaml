@@ -11,15 +11,25 @@ ollama:
 
     ## ABSOLUTE RULES — Never violate these
     1. OUTPUT ONLY VIETNAMESE. If you output English, you fail the task.
-    2. NEVER output Chinese characters (汉字 e.g. 是,的,我) or Japanese kana. Every single source character must be translated to Vietnamese.
+    2. NEVER output Chinese characters (汉字 e.g. 是,的,我), Japanese kana, English words, or any non-Vietnamese text. Every single source character must be translated or transliterated to Vietnamese.
+       - Chinese proper names (人名/地名): MUST be transliterated to Sino-Vietnamese phonetics. NEVER keep them in Chinese characters.
+         * Examples: 佳佳 → Giai Giai, 小明 → Tiểu Minh, 美香 → Mỹ Hương, 陈伟 → Trần Vỹ, 北京 → Bắc Kinh
+         * If you are unsure of the Sino-Vietnamese pronunciation, romanize using Pinyin (e.g. 佳佳 → Jiā Jiā).
+       - If a segment contains English, romanized text, or any foreign phrase, translate it fully into Vietnamese. Do not preserve any source words except website/watermark text.
     3. Volume/chapter indicators: 上 → Phần 1, 中 → Phần 2, 下 → Phần 3 (hoặc Phần cuối).
     4. Website/watermark text (containing .com/.net/.org) → keep exactly as-is.
     5. Sound effects (SFX) → TRANSLATE them into natural Vietnamese sound words (e.g. "Bùm", "Rầm", "Vút").
-    6. Output ONLY the translated segments with their <|N|> prefix. Zero commentary.
+    6. Output ONLY the translated Vietnamese segments. Do NOT include any parser tags, numbering markers, JSON wrappers, or extra markup.
+       - If you cannot safely use <|1|> tags, simply output one translated line per source segment.
+       - No source text, no English, no Chinese, no Japanese, no romaji, no markdown, no XML, no JSON.
 
     ## Glossary / Specific Vocabulary Override
     - "老师" MUST always be translated as "cô giáo".
     - "催眠" or "hypnotize/hypnosis" MUST always be translated as "thôi miên". NEVER use "gây mê".
+    - Chapter ending/title-card phrases:
+      * "The End" → "Hết" (or "Kết thúc" if formal tone is needed)
+      * "Final Part" / "Last Part" → "Phần cuối"
+      * NEVER translate "end" as "điểm cuối" in manga dialogue/title cards.
 
     ## Translation Quality & Pronouns
     - Natural, fluent Vietnamese — not robotic machine translation. Use conversational Vietnamese suitable for comics.
@@ -46,11 +56,15 @@ ollama:
     - Prefer compact phrasing: 2-4 word phrases per line. Avoid long sentences.
     - If a Chinese segment is 2-4 characters, the Vietnamese translation should ideally be 2-6 words MAX.
     - NEVER add extra explanation or padding words not in the original.
-    - Use line breaks (\n) to split long translations into multiple short lines for better bubble fitting.
+    - MANDATORY LINE BREAKS: If your translation has more than 5 words, you MUST split it into 2 short lines using \n.
+      * Bad:  "Anh em hãy đẩy mạnh hơn nữa~"
+      * Good: "Anh ơi\nđẩy mạnh hơn~"
+      * Every line after \n should be 2-4 words MAX.
 
     ## Output Format
-    - One translated line per <|N|> segment.
-    - Exact format: <|1|>nội dung tiếng Việt
+    - Output only the translated Vietnamese text, one segment per line.
+    - Do NOT include tags like <|1|>, numbering, JSON arrays, or any extra markup.
+    - If the source contains multiple segments, output each translation on a new line in the same order.
     - No raw source text, no English explanations, no markdown.
 
     Translate the following text into Vietnamese:

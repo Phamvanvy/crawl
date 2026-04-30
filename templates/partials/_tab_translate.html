@@ -93,9 +93,9 @@
           </div>
           <div class="field">
             <label>Cỡ chữ (scale) <span style="font-size:.7rem;opacity:.7">— 0.5 = nhỏ hơn, 1.0 = mặc định gốc</span></label>
-            <input type="range" id="tFontScale" min="0.3" max="1.5" step="0.05" value="0.75"
+            <input type="range" id="tFontScale" min="0.3" max="1.5" step="0.05" value="0.60"
               style="width:100%;accent-color:var(--accent,#7c6af7)" oninput="document.getElementById('tFontScaleVal').textContent=parseFloat(this.value).toFixed(2)" />
-            <div style="text-align:right;font-size:.8rem;opacity:.8">x<span id="tFontScaleVal">0.75</span></div>
+            <div style="text-align:right;font-size:.8rem;opacity:.8">x<span id="tFontScaleVal">0.60</span></div>
           </div>
           <label class="cb-item" style="margin-top:6px" title="Dịch lại những ảnh đã có trong thư mục output. Bỏ tick = chỉ dịch ảnh chưa có file đầu ra (xóa ảnh xấu rồi chạy lại sẽ tự dịch lại)">
             <input type="checkbox" id="tOverwrite" />
@@ -283,11 +283,13 @@ CG/subtitle: dùng 15–25 để xoá sạch shadow và outline.</span></span></
                   <label><span class="tt-wrap">Unclip <span style="opacity:.55;font-size:.75rem">(CG: 3.5)</span><span class="tt-icon">?</span><span class="tt-box">Hệ số mở rộng bounding box sau khi detect text.
 Mặc định: 2.3
 
-• 2.3 — mặc định cho manga, bbox vừa khít chữ
-• 3.5–4.5 — CG/VN, subtitle dài: mở rộng để đủ chỗ render bản dịch
-• 5.0–6.0 — khi text Vietnamese dài hơn nhiều so với chữ Trung
+• Để trống — tự động 3.5 khi dịch sang Tiếng Việt (KHUYẾN NGHỊ)
+• 2.3 — mặc định gốc manga, bbox vừa khít chữ → dễ tràn text VI
+• 1.0–1.9 — QUÁ NHỎ: bbox không đủ rộng cho Latin, text VI tràn ra ngoài
+• 3.5–4.5 — CG/VN tốt nhất: đủ chỗ cho text VI mà không shift vị trí
+• 5.0–6.0 — TRÁNH: bbox deform thành dải ngang full-width, text đè lên nhân vật
 
-⚠ Quá lớn có thể gộp lẫn các vùng chữ khác nhau.</span></span></label>
+⚠ Quá lớn có thể gộp lẫn các vùng chữ khác nhau và shift vị trí render.</span></span></label>
                   <input type="number" id="tMITUnclip" placeholder="2.3" min="1" max="8" step="0.1" value=""
                     style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-family:inherit;font-size:.82rem;outline:none;width:100%" />
                 </div>
@@ -297,10 +299,11 @@ Mặc định: 2.3
 • -5 đến -15 — thu nhỏ font → ít tràn ra ngoài bbox hơn
 • +5 đến +10 — phóng to font
 
-CG/VN: dùng -8 đến -15 nếu text bị tràn.
-Khác với Font fixed: offset này cộng/trừ vào kích cỡ đã tính, không ghi đè hoàn toàn.</span></span></label>
+CG/VN: dùng -18 đến -25 nếu text bị tràn.
+Khác với Font fixed: offset này cộng/trừ vào kích cỡ đã tính, không ghi đè hoàn toàn.
+Nếu text vẫn tràn dù offset thấp nhất → dùng Font fixed để cap cứng (VD: 14).</span></span></label>
                   <div style="display:flex;align-items:center;gap:6px">
-                    <input type="range" id="tMITFontOfs" min="-20" max="10" step="1" value="-4"
+                    <input type="range" id="tMITFontOfs" min="-35" max="10" step="1" value="-4"
                       style="flex:1;accent-color:var(--accent,#7c6af7)"
                       oninput="document.getElementById('tMITFontOfsVal').textContent=this.value" />
                     <span id="tMITFontOfsVal" style="min-width:28px;text-align:right;font-size:.82rem">-4</span>
@@ -370,6 +373,19 @@ CG/subtitle: dùng FFFFFF:000000 để đảm bảo đọc được trên mọi 
         </div><!-- end tMITOptions -->
 
         <hr class="divider" />
+
+        <!-- CPU priority -->
+        <div class="field" style="margin-bottom:8px">
+          <label style="display:flex;align-items:center;gap:6px">
+            🖥 Ưu tiên CPU
+            <span style="font-size:.7rem;opacity:.6">(để làm việc khác trong lúc dịch)</span>
+          </label>
+          <select id="tCpuPriority" class="field select" style="margin-top:4px">
+            <option value="normal">Bình thường — dịch nhanh nhất</option>
+            <option value="below_normal" selected>Ưu tiên thấp — CPU ~50-60% (khuyến nghị)</option>
+            <option value="idle">Nền — CPU ~20-30%, dịch chậm hơn nhiều</option>
+          </select>
+        </div>
 
         <!-- GPU toggle -->
         <label class="cb-item">

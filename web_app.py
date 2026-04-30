@@ -32,12 +32,14 @@ app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024  # 1 MB — JSON payload only
 _lock = threading.Lock()
 _logs: deque = deque()          # Circular buffer sự kiện
 _log_total: int = 0             # Absolute counter (không bao giờ reset bởi eviction)
+_crawl_queue: deque = deque()
 _state: dict = {
     "running": False,
     "done": 0,
     "total": 0,
     "success": 0,
     "failed": 0,
+    "queue": 0,
     "status": "ready",          # ready | running | done | error | stopped
     "failed_items": [],        # list of {"url": str, "index": int}
     "crawl_folder":  "",
@@ -57,6 +59,126 @@ def _push(entry: dict) -> None:
         _log_total += 1
 
 
+def _enqueue_job(job: dict) -> None:
+    with _lock:
+        _crawl_queue.append(job)
+        _state["queue"] = len(_crawl_queue)
+
+
+def _parse_urls(raw_url) -> list[str]:
+    if isinstance(raw_url, list):
+        urls = [str(u).strip() for u in raw_url if str(u).strip()]
+    else:
+        raw = str(raw_url or "")
+        urls = [part.strip() for part in re.split(r'[\r\n,;]+', raw) if part.strip()]
+    return [u for u in urls if u.startswith(("http://", "https://"))]
+
+
+def _crawl_queue_worker() -> None:
+    cumulative_done = 0
+    try:
+        while True:
+            with _lock:
+                if _stop_event.is_set() or not _crawl_queue:
+                    break
+                job = _crawl_queue.popleft()
+                _state["queue"] = len(_crawl_queue)
+            urls = job["urls"]
+            folder = job["folder"]
+            delay = job["delay"]
+            workers = job["workers"]
+            timeout = job["timeout"]
+            retries = job["retries"]
+
+            _push({"type": "log", "msg": "─" * 60})
+            _push({"type": "log", "msg": f"▶ Bắt đầu job queue: {len(urls)} URL"})
+            for url in urls:
+                if _stop_event.is_set():
+                    break
+                _push({"type": "log", "msg": f"  ▶ URL: {url}"})
+
+                job_total = 0
+                def on_progress(done: int, total: int) -> None:
+                    nonlocal job_total
+                    job_total = total
+                    with _lock:
+                        _state["done"] = cumulative_done + done
+                        _state["total"] = cumulative_done + total
+                    _push({"type": "progress", "done": cumulative_done + done, "total": cumulative_done + total})
+
+                ok, fail, failed_items = crawl(
+                    url=url,
+                    output_folder=folder,
+                    delay=delay,
+                    max_workers=workers,
+                    timeout=timeout,
+                    max_retries=retries,
+                    on_progress=on_progress,
+                    on_log=lambda msg: _push({"type": "log", "msg": str(msg)}),
+                    stop_event=_stop_event,
+                )
+
+                cumulative_done += job_total
+                with _lock:
+                    _state["success"] += ok
+                    _state["failed"] += fail
+                    _state["failed_items"].extend(failed_items)
+                _push({"type": "log", "msg": f"  ✔ Job URL hoàn tất: {ok} thành công, {fail} thất bại."})
+                if _stop_event.is_set():
+                    break
+    except Exception as exc:
+        _push({"type": "log", "msg": f"✘  Lỗi queue: {exc}"})
+        with _lock:
+            _state.update(running=False, status="error")
+        return
+
+    with _lock:
+        _state.update(running=False, status="stopped" if _stop_event.is_set() else "done")
+    _push({"type": "done", "success": _state["success"], "failed": _state["failed"]})
+    _push({"type": "log", "msg": f"✔  Hoàn thành queue: {_state['success']} thành công, {_state['failed']} thất bại."})
+
+
+@app.route("/api/start", methods=["POST"])
+def api_start():
+    with _lock:
+        running = _state["running"]
+
+    data = request.get_json(silent=True) or {}
+    raw_urls = data.get("urls", data.get("url", ""))
+    urls = _parse_urls(raw_urls)
+    folder = str(data.get("folder", "output")).strip() or "output"
+    try:
+        delay = max(0.0, min(10.0, float(data.get("delay", 0.3))))
+        workers = max(1, min(32, int(data.get("workers", 4))))
+        timeout = max(5, min(300, int(data.get("timeout", 20))))
+        retries = max(0, min(10, int(data.get("retries", 3))))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Giá trị cấu hình không hợp lệ."}), 400
+
+    if not urls:
+        return jsonify({"error": "Phải nhập ít nhất một URL hợp lệ."}), 400
+
+    job = {
+        "urls": urls,
+        "folder": folder,
+        "delay": delay,
+        "workers": workers,
+        "timeout": timeout,
+        "retries": retries,
+    }
+
+    if not running:
+        _reset()
+        _enqueue_job(job)
+        _push({"type": "log", "msg": f"▶ Bắt đầu queue mới: {len(urls)} URL"})
+        threading.Thread(target=_crawl_queue_worker, daemon=True).start()
+        return jsonify({"ok": True, "queued": len(urls), "queue_length": len(_crawl_queue)})
+
+    _enqueue_job(job)
+    _push({"type": "log", "msg": f"➕ Đã xếp thêm {len(urls)} URL vào queue. Queue hiện tại: {len(_crawl_queue)}"})
+    return jsonify({"ok": True, "queued": len(urls), "queue_length": len(_crawl_queue)})
+
+
 def _reset() -> None:
     """Xóa log và reset state (gọi trước khi bắt đầu crawl mới)."""
     global _log_total
@@ -64,10 +186,11 @@ def _reset() -> None:
     with _lock:
         _logs.clear()
         _log_total = 0
+        _crawl_queue.clear()
         _state.update(
             running=True, done=0, total=0,
-            success=0, failed=0, status="running",
-            failed_items=[],
+            success=0, failed=0, queue=0,
+            status="running", failed_items=[],
         )
 
 
@@ -135,74 +258,6 @@ def api_fs():
 @app.route("/")
 def index():
     return render_template("index.html")
-
-
-@app.route("/api/start", methods=["POST"])
-def api_start():
-    with _lock:
-        if _state["running"]:
-            return jsonify({"error": "Đang crawl rồi. Vui lòng dừng trước."}), 409
-
-    data = request.get_json(silent=True) or {}
-    url    = str(data.get("url",    "")).strip()
-    folder = str(data.get("folder", "output")).strip() or "output"
-    try:
-        delay   = max(0.0, min(10.0, float(data.get("delay",   0.3))))
-        workers = max(1,   min(32,   int(  data.get("workers", 4  ))))
-        timeout = max(5,   min(300,  int(  data.get("timeout", 20 ))))
-        retries = max(0,   min(10,   int(  data.get("retries", 3  ))))
-    except (TypeError, ValueError):
-        return jsonify({"error": "Giá trị cấu hình không hợp lệ."}), 400
-
-    if not url.startswith(("http://", "https://")):
-        return jsonify({"error": "URL phải bắt đầu bằng http:// hoặc https://"}), 400
-
-    _reset()
-
-    def run() -> None:
-        try:
-            def on_log(msg: str) -> None:
-                _push({"type": "log", "msg": str(msg)})
-
-            def on_progress(done: int, total: int) -> None:
-                with _lock:
-                    _state["done"]  = done
-                    _state["total"] = total
-                _push({"type": "progress", "done": done, "total": total})
-
-            _push({"type": "log", "msg": "─" * 60})
-            _push({"type": "log", "msg": f"URL   : {url}"})
-            _push({"type": "log", "msg": f"Folder: {folder}"})
-            _push({"type": "log", "msg": f"Config: delay={delay}s  workers={workers}  timeout={timeout}s  retries={retries}"})
-
-            ok, fail, failed_items = crawl(
-                url=url,
-                output_folder=folder,
-                delay=delay,
-                max_workers=workers,
-                timeout=timeout,
-                max_retries=retries,
-                on_progress=on_progress,
-                on_log=on_log,
-                stop_event=_stop_event,   # ← truyền event vào
-            )
-
-            _push({"type": "log", "msg": f"\n✔  Hoàn thành: {ok} thành công, {fail} thất bại."})
-            _push({"type": "done", "success": ok, "failed": fail})
-            with _lock:
-                _state.update(running=False, success=ok, failed=fail, status="done")
-                _state["failed_items"]  = failed_items
-                _state["crawl_folder"]  = folder
-                _state["crawl_referer"] = url
-
-        except Exception as exc:
-            _push({"type": "log", "msg": f"✘  Lỗi: {exc}"})
-            _push({"type": "error", "msg": str(exc)})
-            with _lock:
-                _state.update(running=False, status="error")
-
-    threading.Thread(target=run, daemon=True).start()
-    return jsonify({"ok": True})
 
 
 @app.route("/api/stop", methods=["POST"])
@@ -450,9 +505,12 @@ def api_translate_start():
     mit_skip_no_text  = bool(data.get("mit_skip_no_text",False))
     mit_overwrite     = bool(data.get("mit_overwrite",   False))
     overwrite         = bool(data.get("overwrite",       False))
+    cpu_priority      = str(data.get("cpu_priority",     "below_normal")).strip()
+    if cpu_priority not in ("normal", "below_normal", "idle"):
+        cpu_priority = "below_normal"
     inpainter         = str(data.get("inpainter",        "opencv")).strip()
     try:
-        font_scale = float(data.get("font_scale", 0.75))
+        font_scale = float(data.get("font_scale", 0.60))
         font_scale = max(0.3, min(2.0, font_scale))
     except (TypeError, ValueError):
         font_scale = 0.75
@@ -510,6 +568,7 @@ def api_translate_start():
                     verbose=mit_verbose,
                     skip_no_text=mit_skip_no_text,
                     overwrite=mit_overwrite,
+                    cpu_priority=cpu_priority,
                     on_log=on_log,
                     on_progress=on_progress,
                 )
@@ -524,6 +583,7 @@ def api_translate_start():
                     inpainter=inpainter,
                     overwrite=overwrite,
                     font_scale=font_scale,
+                    cpu_priority=cpu_priority,
                     on_log=on_log,
                     on_progress=on_progress,
                 )

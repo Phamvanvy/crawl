@@ -402,7 +402,7 @@ function applyPreset(name) {
 // ── Config persistence ────────────────────────────────────────────────────────
 function saveConfig() {
   const cfg = {
-    url:       getVal("urlInput"),
+    url:       _urlTags.join('\n'),
     folder:    getVal("folderInput"),
     delay:     getVal("delayInput"),
     workers:   getVal("workersInput"),
@@ -418,7 +418,11 @@ function saveConfig() {
 function loadConfig() {
   try {
     const saved = JSON.parse(localStorage.getItem("crawlerConfig") || "{}");
-    if (saved.url)     setVal("urlInput",     saved.url);
+    if (saved.url) {
+      const parts = saved.url.split(/[\r\n,;]+/).map(u => u.trim()).filter(u => u.startsWith('http'));
+      _urlTags = parts;
+      renderUrlTags();
+    }
     if (saved.folder)  setVal("folderInput",  saved.folder);
     if (saved.delay   != null) setVal("delayInput",   saved.delay);
     if (saved.workers != null) setVal("workersInput", saved.workers);
@@ -461,25 +465,143 @@ const $  = (id) => document.getElementById(id);
 const getVal = (id)    => $(id).value;
 const setVal = (id, v) => { $(id).value = v; };
 
-// ── Clear URL ──────────────────────────────────────────────────────────────────
-function clearUrl() {
-  setVal('urlInput', '');
-  $('urlHint').textContent = '';
-  $('urlInput').focus();
+// ── URL Tag Input ─────────────────────────────────────────────────────────────
+let _urlTags = [];
+
+function renderUrlTags() {
+  const box = $('urlTagBox');
+  const inp = $('urlTagInput');
+  box.querySelectorAll('.url-tag').forEach(el => el.remove());
+  _urlTags.forEach((url, i) => {
+    const tag = document.createElement('div');
+    tag.className = 'url-tag';
+    tag.innerHTML =
+      `<span class="url-tag-text" title="${url}">${url}</span>` +
+      `<button class="url-tag-rm" onclick="removeUrlTag(${i})" title="Xóa URL này">×</button>`;
+    box.insertBefore(tag, inp);
+  });
+  const hint = $('urlHint');
+  if (_urlTags.length === 0) {
+    hint.textContent = 'Nhấn Enter / Tab / , để thêm · Dán nhiều URL cùng lúc';
+    hint.style.color = '';
+  } else {
+    hint.textContent = `${_urlTags.length} URL đã thêm`;
+    hint.style.color = 'var(--green)';
+  }
 }
 
-// ── URL hint ──────────────────────────────────────────────────────────────────
-function onUrlChange() {
-  const v = getVal("urlInput").trim();
-  const hint = $("urlHint");
-  if (!v) { hint.textContent = ""; return; }
-  if (!v.startsWith("http://") && !v.startsWith("https://")) {
-    hint.style.color = "var(--red)";
-    hint.textContent = tr('alert.bad_url_hint');
-  } else {
-    hint.style.color = "var(--green)";
-    hint.textContent = tr('alert.valid_url');
+function addUrlTag(url) {
+  url = url.trim();
+  if (!url) return false;
+  if (!url.startsWith('http://') && !url.startsWith('https://')) return false;
+  if (_urlTags.includes(url)) return false;
+  _urlTags.push(url);
+  renderUrlTags();
+  return true;
+}
+
+function removeUrlTag(i) {
+  _urlTags.splice(i, 1);
+  renderUrlTags();
+  $('urlTagInput').focus();
+}
+
+function urlTagKeyDown(e) {
+  const inp = $('urlTagInput');
+  const v = inp.value.trim();
+  if (e.key === 'Enter' || e.key === 'Tab' || e.key === ',') {
+    if (v) {
+      e.preventDefault();
+      const ok = addUrlTag(v);
+      if (ok) {
+        inp.value = '';
+      } else {
+        const hint = $('urlHint');
+        hint.style.color = 'var(--red)';
+        hint.textContent = v.startsWith('http') ? 'URL đã có trong danh sách.' : 'URL phải bắt đầu bằng http:// hoặc https://';
+        setTimeout(() => renderUrlTags(), 2200);
+      }
+    }
+  } else if (e.key === 'Backspace' && !inp.value && _urlTags.length) {
+    e.preventDefault();
+    _urlTags.pop();
+    renderUrlTags();
   }
+}
+
+function urlTagPaste(e) {
+  e.preventDefault();
+  const text = (e.clipboardData || window.clipboardData).getData('text');
+  const parts = text.split(/[\r\n,;]+/).map(u => u.trim()).filter(Boolean);
+  let added = 0;
+  parts.forEach(u => { if (addUrlTag(u)) added++; });
+  $('urlTagInput').value = '';
+  if (added) {
+    const hint = $('urlHint');
+    hint.style.color = 'var(--green)';
+    hint.textContent = `+${added} URL đã thêm (tổng: ${_urlTags.length})`;
+  }
+}
+
+function clearUrl() {
+  _urlTags = [];
+  renderUrlTags();
+  $('urlTagInput').focus();
+}
+
+function _parseCrawlUrls() {
+  return [..._urlTags];
+}
+
+async function enqueueCrawl() {
+  const validUrls = _parseCrawlUrls();
+  if (!validUrls.length) {
+    addLog(tr('alert.no_url'), "warn");
+    return;
+  }
+  const folder  = getVal("folderInput").trim();
+  const delay   = parseFloat(getVal("delayInput"));
+  const workers = parseInt(getVal("workersInput"), 10);
+  const timeout = parseInt(getVal("timeoutInput"), 10);
+  const retries = parseInt(getVal("retriesInput"), 10);
+
+  if (!_crawling) {
+    _cursor   = 0;
+    _crawling = true;
+    _autoRetryRoundsLeft = 0;
+    clearLog();
+    $('failedPanel').style.display = 'none';
+    _failedItems = [];
+    $('progressWrap').style.display = '';
+    showProgress(0, 0);
+    showStats(0, 0);
+    setStatus(tr('status.crawling'), "running");
+    setCrawling(true);
+    startPolling();
+  }
+
+  let res, json;
+  try {
+    res  = await fetch("/api/start", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ urls: validUrls, folder, delay, workers, timeout, retries }),
+    });
+    json = await res.json();
+  } catch (e) {
+    addLog(tr('alert.no_conn', e), "fail");
+    if (!_crawling) { setCrawling(false); stopPolling(); _crawling = false; }
+    return;
+  }
+
+  if (!res.ok) {
+    addLog(`⚠  ${json.error || "Lỗi không xác định"}`, "warn");
+    setStatus("Lỗi", "error");
+    if (!_crawling) { setCrawling(false); stopPolling(); _crawling = false; }
+    return;
+  }
+
+  addLog(`➕ Đã xếp ${json.queued || validUrls.length} URL vào queue. Hàng đợi hiện tại: ${json.queue_length || 0}.`, "info");
 }
 
 // ── Log ───────────────────────────────────────────────────────────────────────
@@ -581,6 +703,7 @@ async function poll() {
     }
   }
   _cursor = data.total;
+  $("queueText").textContent = data.state.queue ? `Queue: ${data.state.queue}` : "";
 
   if (!data.state.running && _crawling) {
     _crawling = false;
@@ -618,19 +741,15 @@ async function poll() {
 
 // ── Start / Stop crawl ────────────────────────────────────────────────────────
 async function startCrawl() {
-  const url     = getVal("urlInput").trim();
+  const validUrls = _parseCrawlUrls();
+  if (!validUrls.length) {
+    addLog(tr('alert.no_url'), "warn"); return;
+  }
   const folder  = getVal("folderInput").trim();
   const delay   = parseFloat(getVal("delayInput"));
   const workers = parseInt(getVal("workersInput"), 10);
   const timeout = parseInt(getVal("timeoutInput"), 10);
   const retries = parseInt(getVal("retriesInput"), 10);
-
-  if (!url) {
-    addLog(tr('alert.no_url'), "warn"); return;
-  }
-  if (!url.startsWith("http://") && !url.startsWith("https://")) {
-    addLog(tr('alert.bad_url'), "warn"); return;
-  }
 
   _cursor   = 0;
   _crawling = true;
@@ -650,7 +769,7 @@ async function startCrawl() {
     res  = await fetch("/api/start", {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ url, folder, delay, workers, timeout, retries }),
+      body:    JSON.stringify({ urls: validUrls, folder, delay, workers, timeout, retries }),
     });
     json = await res.json();
   } catch (e) {
@@ -662,7 +781,10 @@ async function startCrawl() {
     addLog(`⚠  ${json.error || "Lỗi không xác định"}`, "warn");
     setStatus("Lỗi", "error");
     setCrawling(false); stopPolling(); _crawling = false;
+    return;
   }
+
+  addLog(`▶ Đang bắt đầu crawl ${json.queued || validUrls.length} URL.`, "info");
 }
 
 // ── Failed images panel ────────────────────────────────────────────────────────────────────────
@@ -1084,11 +1206,11 @@ function mitPreset(mode) {
     setSel('tMITDetector', '');          // default detector
     setSel('tMITDetSize',  '');          // default
     set('tMITMaskDil',  '20');
-    set('tMITUnclip',   '6.0');          // mở rộng bbox lớn → đủ cho text VN dài hơn TQ
-    set('tMITFontOfs',  '-8');           // giảm 8px — ZH→VI text dài hơn, cần font nhỏ hơn
+    set('tMITUnclip',   '4.5');          // mở rộng bbox → đủ cho text VN dài hơn TQ; >5 dễ gây shift bbox vào vùng có người
+    set('tMITFontOfs',  '-8');           // giảm nhẹ — clipping đã ngăn tràn, không cần offset cực đoan
     document.getElementById('tMITFontOfsVal') && (document.getElementById('tMITFontOfsVal').textContent = '-8');
     set('tMITFontMin',  '10');           // tối thiểu 10px — đủ đọc
-    set('tMITFontFixed','');             // KHÔNG cố định → để MIT tự scale theo bbox
+    set('tMITFontFixed','');             // để trống — MIT tự scale theo bbox (clipping sẽ ngăn tràn)
     set('tMITFontColor','FFFFFF:000000');// trắng nền đen
   } else if (mode === 'manga') {
     // Manga: chữ trong bong bóng, không cần override màu
@@ -1143,6 +1265,7 @@ async function tStart() {
   const mit_overwrite    = $('tMITOverwrite').checked;
   const mit_custom_api_base = getVal('tMITCustomOpenAiApiBase');
   const mit_custom_api_key  = getVal('tMITCustomOpenAiApiKey');
+  const cpu_priority     = getVal('tCpuPriority') || 'below_normal';
   const inpainter        = getVal('tInpainter') || 'opencv';
   const overwrite        = $('tOverwrite') ? $('tOverwrite').checked : false;
   const font_scale       = parseFloat($('tFontScale') ? $('tFontScale').value : '0.75') || 0.75;
@@ -1175,7 +1298,7 @@ async function tStart() {
         mit_mask_dil, mit_unclip, mit_font_ofs, mit_font_min, mit_font_fixed, mit_font_color,
         mit_custom_api_base, mit_custom_api_key,
         mit_verbose, mit_skip_no_text, mit_overwrite,
-        inpainter, overwrite, font_scale,
+        inpainter, overwrite, font_scale, cpu_priority,
       }),
     });
     json = await res.json();
