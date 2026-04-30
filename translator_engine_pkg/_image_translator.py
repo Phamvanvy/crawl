@@ -1,20 +1,25 @@
+# -*- coding: utf-8 -*-
 """
 _image_translator.py — ImageTranslator: OCR → inpaint → dịch → render.
 """
 
 import shutil
 import threading
+from collections import deque
 from pathlib import Path
 
 from ._ocr import (
     _run_ocr, _find_speech_bubbles, has_chinese, has_english, _bubble_coverage,
+)
+from ._translate import (
+    translate_batch, post_process_translation,
+    comprehensive_post_processing, CHINESE_RE,
 )
 from ._utils import (
     _bbox_xyxy, _union_bboxes, _rect_expand, _rect_intersects, _expand_bbox,
     _looks_like_watermark,
 )
 from ._inpaint import inpaint_region
-from ._translate import translate_batch
 from ._render import render_text, _group_nearby_regions
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
@@ -45,8 +50,17 @@ class ImageTranslator:
         self.on_log       = on_log or print
         self.on_progress  = on_progress or (lambda d, t: None)
 
+        # Context history: lưu (original, translated) để duy trì nhất quán xưng hô
+        # deque(maxlen=12) tự động giới hạn kích thước, không cần popleft() thủ công
+        self.context_history: deque[tuple[str, str]] = deque(maxlen=12)
+
     def _log(self, msg: str):
         self.on_log(msg)
+
+    def _update_context_history(self, original: str, translated: str) -> None:
+        """Thêm cặp (original, translated) vào context_history."""
+        if original.strip() and translated.strip():
+            self.context_history.append((original.strip(), translated.strip()))
 
     def process_image(self, src: Path, dst: Path) -> bool:
         """Xử lý một ảnh: OCR → inpaint → dịch → render → lưu."""
@@ -144,10 +158,34 @@ class ImageTranslator:
                     for _ in grp:
                         constraints.append({})
 
-            self._log("  [TRANS] Đang dịch…")
+            # ── CONTEXT-AWARE TRANSLATION ─────────────────────────────────────────
+            # Truyền toàn bộ context_history vào translate_batch để inject vào prompt.
+            # translate_batch lấy 5 entries gần nhất từ context_history để xây dựng
+            # System Prompt ngữ cảnh, giúp model dịch nhất quán về xưng hô.
+            self._log(f"  [TRANS] Đang dịch… (context={len(self.context_history)} entries)")
             all_trans = translate_batch(
-                all_texts, self.model, src_lang=self.src_lang, constraints=constraints,
+                all_texts,
+                self.model,
+                src_lang=self.src_lang,
+                context_history=list(self.context_history),
+                constraints=constraints,
             )
+
+            # ── POST-PROCESSING + CONTEXT HISTORY UPDATE ──────────────────────────
+            # Duyệt qua từng cặp (original, translated), áp dụng post-processing,
+            # rồi cập nhật context_history để các câu sau kế thừa ngữ cảnh xưng hô.
+            for i, (orig, trans) in enumerate(zip(all_texts, all_trans)):
+                # Kiểm tra ký tự Hán sót lại
+                if CHINESE_RE.search(trans):
+                    n_zh = len(CHINESE_RE.findall(trans))
+                    self._log(f"    ⚠  {n_zh} ký tự Hán chưa dịch → post-process")
+                    trans = comprehensive_post_processing(trans, orig)
+                # Áp dụng đại từ nhân xưng theo ngữ cảnh
+                trans = post_process_translation(trans, orig)
+                all_trans[i] = trans
+                # Cập nhật context cho các câu tiếp theo trong ảnh này
+                self._update_context_history(orig, trans)
+
             idx = 0
             group_trans: list[list[str]] = []
             for grp in groups:

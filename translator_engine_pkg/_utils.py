@@ -34,12 +34,29 @@ def _get_lama():
 # ── Watermark helpers ─────────────────────────────────────────────────────────
 
 def _looks_like_watermark(text: str) -> bool:
+    """Kiểm tra watermark - nếu chứa .com thì coi là watermark."""
     if not text or len(text.strip()) < 4:
         return False
-    text_lower = text.strip().lower()
-    cleaned = re.sub(r'[^a-z0-9\-_.]', '', text_lower)
+    
+    # Tiêu chí chính: Chứa domain (đơn giản hóa theo yêu cầu)
+    cleaned = re.sub(r'[^a-z0-9\-_.]', '', text.lower())
     if ".com" in cleaned:
         return True
+    
+    # Tiêu chí phụ: Từ khóa watermark phổ biến
+    watermark_keywords = [
+        'acg', 'anime', 'manga', 'manhwa', 'donghua', 'webtoons',
+        'fanart', 'copyright', 'trademark', 'logo', 'official',
+    ]
+    for keyword in watermark_keywords:
+        if keyword in text.lower():
+            return True
+    
+    # Tiêu chí phụ: Ký tự đặc biệt trong logo
+    special_chars = set('©®™✦★●○■□▲▼')
+    if any(ch in text for ch in special_chars):
+        return True
+    
     return False
 
 
