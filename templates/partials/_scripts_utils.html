@@ -1,0 +1,174 @@
+<script>
+const PRESETS = {
+  fast:  { delay: 0.1, workers: 8,  timeout: 15  },
+  safe:  { delay: 1.0, workers: 2,  timeout: 30  },
+  heavy: { delay: 0.2, workers: 12, timeout: 20  },
+  lazy:  { delay: 2.0, workers: 1,  timeout: 60  },
+};
+
+const DEFAULT_CONFIG = { delay: 0.3, workers: 4, timeout: 20, retries: 3, folder: "output" };
+
+function applyPreset(name) {
+  const p = PRESETS[name];
+  if (!p) return;
+  setVal("delayInput",   p.delay);
+  setVal("workersInput", p.workers);
+  setVal("timeoutInput", p.timeout);
+  addLog(tr('alert.preset', tr(`preset.${name}.label`), p.delay, p.workers, p.timeout), "info");
+}
+
+// ── Config persistence ────────────────────────────────────────────────────────
+function saveConfig() {
+  const cfg = {
+    url:       _urlTags.join('\n'),
+    folder:    getVal("folderInput"),
+    delay:     getVal("delayInput"),
+    workers:   getVal("workersInput"),
+    timeout:   getVal("timeoutInput"),
+    retries:   getVal("retriesInput"),
+    autoRetry:      $("autoRetryChk").checked,
+    autoRetryTimes: getVal("autoRetryTimes"),
+  };
+  localStorage.setItem("crawlerConfig", JSON.stringify(cfg));
+  addLog(tr('alert.saved_config'), "info");
+}
+
+function loadConfig() {
+  try {
+    const saved = JSON.parse(localStorage.getItem("crawlerConfig") || "{}");
+    if (saved.url) {
+      const parts = saved.url.split(/[\r\n,;]+/).map(u => u.trim()).filter(u => u.startsWith('http'));
+      _urlTags = parts;
+      renderUrlTags();
+    }
+    if (saved.folder)  setVal("folderInput",  saved.folder);
+    if (saved.delay   != null) setVal("delayInput",   saved.delay);
+    if (saved.workers != null) setVal("workersInput", saved.workers);
+    if (saved.timeout != null) setVal("timeoutInput", saved.timeout);
+    if (saved.retries != null) setVal("retriesInput", saved.retries);
+    if (saved.autoRetry      != null) $("autoRetryChk").checked    = !!saved.autoRetry;
+    if (saved.autoRetryTimes != null) setVal("autoRetryTimes", saved.autoRetryTimes);
+  } catch {}
+}
+
+function resetConfig() {
+  setVal("delayInput",   DEFAULT_CONFIG.delay);
+  setVal("workersInput", DEFAULT_CONFIG.workers);
+  setVal("timeoutInput", DEFAULT_CONFIG.timeout);
+  setVal("retriesInput", DEFAULT_CONFIG.retries);
+  $("autoRetryChk").checked = false;
+  setVal("autoRetryTimes", 3);
+  setVal("folderInput",  DEFAULT_CONFIG.folder);
+  addLog(tr('alert.reset_config'), "info");
+}
+
+// ── Theme ─────────────────────────────────────────────────────────────────────
+function toggleTheme() {
+  const html  = document.documentElement;
+  const isDark = html.dataset.theme === "dark";
+  html.dataset.theme = isDark ? "light" : "dark";
+  document.getElementById("themeBtn").textContent = isDark ? tr("theme.light") : tr("theme.dark");
+  localStorage.setItem("theme", html.dataset.theme);
+}
+function loadTheme() {
+  const savedTheme = localStorage.getItem("theme");
+  if (savedTheme) {
+    document.documentElement.dataset.theme = savedTheme;
+    document.getElementById("themeBtn").textContent = savedTheme === "dark" ? tr("theme.light") : tr("theme.dark");
+  }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const $  = (id) => document.getElementById(id);
+const getVal = (id)    => $(id).value;
+const setVal = (id, v) => { $(id).value = v; };
+
+// ── URL Tag Input ─────────────────────────────────────────────────────────────
+let _urlTags = [];
+
+function renderUrlTags() {
+  const box = $('urlTagBox');
+  const inp = $('urlTagInput');
+  box.querySelectorAll('.url-tag').forEach(el => el.remove());
+  _urlTags.forEach((url, i) => {
+    const tag = document.createElement('div');
+    tag.className = 'url-tag';
+    tag.innerHTML =
+      `<span class="url-tag-text" title="${url}">${url}</span>` +
+      `<button class="url-tag-rm" onclick="removeUrlTag(${i})" title="Xóa URL này">×</button>`;
+    box.insertBefore(tag, inp);
+  });
+  const hint = $('urlHint');
+  if (_urlTags.length === 0) {
+    hint.textContent = 'Nhấn Enter / Tab / , để thêm · Dán nhiều URL cùng lúc';
+    hint.style.color = '';
+  } else {
+    hint.textContent = `${_urlTags.length} URL đã thêm`;
+    hint.style.color = 'var(--green)';
+  }
+}
+
+function addUrlTag(url) {
+  url = url.trim();
+  if (!url) return false;
+  if (!url.startsWith('http://') && !url.startsWith('https://')) return false;
+  if (_urlTags.includes(url)) return false;
+  _urlTags.push(url);
+  renderUrlTags();
+  return true;
+}
+
+function removeUrlTag(i) {
+  _urlTags.splice(i, 1);
+  renderUrlTags();
+  $('urlTagInput').focus();
+}
+
+function urlTagKeyDown(e) {
+  const inp = $('urlTagInput');
+  const v = inp.value.trim();
+  if (e.key === 'Enter' || e.key === 'Tab' || e.key === ',') {
+    if (v) {
+      e.preventDefault();
+      const ok = addUrlTag(v);
+      if (ok) {
+        inp.value = '';
+      } else {
+        const hint = $('urlHint');
+        hint.style.color = 'var(--red)';
+        hint.textContent = v.startsWith('http') ? 'URL đã có trong danh sách.' : 'URL phải bắt đầu bằng http:// hoặc https://';
+        setTimeout(() => renderUrlTags(), 2200);
+      }
+    }
+  } else if (e.key === 'Backspace' && !inp.value && _urlTags.length) {
+    e.preventDefault();
+    _urlTags.pop();
+    renderUrlTags();
+  }
+}
+
+function urlTagPaste(e) {
+  e.preventDefault();
+  const text = (e.clipboardData || window.clipboardData).getData('text');
+  const parts = text.split(/[\r\n,;]+/).map(u => u.trim()).filter(Boolean);
+  let added = 0;
+  parts.forEach(u => { if (addUrlTag(u)) added++; });
+  $('urlTagInput').value = '';
+  if (added) {
+    const hint = $('urlHint');
+    hint.style.color = 'var(--green)';
+    hint.textContent = `+${added} URL đã thêm (tổng: ${_urlTags.length})`;
+  }
+}
+
+function clearUrl() {
+  _urlTags = [];
+  renderUrlTags();
+  $('urlTagInput').focus();
+}
+
+function _parseCrawlUrls() {
+  return [..._urlTags];
+}
+
+</script>

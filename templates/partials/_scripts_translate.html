@@ -1,0 +1,331 @@
+<script>
+async function tPoll() {
+  let data;
+  try {
+    const res = await fetch(`/api/translate/logs?from=${_tCursor}`);
+    if (!res.ok) return;
+    data = await res.json();
+  } catch { return; }
+
+  for (const entry of data.logs) {
+    if (entry.type === 'log')      tAddLog(entry.msg, tClassify(entry.msg));
+    if (entry.type === 'progress') tShowProgress(entry.done, entry.total);
+    if (entry.type === 'done') {
+      tShowStats(entry.success, entry.failed);
+      $('tProgFill').style.width  = '100%';
+      $('tProgPct').textContent   = '100%';
+      $('tProgLabel').textContent = tr('prog.done_translate', entry.success + entry.failed);
+      if (entry.output_dir) { _tOutputDir = entry.output_dir; tRefreshPreview(); }
+    }
+  }
+  _tCursor = data.total;
+
+  if (!data.state.running && _tRunning) {
+    _tRunning = false;
+    tSetCrawling(false);
+    tStopPolling();
+    const s = data.state.status;
+    if (s === 'done') {
+      tSetStatus(tr('status.t.done_fmt', data.state.success, data.state.failed), 'done');
+      // Luôn đưa progress về 100% từ state thực
+      tShowProgress(data.state.total, data.state.total);
+      tShowStats(data.state.success, data.state.failed);
+      $('tProgFill').style.width  = '100%';
+      $('tProgPct').textContent   = '100%';
+      $('tProgLabel').textContent = tr('prog.done_translate', data.state.total);
+      if (data.state.failed > 0) {
+        let rounds;
+        if (_tAutoRetryRoundsLeft > 0) {
+          rounds = _tAutoRetryRoundsLeft;
+        } else if ($('tAutoRetryChk').checked) {
+          rounds = Math.max(1, parseInt(getVal('tAutoRetryTimes'), 10) || 1);
+        } else {
+          rounds = 0;
+        }
+        tLoadFailed(rounds);
+      } else {
+        $('tFailedPanel').style.display = 'none';
+        _tAutoRetryRoundsLeft = 0;
+      }
+    }
+    if (s === 'error')   tSetStatus(tr('status.t.error'), 'error');
+    if (s === 'stopped') tSetStatus(tr('status.t.stopped'), 'stopped');
+  }
+}
+
+// ── MIT API key hints ─────────────────────────────────────────────────────────
+const MIT_API_KEYS = {
+  deepl:        'Cần env: DEEPL_AUTH_KEY=xxx  (DeepL Pro hoặc Free)',
+  openai:       'Cần env: OPENAI_API_KEY=sk-xxx  |  OPENAI_MODEL=chatgpt-4o-latest (tùy chọn)',
+  deepseek:     'Cần env: DEEPSEEK_API_KEY=xxx  |  DEEPSEEK_MODEL=deepseek-chat',
+  gemini:       'Cần env: GEMINI_API_KEY=xxx  |  GEMINI_MODEL=gemini-1.5-flash-002',
+  youdao:       'Cần env: YOUDAO_APP_KEY=xxx  YOUDAO_SECRET_KEY=xxx',
+  baidu:        'Cần env: BAIDU_APP_ID=xxx  BAIDU_SECRET_KEY=xxx',
+  caiyun:       'Cần env: CAIYUN_TOKEN=xxx',
+  groq:         'Cần env: GROQ_API_KEY=xxx  |  GROQ_MODEL=mixtral-8x7b-32768',
+  sakura:       'Cần env: SAKURA_API_BASE=http://127.0.0.1:8080/v1',
+  custom_openai:'Cần API Base: CUSTOM_OPENAI_API_BASE=http://localhost:11434/v1 (Ollama) hoặc http://127.0.0.1:8080/v1 (LM Studio), và model qwen2.5-vl-7b-instruct',
+};
+
+function onMITTranslatorChange() {
+  const val  = getVal('tMITTranslator');
+  const hint = $('mitApiKeyHint');
+  if (MIT_API_KEYS[val]) {
+    hint.textContent = '🔑 ' + MIT_API_KEYS[val];
+    hint.classList.add('visible');
+  } else {
+    hint.classList.remove('visible');
+  }
+  const modelField = $('mitOllamaModelField');
+  const baseField  = $('mitCustomOpenAiBaseField');
+  const keyField   = $('mitCustomOpenAiKeyField');
+  if (modelField) modelField.style.display = val === 'custom_openai' ? '' : 'none';
+  if (baseField)  baseField.style.display  = val === 'custom_openai' ? '' : 'none';
+  if (keyField)   keyField.style.display   = val === 'custom_openai' ? '' : 'none';
+}
+
+function mitPreset(mode) {
+  const set = (id, v) => { const el = $(id); if (el) el.value = v; };
+  const setSel = (id, v) => { const el = $(id); if (el) el.value = v; };
+  if (mode === 'cg') {
+    // CG / Visual Novel: dùng default detector (craft không phát hiện được subtitle CG)
+    setSel('tMITDetector', '');          // default detector
+    setSel('tMITDetSize',  '');          // default
+    set('tMITMaskDil',  '20');
+    set('tMITUnclip',   '4.5');          // mở rộng bbox → đủ cho text VN dài hơn TQ; >5 dễ gây shift bbox vào vùng có người
+    set('tMITFontOfs',  '-8');           // giảm nhẹ — clipping đã ngăn tràn, không cần offset cực đoan
+    document.getElementById('tMITFontOfsVal') && (document.getElementById('tMITFontOfsVal').textContent = '-8');
+    set('tMITFontMin',  '10');           // tối thiểu 10px — đủ đọc
+    set('tMITFontFixed','');             // để trống — MIT tự scale theo bbox (clipping sẽ ngăn tràn)
+    set('tMITFontColor','FFFFFF:000000');// trắng nền đen
+  } else if (mode === 'manga') {
+    // Manga: chữ trong bong bóng, không cần override màu
+    setSel('tMITDetector', '');
+    setSel('tMITDetSize',  '');
+    set('tMITMaskDil',  '0');
+    set('tMITUnclip',   '2.3');
+    set('tMITFontOfs',  '-4');
+    document.getElementById('tMITFontOfsVal') && (document.getElementById('tMITFontOfsVal').textContent = '-4');
+    set('tMITFontMin',  '');
+    set('tMITFontFixed','');
+    set('tMITFontColor','');
+  } else {
+    // Reset về trống (dùng MIT defaults)
+    set('tMITMaskDil',  '');
+    set('tMITUnclip',   '');
+    set('tMITFontOfs',  '');
+    set('tMITFontMin',  '');
+    set('tMITFontFixed','');
+    set('tMITFontColor','');
+  }
+}
+
+function onBackendChange() {
+  const isMIT = document.querySelector('input[name="tBackend"]:checked').value === 'mit';
+  $('tMITOptions').style.display    = isMIT ? '' : 'none';
+  $('tOllamaOptions').style.display = isMIT ? 'none' : '';
+}
+
+// ── Start / Stop translate ────────────────────────────────────────────────────
+async function tStart() {
+  const input_dir        = getVal('tInputDir').trim();
+  const output_dir       = getVal('tOutputDir').trim();
+  const _mitOllamaModel  = (getVal('tMITOllamaModel') || '').trim();
+  const use_gpu          = $('tUseGpu').checked;
+  const src_lang         = getVal('tSrcLang');
+  const backend          = document.querySelector('input[name="tBackend"]:checked').value;
+  const mit_translator   = getVal('tMITTranslator');
+  const mit_target_lang  = getVal('tMITTargetLang');
+  const mit_detector     = getVal('tMITDetector');
+  const mit_inpainter    = getVal('tMITInpainter');
+  const mit_upscale      = getVal('tMITUpscale');
+  const mit_det_size     = getVal('tMITDetSize');
+  const mit_mask_dil     = $('tMITMaskDil').value;
+  const mit_unclip       = $('tMITUnclip').value;
+  const mit_font_ofs     = $('tMITFontOfs').value;
+  const mit_font_min     = $('tMITFontMin').value;
+  const mit_font_fixed   = $('tMITFontFixed').value;
+  const mit_font_color   = $('tMITFontColor').value;
+  const mit_verbose      = $('tMITVerbose').checked;
+  const mit_skip_no_text = $('tMITSkipNoText').checked;
+  const mit_overwrite    = $('tMITOverwrite').checked;
+  const mit_custom_api_base = getVal('tMITCustomOpenAiApiBase');
+  const mit_custom_api_key  = getVal('tMITCustomOpenAiApiKey');
+  const cpu_priority     = getVal('tCpuPriority') || 'below_normal';
+  const inpainter        = getVal('tInpainter') || 'opencv';
+  const overwrite        = $('tOverwrite') ? $('tOverwrite').checked : false;
+  const font_scale       = parseFloat($('tFontScale') ? $('tFontScale').value : '0.75') || 0.75;
+  const model            = (backend === 'mit' && getVal('tMITTranslator') === 'custom_openai' && _mitOllamaModel)
+                           ? _mitOllamaModel
+                           : (getVal('tModel').trim() || 'qwen3:8b');
+
+  if (!input_dir) { tAddLog(tr('alert.no_input_dir'), 'warn'); return; }
+
+  _tCursor    = 0;
+  _tRunning   = true;
+  _tOutputDir = output_dir;
+  tClearLog();
+  $('tProgressWrap').style.display = '';
+  tShowProgress(0, 0);
+  tShowStats(0, 0);
+  tSetStatus(tr('status.t.running'), 'running');
+  tSetCrawling(true);
+  tStartPolling();
+
+  let res, json;
+  try {
+    res  = await fetch('/api/translate/start', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        input_dir, output_dir, model, use_gpu, src_lang, backend,
+        mit_translator, mit_target_lang,
+        mit_detector, mit_inpainter, mit_upscale, mit_det_size,
+        mit_mask_dil, mit_unclip, mit_font_ofs, mit_font_min, mit_font_fixed, mit_font_color,
+        mit_custom_api_base, mit_custom_api_key,
+        mit_verbose, mit_skip_no_text, mit_overwrite,
+        inpainter, overwrite, font_scale, cpu_priority,
+      }),
+    });
+    json = await res.json();
+  } catch (e) {
+    tAddLog(tr('alert.no_conn', e), 'fail');
+    tSetCrawling(false); tStopPolling(); _tRunning = false; return;
+  }
+
+  if (!res.ok) {
+    tAddLog(`⚠  ${json.error || 'Lỗi không xác định'}`, 'warn');
+    tSetStatus(tr('status.t.error'), 'error');
+    tSetCrawling(false); tStopPolling(); _tRunning = false;
+  } else if (json.output_dir) {
+    _tOutputDir = json.output_dir;
+  }
+}
+
+async function tStop() {
+  try { await fetch('/api/translate/stop', { method: 'POST' }); } catch {}
+  tSetStatus(tr('status.t.stopping'), 'stopped');
+}
+
+// ── Translate auto-retry ──────────────────────────────────────────────────────
+let _tAutoRetryRoundsLeft = 0;
+
+function onTAutoRetryChkChange() {
+  $('tAutoRetryTimes').disabled = !$('tAutoRetryChk').checked;
+}
+
+async function tLoadFailed(roundsLeft = 0) {
+  let data;
+  try {
+    const res = await fetch('/api/translate/failed');
+    data = await res.json();
+  } catch { data = { images: [] }; }
+  const imgs = data.images || [];
+  const panel = $('tFailedPanel');
+  const badge = $('tFailedBadge');
+  if (!imgs.length) { panel.style.display = 'none'; return; }
+  badge.textContent = `${imgs.length} ảnh lỗi`;
+  panel.style.display = '';
+  if (roundsLeft > 0) {
+    tAddLog(`↺  Auto-retry dịch (còn ${roundsLeft} lần)…`, 'info');
+    _tAutoRetryRoundsLeft = roundsLeft - 1;
+    tRetryFailed();
+  } else {
+    _tAutoRetryRoundsLeft = 0;
+  }
+}
+
+async function tRetryFailed() {
+  const model     = getVal('tModel').trim() || 'qwen3:8b';
+  const use_gpu   = $('tUseGpu').checked;
+  const src_lang  = getVal('tSrcLang');
+  const inpainter = getVal('tInpainter') || 'opencv';
+
+  $('tFailedPanel').style.display = 'none';
+  _tCursor  = 0;
+  _tRunning = true;
+  tClearLog();
+  $('tProgressWrap').style.display = '';
+  tShowProgress(0, 0);
+  tShowStats(0, 0);
+  tSetStatus(tr('status.t.running'), 'running');
+  tSetCrawling(true);
+  tStartPolling();
+
+  let res, json;
+  try {
+    res  = await fetch('/api/translate/retry_failed', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ model, use_gpu, src_lang, inpainter }),
+    });
+    json = await res.json();
+  } catch (e) {
+    tAddLog(tr('alert.no_conn', e), 'fail');
+    tSetCrawling(false); tStopPolling(); _tRunning = false; return;
+  }
+  if (!res.ok) {
+    tAddLog(`⚠  ${json.error || 'Lỗi không xác định'}`, 'warn');
+    tSetStatus(tr('status.t.error'), 'error');
+    tSetCrawling(false); tStopPolling(); _tRunning = false;
+  } else if (json.output_dir) {
+    _tOutputDir = json.output_dir;
+  }
+}
+
+// ── Preview ───────────────────────────────────────────────────────────────────
+async function tRefreshPreview() {
+  const folder = _tOutputDir || getVal('tOutputDir').trim();
+  if (!folder) return;
+  let data;
+  try {
+    const res = await fetch('/api/translate/preview?folder=' + encodeURIComponent(folder));
+    data = await res.json();
+  } catch { return; }
+
+  const grid = $('tPreviewGrid');
+  if (!data.images || data.images.length === 0) {
+    grid.innerHTML = '<div class="log-empty" style="height:120px;grid-column:1/-1"><span>🖼</span><span>Chưa có ảnh</span></div>';
+    return;
+  }
+  grid.innerHTML = '';
+  const _lbList = [];
+  for (const img of data.images) {
+    const card = document.createElement('div');
+    card.className = 'preview-card';
+    const src = '/api/translate/image?path=' + encodeURIComponent(img.path) + '&t=' + Date.now();
+    const lbIdx = _lbList.length;
+    _lbList.push({ src, path: img.path, name: img.name, cardEl: card });
+    card.innerHTML = `<img src="${src}" loading="lazy" alt="" />`
+                   + `<div class="pc-name">${escHtml(img.name)}</div>`
+                   + `<button class="pc-del-btn" title="Xóa ảnh này để dịch lại">🗑</button>`;
+    card.querySelector('img').addEventListener('click', () => openLightbox(_lbList, lbIdx));
+    card.querySelector('.pc-del-btn').addEventListener('click', e => {
+      e.stopPropagation();
+      tDeletePreviewImg(img.path, img.name, card);
+    });
+    grid.appendChild(card);
+  }
+}
+
+async function tDeletePreviewImg(path, name, cardEl) {
+  if (!confirm(`Xóa ảnh đã dịch "${name}"?\n→ Chạy lại sẽ dịch lại ảnh này.`)) return;
+  try {
+    const res  = await fetch('/api/viewer/delete', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ path }),
+    });
+    const data = await res.json();
+    if (!res.ok) { alert(`Lỗi: ${data.error || 'không xóa được'}`); return; }
+  } catch (e) {
+    alert(`Lỗi kết nối: ${e}`); return;
+  }
+  cardEl.remove();
+  const grid = $('tPreviewGrid');
+  if (!grid.querySelector('.preview-card')) {
+    grid.innerHTML = '<div class="log-empty" style="height:120px;grid-column:1/-1"><span>🖼</span><span>Chưa có ảnh</span></div>';
+  }
+}
+
+</script>

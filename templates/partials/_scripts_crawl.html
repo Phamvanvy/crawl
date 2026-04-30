@@ -1,0 +1,562 @@
+<script>
+async function enqueueCrawl() {
+  const validUrls = _parseCrawlUrls();
+  if (!validUrls.length) {
+    addLog(tr('alert.no_url'), "warn");
+    return;
+  }
+  const folder  = getVal("folderInput").trim();
+  const delay   = parseFloat(getVal("delayInput"));
+  const workers = parseInt(getVal("workersInput"), 10);
+  const timeout = parseInt(getVal("timeoutInput"), 10);
+  const retries = parseInt(getVal("retriesInput"), 10);
+
+  if (!_crawling) {
+    _cursor   = 0;
+    _crawling = true;
+    _autoRetryRoundsLeft = 0;
+    clearLog();
+    $('failedPanel').style.display = 'none';
+    _failedItems = [];
+    $('progressWrap').style.display = '';
+    showProgress(0, 0);
+    showStats(0, 0);
+    setStatus(tr('status.crawling'), "running");
+    setCrawling(true);
+    startPolling();
+  }
+
+  let res, json;
+  try {
+    res  = await fetch("/api/start", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ urls: validUrls, folder, delay, workers, timeout, retries }),
+    });
+    json = await res.json();
+  } catch (e) {
+    addLog(tr('alert.no_conn', e), "fail");
+    if (!_crawling) { setCrawling(false); stopPolling(); _crawling = false; }
+    return;
+  }
+
+  if (!res.ok) {
+    addLog(`⚠  ${json.error || "Lỗi không xác định"}`, "warn");
+    setStatus("Lỗi", "error");
+    if (!_crawling) { setCrawling(false); stopPolling(); _crawling = false; }
+    return;
+  }
+
+  addLog(`➕ Đã xếp ${json.queued || validUrls.length} URL vào queue. Hàng đợi hiện tại: ${json.queue_length || 0}.`, "info");
+}
+
+// ── Log ───────────────────────────────────────────────────────────────────────
+const logBox = $("logBox");
+
+function addLog(msg, cls) {
+  const empty = logBox.querySelector(".log-empty");
+  if (empty) empty.remove();
+  const line  = document.createElement("div");
+  line.className = "log-line" + (cls ? " " + cls : "");
+  line.textContent = msg;
+  logBox.appendChild(line);
+  logBox.scrollTop = logBox.scrollHeight;
+}
+
+function clearLog() {
+  logBox.innerHTML = "";
+}
+
+function classifyLog(msg) {
+  if (!msg) return "";
+  if (msg.includes("[OK"))            return "ok";
+  if (msg.includes("[FAIL"))          return "fail";
+  if (msg.includes("[RETRY"))         return "warn";
+  if (msg.includes("[skip]"))         return "skip";
+  if (msg.includes("✘") || msg.includes("Lỗi")) return "fail";
+  if (msg.includes("⚠"))             return "warn";
+  if (msg.includes("✔") || msg.includes("Hoàn thành")) return "done";
+  if (/^─+$/.test(msg.trim()))        return "sep";
+  if (msg.startsWith("Đang tải") || msg.startsWith("Tìm thấy")) return "info";
+  if (msg.startsWith("URL") || msg.startsWith("Folder") || msg.startsWith("Config")) return "info";
+  return "";
+}
+
+// ── Status ────────────────────────────────────────────────────────────────────
+function setStatus(text, type) {
+  $("statusText").textContent = text;
+  $("statusDot").className    = "status-dot" + (type ? " " + type : "");
+}
+
+// ── Progress ──────────────────────────────────────────────────────────────────
+function showProgress(done, total) {
+  $("progressWrap").style.display = "";
+  const pct = total > 0 ? Math.round(done / total * 100) : 0;
+  $("progFill").style.width   = pct + "%";
+  $("progPct").textContent    = pct + "%";
+  $("progLabel").textContent  = tr('prog.loading', done, total);
+  $("statTotal").textContent  = tr('stat.total', total);
+}
+
+function showStats(ok, fail) {
+  $("statOk").textContent   = `✓ ${ok}`;
+  $("statFail").textContent  = `✗ ${fail}`;
+}
+
+// ── Crawl UI state ────────────────────────────────────────────────────────────
+function setCrawling(on) {
+  $("startBtn").disabled = on;
+  $("stopBtn").disabled  = !on;
+}
+
+// ── Polling ───────────────────────────────────────────────────────────────────
+let _cursor      = 0;
+let _pollTimer   = null;
+let _crawling    = false;
+
+function startPolling() {
+  if (_pollTimer) return;
+  _pollTimer = setInterval(poll, 400);
+}
+
+function stopPolling() {
+  clearInterval(_pollTimer);
+  _pollTimer = null;
+}
+
+async function poll() {
+  let data;
+  try {
+    const res = await fetch(`/api/logs?from=${_cursor}`);
+    if (!res.ok) return;
+    data = await res.json();
+  } catch { return; }
+
+  for (const entry of data.logs) {
+    switch (entry.type) {
+      case "log":
+        addLog(entry.msg, classifyLog(entry.msg));
+        break;
+      case "progress":
+        showProgress(entry.done, entry.total);
+        break;
+      case "done":
+        showStats(entry.success, entry.failed);
+        $("progLabel").textContent = tr('prog.done_crawl', entry.success + entry.failed);
+        $("progFill").style.width  = "100%";
+        $("progPct").textContent   = "100%";
+        break;
+    }
+  }
+  _cursor = data.total;
+  $("queueText").textContent = data.state.queue ? `Queue: ${data.state.queue}` : "";
+
+  if (!data.state.running && _crawling) {
+    _crawling = false;
+    setCrawling(false);
+    stopPolling();
+    const s = data.state.status;
+    if (s === "done") {
+      setStatus(tr('status.done_fmt', data.state.success, data.state.failed), "done");
+      // Luôn đưa progress về 100% từ state thực (tránh trường hợp log bị trân bộ nhớ)
+      showProgress(data.state.total, data.state.total);
+      showStats(data.state.success, data.state.failed);
+      $("progLabel").textContent = tr('prog.done_crawl', data.state.total);
+      $("progFill").style.width  = "100%";
+      $("progPct").textContent   = "100%";
+      if (data.state.failed > 0) {
+        let rounds;
+        if (_autoRetryRoundsLeft > 0) {
+          // continuing an auto-retry chain
+          rounds = _autoRetryRoundsLeft;
+        } else if ($("autoRetryChk").checked) {
+          // first auto-retry kickoff after original crawl
+          rounds = Math.max(1, parseInt(getVal("autoRetryTimes"), 10) || 1);
+        } else {
+          rounds = 0;
+        }
+        loadFailedItems(rounds);
+      } else { $("failedPanel").style.display = "none"; _failedItems = []; }
+    } else if (s === "error") {
+      setStatus(tr('status.error'), "error");
+    } else if (s === "stopped") {
+      setStatus(tr('status.stopped'), "stopped");
+    }
+  }
+}
+
+// ── Start / Stop crawl ────────────────────────────────────────────────────────
+async function startCrawl() {
+  const validUrls = _parseCrawlUrls();
+  if (!validUrls.length) {
+    addLog(tr('alert.no_url'), "warn"); return;
+  }
+  const folder  = getVal("folderInput").trim();
+  const delay   = parseFloat(getVal("delayInput"));
+  const workers = parseInt(getVal("workersInput"), 10);
+  const timeout = parseInt(getVal("timeoutInput"), 10);
+  const retries = parseInt(getVal("retriesInput"), 10);
+
+  _cursor   = 0;
+  _crawling = true;
+  _autoRetryRoundsLeft = 0;
+  clearLog();
+  $('failedPanel').style.display = 'none';
+  _failedItems = [];
+  $('progressWrap').style.display = '';
+  showProgress(0, 0);
+  showStats(0, 0);
+  setStatus(tr('status.crawling'), "running");
+  setCrawling(true);
+  startPolling();
+
+  let res, json;
+  try {
+    res  = await fetch("/api/start", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ urls: validUrls, folder, delay, workers, timeout, retries }),
+    });
+    json = await res.json();
+  } catch (e) {
+    addLog(tr('alert.no_conn', e), "fail");
+    setCrawling(false); stopPolling(); _crawling = false; return;
+  }
+
+  if (!res.ok) {
+    addLog(`⚠  ${json.error || "Lỗi không xác định"}`, "warn");
+    setStatus("Lỗi", "error");
+    setCrawling(false); stopPolling(); _crawling = false;
+    return;
+  }
+
+  addLog(`▶ Đang bắt đầu crawl ${json.queued || validUrls.length} URL.`, "info");
+}
+
+// ── Failed images panel ────────────────────────────────────────────────────────────────────────
+let _failedItems = [];
+
+function onAutoRetryChkChange() {
+  $("autoRetryTimes").disabled = !$("autoRetryChk").checked;
+}
+
+async function loadFailedItems(roundsLeft = 0) {
+  try {
+    const res  = await fetch('/api/failed');
+    const data = await res.json();
+    _failedItems = data.items || [];
+  } catch {
+    _failedItems = [];
+  }
+  renderFailedPanel();
+  if (roundsLeft > 0 && _failedItems.length) {
+    addLog(`↺  Auto-retry (còn ${roundsLeft} lần): bắt đầu tải lại ảnh lỗi…`, 'info');
+    _autoRetryRoundsLeft = roundsLeft - 1;
+    retryFailed();
+  } else {
+    _autoRetryRoundsLeft = 0;
+  }
+}
+
+let _autoRetryRoundsLeft = 0;
+
+function renderFailedPanel() {
+  const panel = $('failedPanel');
+  const badge = $('failedCountBadge');
+  const list  = $('failedUrlList');
+  if (!_failedItems.length) { panel.style.display = 'none'; return; }
+  badge.textContent = `${_failedItems.length} ảnh`;
+  panel.style.display = '';
+  list.innerHTML = '';
+  for (const item of _failedItems) {
+    const div = document.createElement('div');
+    div.className = 'failed-url-item';
+    div.innerHTML = `<span class="fi-idx">#${item.index}</span>`
+                  + `<span class="fi-url" title="${escHtml(item.url)}">${escHtml(item.url)}</span>`;
+    list.appendChild(div);
+  }
+}
+
+function toggleFailedList() {
+  const wrap = $('failedUrlWrap');
+  const btn  = $('toggleFailedBtn');
+  if (wrap.style.display === 'none') {
+    wrap.style.display = '';
+    btn.textContent = '\u25b2 Ẩn danh sách';
+  } else {
+    wrap.style.display = 'none';
+    btn.textContent = '\u25ba Xem danh sách';
+  }
+}
+
+function copyFailedUrls() {
+  if (!_failedItems.length) return;
+  const text = _failedItems.map(i => i.url).join('\n');
+  navigator.clipboard.writeText(text).then(() => {
+    addLog(`\u{1F4CB}  Đã copy ${_failedItems.length} URL vào clipboard.`, 'info');
+  }).catch(() => {
+    addLog('⚠  Không thể copy (cần HTTPS hoặc localhost).', 'warn');
+  });
+}
+
+async function retryFailed() {
+  if (!_failedItems.length) return;
+  const delay   = parseFloat(getVal('delayInput'));
+  const workers = parseInt(getVal('workersInput'), 10);
+  const timeout = parseInt(getVal('timeoutInput'), 10);
+  const retries = parseInt(getVal('retriesInput'), 10);
+
+  $('failedPanel').style.display = 'none';
+  _cursor   = 0;
+  _crawling = true;
+  clearLog();
+  $('progressWrap').style.display = '';
+  showProgress(0, 0);
+  showStats(0, 0);
+  setStatus(tr('status.crawling'), 'running');
+  setCrawling(true);
+  startPolling();
+
+  let res, json;
+  try {
+    res  = await fetch('/api/retry_failed', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ delay, workers, timeout, retries }),
+    });
+    json = await res.json();
+  } catch (e) {
+    addLog(tr('alert.no_conn', e), 'fail');
+    setCrawling(false); stopPolling(); _crawling = false; return;
+  }
+
+  if (!res.ok) {
+    addLog(`⚠  ${json.error || 'Lỗi không xác định'}`, 'warn');
+    setStatus('Lỗi', 'error');
+    setCrawling(false); stopPolling(); _crawling = false;
+  }
+}
+
+async function stopCrawl() {
+  try { await fetch("/api/stop", { method: "POST" }); } catch {}
+  setStatus(tr('status.stopping'), "stopped");
+}
+
+// ── Folder Browser ───────────────────────────────────────────────────────────
+let _fbCurrentPath = "";
+let _fbTargetId    = "folderInput";
+
+async function openFolderBrowser(targetId) {
+  _fbTargetId = targetId || "folderInput";
+  document.getElementById("fbOverlay").classList.add("open");
+  const cur = getVal(_fbTargetId).trim();
+  await fbNavigate(cur || "");
+}
+
+function closeFolderBrowser() {
+  document.getElementById("fbOverlay").classList.remove("open");
+}
+
+function fbOverlayClick(e) {
+  if (e.target === document.getElementById("fbOverlay")) closeFolderBrowser();
+}
+
+function confirmFolder() {
+  if (_fbCurrentPath) {
+    setVal(_fbTargetId, _fbCurrentPath);
+    closeFolderBrowser();
+  }
+}
+
+async function fbNavigate(path) {
+  const body         = document.getElementById("fbBody");
+  const breadcrumb   = document.getElementById("fbBreadcrumb");
+  const selectedPath = document.getElementById("fbSelectedPath");
+
+  body.innerHTML = '<div class="fb-loading">⏳ Đang tải…</div>';
+
+  let data;
+  try {
+    const res = await fetch("/api/fs?path=" + encodeURIComponent(path));
+    data = await res.json();
+  } catch (e) {
+    body.innerHTML = `<div class="fb-empty">⚠ Không tải được: ${escHtml(String(e))}</div>`;
+    return;
+  }
+
+  if (data.error) {
+    body.innerHTML = `<div class="fb-empty">⚠ ${escHtml(data.error)}</div>`;
+    return;
+  }
+
+  _fbCurrentPath = data.path || "";
+  breadcrumb.textContent   = _fbCurrentPath || "Ổ đĩa";
+  selectedPath.textContent = _fbCurrentPath ? `📁 ${_fbCurrentPath}` : "Chọn thư mục bên dưới";
+
+  body.innerHTML = "";
+
+  function makeEntry(icon, label, targetPath, extraClass) {
+    const div  = document.createElement("div");
+    div.className = "fb-entry" + (extraClass ? " " + extraClass : "");
+    div.innerHTML = `<span class="fb-icon">${icon}</span>`
+                  + `<span class="fb-name">${escHtml(label)}</span>`
+                  + `<span class="fb-arrow">▶</span>`;
+    div.addEventListener("click", () => fbNavigate(targetPath));
+    return div;
+  }
+
+  if (data.parent !== null && data.parent !== undefined) {
+    body.appendChild(makeEntry("⬆", ".. (lên trên)", data.parent, "fb-up"));
+  } else if (_fbCurrentPath) {
+    body.appendChild(makeEntry("💻", "Danh sách ổ đĩa", "", "fb-up"));
+  }
+
+  if (data.entries.length === 0 && body.children.length === 0) {
+    body.innerHTML = '<div class="fb-empty">Thư mục trống hoặc không có quyền truy cập</div>';
+    return;
+  }
+
+  for (const entry of data.entries) {
+    const icon = entry.path.match(/^[A-Za-z]:\\$/) ? "💾" : "📁";
+    body.appendChild(makeEntry(icon, entry.name, entry.path, ""));
+  }
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+
+// ── Tab switcher ──────────────────────────────────────────────────────────────
+function vClearScroll() {
+  if (_vScrollObserver) { _vScrollObserver.disconnect(); _vScrollObserver = null; }
+  _vScrollRendered = 0;
+  $('vScrollView').innerHTML = '';
+}
+
+function switchTab(name) {
+  // Free viewer DOM when leaving to keep other tabs responsive
+  if (name !== 'viewer') vClearScroll();
+  $('tab-crawl').style.display     = name === 'crawl'     ? '' : 'none';
+  $('tab-translate').style.display = name === 'translate' ? '' : 'none';
+  $('tab-viewer').style.display    = name === 'viewer'    ? '' : 'none';
+  $('tabBtnCrawl').classList.toggle('active',     name === 'crawl');
+  $('tabBtnTranslate').classList.toggle('active', name === 'translate');
+  $('tabBtnViewer').classList.toggle('active',    name === 'viewer');
+  if (name === 'translate') runCheck();
+}
+
+// ── Dependency check ──────────────────────────────────────────────────────────
+function setCk(id, ok, val) {
+  const el = $(id);
+  el.className = 'check-item ' + (ok ? 'ok' : 'bad');
+  el.querySelector('.ci-val').textContent = val || '';
+}
+
+async function runCheck() {
+  let data;
+  try {
+    const res = await fetch('/api/translate/check');
+    data = await res.json();
+  } catch { return; }
+  setCk('ck-torch',     !!data.torch,      data.torch      || 'pip install torch');
+  setCk('ck-cuda',      data.cuda,         data.gpu        || (data.cuda ? 'OK' : 'No GPU'));
+  setCk('ck-paddleocr', data.paddleocr,    data.paddleocr  ? 'OK' : 'pip install paddlepaddle paddleocr');
+  setCk('ck-easyocr',   data.easyocr,      data.easyocr    ? 'OK (fallback)' : 'optional');
+  setCk('ck-ollama',    data.ollama,       data.ollama     ? 'running' : (data.ollama_error || 'not running'));
+  setCk('ck-mit',       data.mit,          data.mit        ? (data.mit_python || 'OK') : (data.mit_error || 'mit_venv không tìm thấy'));
+  if (data.mit && $('tBackendDefault').checked) {
+    $('tBackendMIT').checked = true;
+    onBackendChange();
+  }
+  // LAMA hint
+  const lamaEl  = $('tInpainter');
+  const lamaHnt = $('lamaHint');
+  if (lamaEl && lamaHnt) {
+    lamaHnt.style.display = data.lama ? 'none' : '';
+    if (!data.lama && lamaEl.value === 'lama') lamaEl.value = 'opencv';
+  }
+  const sel = $('tModelSelect');
+  while (sel.options.length > 1) sel.remove(1);
+  const sel2 = $('tMITModelSelect');
+  if (sel2) while (sel2.options.length > 1) sel2.remove(1);
+  for (const m of (data.ollama_models || [])) {
+    const opt = document.createElement('option');
+    opt.value = opt.textContent = m;
+    sel.appendChild(opt);
+    if (sel2) {
+      const opt2 = document.createElement('option');
+      opt2.value = opt2.textContent = m;
+      sel2.appendChild(opt2);
+    }
+  }
+}
+
+// ── Translate log helpers ─────────────────────────────────────────────────────
+const tLogBox = () => $('tLogBox');
+
+function tAddLog(msg, cls) {
+  const box   = tLogBox();
+  const empty = box.querySelector('.log-empty');
+  if (empty) empty.remove();
+  const line  = document.createElement('div');
+  line.className = 'log-line' + (cls ? ' ' + cls : '');
+  line.textContent = msg;
+  box.appendChild(line);
+  box.scrollTop = box.scrollHeight;
+}
+
+function tClearLog() { tLogBox().innerHTML = ''; }
+
+function tClassify(msg) {
+  if (!msg) return '';
+  if (msg.includes('[OK'))                              return 'ok';
+  if (msg.includes('[FAIL]'))                           return 'fail';
+  if (msg.includes('[SKIP]'))                           return 'skip';
+  if (msg.includes('[TRANS]') || msg.includes('[OCR]')) return 'info';
+  if (msg.includes('✔') || msg.includes('Xong'))       return 'done';
+  if (msg.includes('⚠') || msg.includes('✘'))          return 'warn';
+  if (/^─+$/.test(msg.trim()))                          return 'sep';
+  return '';
+}
+
+function tSetStatus(text, type) {
+  $('tStatusText').textContent = text;
+  $('tStatusDot').className    = 'status-dot' + (type ? ' ' + type : '');
+}
+
+function tShowProgress(done, total) {
+  $('tProgressWrap').style.display = '';
+  const pct = total > 0 ? Math.round(done / total * 100) : 0;
+  $('tProgFill').style.width  = pct + '%';
+  $('tProgPct').textContent   = pct + '%';
+  $('tProgLabel').textContent = tr('prog.translating', done, total);
+  $('tStatTotal').textContent = tr('stat.total', total);
+}
+
+function tShowStats(ok, fail) {
+  $('tStatOk').textContent   = `✓ ${ok}`;
+  $('tStatFail').textContent = `✗ ${fail}`;
+}
+
+function tSetCrawling(on) {
+  $('tStartBtn').disabled = on;
+  $('tStopBtn').disabled  = !on;
+}
+
+// ── Translate polling ─────────────────────────────────────────────────────────
+let _tCursor    = 0;
+let _tPollTimer = null;
+let _tRunning   = false;
+let _tOutputDir = '';
+
+function tStartPolling() {
+  if (_tPollTimer) return;
+  _tPollTimer = setInterval(tPoll, 500);
+}
+
+function tStopPolling() {
+  clearInterval(_tPollTimer);
+  _tPollTimer = null;
+}
+
+</script>

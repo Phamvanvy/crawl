@@ -1,0 +1,199 @@
+<style>
+    /* ── CSS Variables ─────────────────────────────────────────────────── */
+    :root {
+      --bg:           #0d1117;
+      --surface:      #161b22;
+      --surface2:     #1c2230;
+      --border:       #30363d;
+      --text:         #e6edf3;
+      --text-muted:   #7d8590;
+      --accent:       #58a6ff;
+      --accent-dim:   rgba(88,166,255,.15);
+      --green:        #3fb950;
+      --green-dim:    rgba(63,185,80,.15);
+      --red:          #f85149;
+      --red-dim:      rgba(248,81,73,.15);
+      --yellow:       #d29922;
+      --yellow-dim:   rgba(210,153,34,.15);
+      --cyan:         #39d353;
+      --radius:       10px;
+      --mono:         'Cascadia Code','Fira Code','Consolas',monospace;
+    }
+    [data-theme="light"] {
+      --bg:           #f6f8fa;
+      --surface:      #ffffff;
+      --surface2:     #f0f3f6;
+      --border:       #d0d7de;
+      --text:         #1f2328;
+      --text-muted:   #656d76;
+      --accent:       #0969da;
+      --accent-dim:   rgba(9,105,218,.1);
+      --green:        #1a7f37;
+      --green-dim:    rgba(26,127,55,.1);
+      --red:          #cf222e;
+      --red-dim:      rgba(207,34,46,.1);
+      --yellow:       #9a6700;
+      --yellow-dim:   rgba(154,103,0,.1);
+    }
+
+    /* ── Reset ──────────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 16px 20px 32px;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    a { color: var(--accent); }
+
+    /* ── Header ─────────────────────────────────────────────────────────── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    .brand-icon {
+      width: 32px; height: 32px;
+      background: var(--accent-dim);
+      border: 1px solid var(--accent);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+    }
+    .brand-accent { color: var(--accent); }
+    .header-right { display: flex; align-items: center; gap: 10px; }
+    .badge-version {
+      font-size: 0.72rem;
+      padding: 2px 8px;
+      border-radius: 99px;
+      background: var(--surface2);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+    .btn-theme {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: 5px 12px;
+      cursor: pointer;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      transition: all .15s;
+      font-family: inherit;
+    }
+    .btn-theme:hover { border-color: var(--accent); color: var(--accent); }
+
+    /* ── Layout ─────────────────────────────────────────────────────────── */
+    .layout {
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 16px;
+      max-width: 1300px;
+      margin: 0 auto;
+      align-items: start;
+    }
+    @media (max-width: 860px) {
+      .layout { grid-template-columns: 1fr; }
+      .log-panel { min-height: 360px; }
+    }
+
+    /* ── Card ───────────────────────────────────────────────────────────── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .card-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.72rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .card-body { padding: 16px; }
+
+    /* ── Form ───────────────────────────────────────────────────────────── */
+    .field { margin-bottom: 12px; }
+    .field:last-child { margin-bottom: 0; }
+    .field label {
+      display: block;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 5px;
+    }
+    .field input {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 11px;
+      color: var(--text);
+      font-size: 0.88rem;
+      outline: none;
+      transition: border-color .15s, box-shadow .15s;
+      font-family: inherit;
+    }
+    .field input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-dim);
+    }
+    .field input::placeholder { color: var(--text-muted); opacity: .55; }
+    .field input[type="number"] { font-variant-numeric: tabular-nums; }
+
+    .field select {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 8px 11px;
+      font-family: inherit;
+      font-size: .88rem;
+      cursor: pointer;
+      outline: none;
+      transition: border-color .15s;
+    }
+    .field select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+    .field select.sm { padding: 6px 8px; font-size: .82rem; }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 10px;
+    }
+    .grid-4 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr 1fr;
+      gap: 10px;
+    }
+    .field-hint {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    /* ── Divider ────────────────────────────────────────────────────────── */
+    .divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
+
+</style>

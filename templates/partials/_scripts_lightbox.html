@@ -1,0 +1,89 @@
+<script>
+// ── Lightbox ──────────────────────────────────────────────────────────────────
+let _lbImages = [];   // [{src, path, name, cardEl}]
+let _lbIdx    = 0;
+let _lbZoom   = 1.0;
+
+function openLightbox(imgList, startIdx = 0) {
+  _lbImages = Array.isArray(imgList) ? imgList : [{ src: imgList, path: '', name: '', cardEl: null }];
+  _lbIdx    = Math.max(0, Math.min(startIdx, _lbImages.length - 1));
+  _lbZoom   = 1.0;
+  _lbRender();
+  $('lightbox').classList.add('open');
+}
+function _lbRender() {
+  const cur = _lbImages[_lbIdx];
+  $('lightboxImg').src = cur.src;
+  $('lbCounter').textContent = `${_lbIdx + 1} / ${_lbImages.length}`;
+  $('lbName').textContent = cur.name || '';
+  $('lbPrevBtn').disabled = _lbIdx === 0;
+  $('lbNextBtn').disabled = _lbIdx === _lbImages.length - 1;
+  $('lbDelBtn').style.display = cur.path ? '' : 'none';
+  _lbApplyZoom();
+}
+function closeLightbox() {
+  $('lightbox').classList.remove('open');
+  $('lightboxImg').src = '';
+}
+function lbPrev() { if (_lbIdx > 0) { _lbIdx--; _lbZoom = 1; _lbRender(); } }
+function lbNext() { if (_lbIdx < _lbImages.length - 1) { _lbIdx++; _lbZoom = 1; _lbRender(); } }
+function lbZoomIn()    { _lbZoom = Math.min(5, parseFloat((_lbZoom + 0.25).toFixed(2))); _lbApplyZoom(); }
+function lbZoomOut()   { _lbZoom = Math.max(0.25, parseFloat((_lbZoom - 0.25).toFixed(2))); _lbApplyZoom(); }
+function lbZoomReset() { _lbZoom = 1; _lbApplyZoom(); }
+function _lbApplyZoom() {
+  $('lightboxImg').style.transform = `scale(${_lbZoom})`;
+  $('lbZoomLabel').textContent = Math.round(_lbZoom * 100) + '%';
+}
+async function lbDelete() {
+  const cur = _lbImages[_lbIdx];
+  if (!cur.path) return;
+  if (!confirm(`Xóa ảnh đã dịch "${cur.name}"?\n→ Chạy lại sẽ dịch lại ảnh này.`)) return;
+  try {
+    const res  = await fetch('/api/viewer/delete', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: cur.path }),
+    });
+    const data = await res.json();
+    if (!res.ok) { alert(`Lỗi: ${data.error || 'không xóa được'}`); return; }
+  } catch (e) { alert(`Lỗi kết nối: ${e}`); return; }
+  if (cur.cardEl) cur.cardEl.remove();
+  _lbImages.splice(_lbIdx, 1);
+  if (_lbImages.length === 0) { closeLightbox(); return; }
+  if (_lbIdx >= _lbImages.length) _lbIdx = _lbImages.length - 1;
+  _lbZoom = 1;
+  _lbRender();
+}
+// Wheel-to-zoom on lightbox
+$('lightbox').addEventListener('wheel', e => {
+  if (!$('lightbox').classList.contains('open')) return;
+  e.preventDefault();
+  e.deltaY < 0 ? lbZoomIn() : lbZoomOut();
+}, { passive: false });
+
+document.addEventListener('keydown', e => {
+  const lbOpen = $('lightbox').classList.contains('open');
+  if (lbOpen) {
+    if (e.key === 'Escape')      { closeLightbox(); return; }
+    if (e.key === 'ArrowLeft')   { e.preventDefault(); lbPrev(); return; }
+    if (e.key === 'ArrowRight')  { e.preventDefault(); lbNext(); return; }
+    if (e.key === '+' || e.key === '=') { e.preventDefault(); lbZoomIn(); return; }
+    if (e.key === '-')           { e.preventDefault(); lbZoomOut(); return; }
+    if (e.key === '0')           { e.preventDefault(); lbZoomReset(); return; }
+    return;
+  }
+  if (e.key === 'Escape') { closeFolderBrowser(); }
+  // Viewer page mode keyboard nav
+  if ($('tab-viewer') && $('tab-viewer').style.display !== 'none' && _vMode === 'page') {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); vNext(); }
+    if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   { e.preventDefault(); vPrev(); }
+  }
+  // Chapter navigation shortcuts ([ and ]) — work in both scroll and page mode
+  if ($('tab-viewer') && $('tab-viewer').style.display !== 'none') {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    if (e.key === '[' || e.key === 'BracketLeft')  { e.preventDefault(); vPrevChap(); }
+    if (e.key === ']' || e.key === 'BracketRight') { e.preventDefault(); vNextChap(); }
+  }
+});
+
+</script>

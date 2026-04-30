@@ -1,0 +1,319 @@
+<script>
+// ── Image Viewer ──────────────────────────────────────────────────────────────
+let _vImages          = [];       // [{name, path}]
+let _vPage            = 0;        // 0-based
+let _vMode            = 'scroll'; // 'scroll' | 'page'
+let _vScrollObserver  = null;     // IntersectionObserver for infinite scroll
+let _vScrollRendered  = 0;        // how many images currently in DOM
+const V_SCROLL_BATCH  = 50;       // images per batch
+let _vSiblings        = [];       // sibling folders [{name, path}]
+let _vSibIdx          = -1;       // current folder index in siblings
+
+function vSetMode(mode) {
+  _vMode = mode;
+  const isPage = mode === 'page';
+  $('vScrollView').style.display = isPage ? 'none' : '';
+  $('vPageView').style.display   = isPage ? ''     : 'none';
+  $('vGoPageCard').style.display = isPage ? ''     : 'none';
+  $('vKeyHint').style.display    = isPage ? ''     : 'none';
+  $('vModeScroll').classList.toggle('active', !isPage);
+  $('vModePage').classList.toggle('active',    isPage);
+  // Show delete button only in page mode
+  const delBtn = $('vDeleteBtn');
+  if (delBtn) delBtn.style.display = isPage && _vImages.length ? '' : 'none';
+  if (isPage && _vImages.length) vRenderPage();
+}
+
+async function vOpen() {
+  const folder = getVal('vFolderInput').trim();
+  if (!folder) return;
+  const shortName = folder.replace(/\\/g, '/').split('/').filter(Boolean).pop() || folder;
+  $('vFolderName').textContent = shortName;
+  $('vImgCount').textContent   = '⏳';
+  // Clear old images from DOM immediately before loading new folder
+  vClearScroll();
+
+  let data;
+  try {
+    const res = await fetch('/api/translate/preview?folder=' + encodeURIComponent(folder));
+    if (!res.ok) throw new Error(res.status);
+    data = await res.json();
+  } catch (e) {
+    $('vImgCount').textContent = '⚠ Lỗi';
+    return;
+  }
+
+  _vImages = data.images || [];
+  _vPage   = 0;
+  $('vImgCount').textContent = tr('stat.img_count', _vImages.length);
+
+  if (_vMode === 'scroll') vRenderScroll();
+  else vRenderPage();
+
+  vLoadSiblings(folder);
+}
+
+async function vLoadSiblings(folder) {
+  // Compute parent: normalize to forward slashes, strip trailing slash, cut last segment
+  const norm   = folder.replace(/\\/g, '/').replace(/\/+$/, '');
+  const slash  = norm.lastIndexOf('/');
+  if (slash <= 0) { _vSiblings = []; _vSibIdx = -1; vUpdateChapNav(); return; }
+  const parent = folder.slice(0, slash); // preserve original separators
+  try {
+    const res  = await fetch('/api/fs?path=' + encodeURIComponent(parent));
+    const data = await res.json();
+    _vSiblings = data.entries || [];
+    const normLc = norm.toLowerCase();
+    _vSibIdx = _vSiblings.findIndex(e =>
+      e.path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase() === normLc
+    );
+  } catch (e) {
+    _vSiblings = []; _vSibIdx = -1;
+  }
+  vUpdateChapNav();
+}
+
+function vUpdateChapNav() {
+  const card = $('vChapNav');
+  if (_vSiblings.length < 2 || _vSibIdx < 0) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  $('vPrevChapBtn').disabled = _vSibIdx === 0;
+  $('vNextChapBtn').disabled = _vSibIdx === _vSiblings.length - 1;
+  $('vChapLabel').textContent = _vSiblings[_vSibIdx].name;
+  $('vChapPos').textContent   = tr('v.chap.pos', _vSibIdx + 1, _vSiblings.length);
+}
+
+function vPrevChap() {
+  if (_vSibIdx > 0) vOpenChap(_vSiblings[_vSibIdx - 1].path);
+}
+
+function vNextChap() {
+  if (_vSibIdx < _vSiblings.length - 1) vOpenChap(_vSiblings[_vSibIdx + 1].path);
+}
+
+function vOpenChap(path) {
+  $('vFolderInput').value = path;
+  // Preserve siblings — only update index, skip re-fetching parent
+  const norm  = path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+  const newIdx = _vSiblings.findIndex(e =>
+    e.path.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase() === norm
+  );
+  if (newIdx >= 0) {
+    _vSibIdx = newIdx;
+    vUpdateChapNav();
+    // Load images directly without re-fetching siblings
+    _vLoadFolderImages(path);
+  } else {
+    vOpen();
+  }
+}
+
+async function _vLoadFolderImages(folder) {
+  const shortName = folder.replace(/\\/g, '/').split('/').filter(Boolean).pop() || folder;
+  $('vFolderName').textContent = shortName;
+  $('vImgCount').textContent   = '⏳';
+  vClearScroll();
+  let data;
+  try {
+    const res = await fetch('/api/translate/preview?folder=' + encodeURIComponent(folder));
+    if (!res.ok) throw new Error(res.status);
+    data = await res.json();
+  } catch (e) {
+    $('vImgCount').textContent = '⚠ Lỗi';
+    return;
+  }
+  _vImages = data.images || [];
+  _vPage   = 0;
+  $('vImgCount').textContent = tr('stat.img_count', _vImages.length);
+  if (_vMode === 'scroll') vRenderScroll();
+  else vRenderPage();
+}
+
+function vImgUrl(img) {
+  return '/api/translate/image?path=' + encodeURIComponent(img.path);
+}
+
+function vApplyFit() {
+  const fit = getVal('vFitSelect');
+  $('vScrollView').className  = 'viewer-scroll fit-' + fit;
+  $('vPageImgArea').className = 'vpage-img-area fit-' + fit;
+}
+
+function vRenderScroll() {
+  // Disconnect any previous infinite-scroll observer
+  if (_vScrollObserver) { _vScrollObserver.disconnect(); _vScrollObserver = null; }
+  _vScrollRendered = 0;
+
+  const c = $('vScrollView');
+  c.innerHTML = '';
+  vApplyFit();
+
+  if (!_vImages.length) {
+    c.innerHTML = `<div class="viewer-empty"><span style="font-size:2rem;opacity:.35">🖼</span><span>${tr('v.scroll.empty')}</span></div>`;
+    return;
+  }
+
+  // Sentinel div at the bottom — observer loads next batch when it enters viewport
+  const sentinel = document.createElement('div');
+  sentinel.style.cssText = 'height:1px;width:100%;flex-shrink:0';
+  c.appendChild(sentinel);
+
+  function renderNextBatch() {
+    const end  = Math.min(_vScrollRendered + V_SCROLL_BATCH, _vImages.length);
+    const frag = document.createDocumentFragment();
+    for (let i = _vScrollRendered; i < end; i++) {
+      const el   = document.createElement('img');
+      el.src     = vImgUrl(_vImages[i]);
+      el.alt     = _vImages[i].name;
+      el.title   = _vImages[i].name;
+      el.loading = 'lazy';
+      frag.appendChild(el);
+    }
+    c.insertBefore(frag, sentinel);
+    _vScrollRendered = end;
+    if (_vScrollRendered >= _vImages.length && _vScrollObserver) {
+      _vScrollObserver.disconnect();
+      _vScrollObserver = null;
+    }
+  }
+
+  _vScrollObserver = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting && _vScrollRendered < _vImages.length) {
+      renderNextBatch();
+    }
+  }, { root: c, rootMargin: '600px' });
+
+  _vScrollObserver.observe(sentinel);
+  renderNextBatch(); // load first batch immediately
+  c.scrollTop = 0;
+}
+
+function vRenderPage() {
+  vApplyFit();
+  const hasImages = _vImages.length > 0;
+  $('vPageEmpty').style.display = hasImages ? 'none'  : 'flex';
+  $('vPageImg').style.display   = hasImages ? ''      : 'none';
+  $('vPrevBtn').disabled = !hasImages || _vPage === 0;
+  $('vNextBtn').disabled = !hasImages || _vPage === _vImages.length - 1;
+
+  const delBtn = $('vDeleteBtn');
+  if (delBtn) delBtn.style.display = hasImages && _vMode === 'page' ? '' : 'none';
+
+  if (!hasImages) {
+    $('vPageNum').textContent   = '—';
+    $('vPageTotal').textContent = '—';
+    return;
+  }
+  const img = _vImages[_vPage];
+  const el  = $('vPageImg');
+  el.style.opacity = '0.35';
+  el.onload = () => { el.style.opacity = '1'; };
+  el.src = vImgUrl(img);
+  el.alt = img.name;
+  $('vPageNum').textContent   = _vPage + 1;
+  $('vPageTotal').textContent = _vImages.length;
+}
+
+function vNext() {
+  if (_vPage < _vImages.length - 1) { _vPage++; vRenderPage(); }
+}
+
+function vPrev() {
+  if (_vPage > 0) { _vPage--; vRenderPage(); }
+}
+
+function vGoToPage() {
+  const n = parseInt(getVal('vGoPageInput'), 10);
+  const hint = $('vGoPageHint');
+  if (!_vImages.length)       { hint.textContent = tr('alert.no_folder'); return; }
+  if (isNaN(n) || n < 1 || n > _vImages.length) {
+    hint.textContent = tr('alert.bad_page', _vImages.length);
+    return;
+  }
+  hint.textContent = '';
+  _vPage = n - 1;
+  vRenderPage();
+}
+
+// click left / right half of image to navigate in page mode
+function vPageClick(e) {
+  if (_vMode !== 'page' || !_vImages.length) return;
+  const w = e.currentTarget.offsetWidth;
+  if (e.offsetX > w / 2) vNext(); else vPrev();
+}
+
+// ── Delete current image ──────────────────────────────────────────────────────
+async function vDeleteCurrent() {
+  if (_vMode !== 'page' || !_vImages.length) return;
+  const img = _vImages[_vPage];
+  if (!confirm(`Xóa ảnh "${img.name}"?\nHành động này không thể hoàn tác.`)) return;
+  try {
+    const res = await fetch('/api/viewer/delete', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ path: img.path }),
+    });
+    const data = await res.json();
+    if (!res.ok) { alert(`Lỗi: ${data.error || 'không xóa được'}`); return; }
+  } catch (e) {
+    alert(`Lỗi kết nối: ${e}`); return;
+  }
+  // Remove from list and stay at same index (or move back if last)
+  _vImages.splice(_vPage, 1);
+  if (_vPage >= _vImages.length) _vPage = Math.max(0, _vImages.length - 1);
+  $('vImgCount').textContent = tr('stat.img_count', _vImages.length);
+  vRenderPage();
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+loadTheme();
+loadConfig();
+loadLang();
+
+// ── Floating tooltip ──────────────────────────────────────────────────────────
+(function () {
+  // Create single floating div attached to <body>
+  const ttEl = document.createElement('div');
+  ttEl.id = 'tt-float';
+  document.body.appendChild(ttEl);
+
+  const MARGIN = 10; // px from viewport edge
+  const GAP    = 8;  // px above the icon
+
+  function show(icon, text) {
+    ttEl.textContent = text;
+    ttEl.classList.add('visible');
+
+    const iconRect = icon.getBoundingClientRect();
+    const ttW = ttEl.offsetWidth;
+    const ttH = ttEl.offsetHeight;
+    const vw  = window.innerWidth;
+
+    // Horizontal: center over icon, clamp to viewport
+    let left = iconRect.left + iconRect.width / 2 - ttW / 2;
+    left = Math.max(MARGIN, Math.min(left, vw - ttW - MARGIN));
+
+    // Vertical: above icon; flip below if not enough space
+    let top = iconRect.top - ttH - GAP;
+    if (top < MARGIN) top = iconRect.bottom + GAP;
+
+    ttEl.style.left = left + 'px';
+    ttEl.style.top  = top  + 'px';
+  }
+
+  function hide() { ttEl.classList.remove('visible'); }
+
+  // Delegate events on all .tt-icon elements
+  document.addEventListener('mouseover', function (e) {
+    const icon = e.target.closest('.tt-icon');
+    if (!icon) return;
+    const wrap = icon.closest('.tt-wrap');
+    const box  = wrap && wrap.querySelector('.tt-box');
+    if (box) show(icon, box.textContent);
+  });
+  document.addEventListener('mouseout', function (e) {
+    if (e.target.closest('.tt-icon')) hide();
+  });
+  document.addEventListener('scroll', hide, true);
+})();
+</script>
