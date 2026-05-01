@@ -34,33 +34,23 @@ def _get_lama():
 # ── Watermark helpers ─────────────────────────────────────────────────────────
 
 def _looks_like_watermark(text: str) -> bool:
-    """Kiểm tra watermark - nếu chứa .com thì coi là watermark."""
-    if not text or len(text.strip()) < 4:
+    """Kiểm tra watermark - chỉ dùng dấu hiệu rõ ràng để tránh bắt nhầm ô thoại."""
+    if not text or len(text.strip()) < 3:
         return False
-    
-    # Tiêu chí chính: text chứa ACG/com theo kiểu substring, không cần khớp bằng tuyệt đối
-    cleaned = re.sub(r'\s+', '', text.lower())
-    cleaned = re.sub(r'[^a-z0-9\-_.:/]', '', cleaned)
-    if "acg" in cleaned or ".com" in cleaned or cleaned.endswith("com"):
-        return True
 
+    # Xóa khoảng trắng và ký tự không phải ASCII thông thường để kiểm tra domain
+    compact = re.sub(r'\s+', '', text.lower())
+    compact_ascii = re.sub(r'[^a-z0-9\-_.:/]', '', compact)
+
+    # Chỉ match URL/domain rõ ràng: phải có .com/.net/... hoặc chứa "acg" cụm liền mạch
+    if ".com" in compact_ascii or compact_ascii.endswith("com"):
+        return True
     if _URL_LIKE_RE.search(text):
         return True
-    
-    # Tiêu chí phụ: Từ khóa watermark phổ biến
-    watermark_keywords = [
-        'acg', 'anime', 'manga', 'manhwa', 'donghua', 'webtoons',
-        'fanart', 'copyright', 'trademark', 'logo', 'official',
-    ]
-    for keyword in watermark_keywords:
-        if keyword in cleaned:
-            return True
-    
-    # Tiêu chí phụ: Ký tự đặc biệt trong logo
-    special_chars = set('©®™✦★●○■□▲▼')
-    if any(ch in text for ch in special_chars):
+    # "acg" chỉ match khi đứng độc lập hoặc là toàn bộ text, tránh bắt nhầm chữ thường
+    if re.search(r'\bacg\b', compact_ascii) or compact_ascii == 'acg':
         return True
-    
+
     return False
 
 

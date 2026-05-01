@@ -14,6 +14,14 @@ Patches applied:
        original region.font_size — prevents bbox from expanding sideways into
        character art when Vietnamese text is longer than Chinese source.
      - Re-enable boundary clipping so text never overflows past image edges.
+  2. manga_translator/rendering/text_render.py
+     - Guard against empty line_width_list in put_text_horizontal to prevent
+       ValueError: max() arg is an empty sequence when rendering invisible
+       characters like ZWJ (U+200D) used for watermark erasure.
+  3. manga_translator/translators/custom_openai.py
+     - Custom OpenAI-compatible translator with Vietnamese enforcement.
+     - Watermark detection → ZWJ fallback for inpainting without rendering.
+     - Retry up to 10 times when output is not Vietnamese.
 """
 
 import shutil
@@ -54,6 +62,10 @@ def apply():
         (
             PATCHES_DIR / "manga_translator_rendering_init.py",
             sp / "manga_translator" / "rendering" / "__init__.py",
+        ),
+        (
+            PATCHES_DIR / "manga_translator_rendering_text_render.py",
+            sp / "manga_translator" / "rendering" / "text_render.py",
         ),
         (
             PATCHES_DIR / "manga_translator_translators_custom_openai.py",

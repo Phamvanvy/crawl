@@ -28,7 +28,7 @@ def _strip_generation_artifacts(text: str, preserve_segment_tokens: bool = False
         return text
 
     cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE)
-    cleaned = re.sub(r"</\|\d+\|>", "", cleaned)
+    cleaned = re.sub(r"</\|\d+\|>?", "", cleaned)  # </|3|> and </|3|
     cleaned = re.sub(
         r"<\|(?:assistant|user|system|im_start|im_end|eot_id|end_of_text|endoftext|begin_of_text|bos|eos|pad|unk)\|>",
         "",
@@ -39,7 +39,7 @@ def _strip_generation_artifacts(text: str, preserve_segment_tokens: bool = False
     cleaned = re.sub(r"\[/?INST\]|<<SYS>>|<</SYS>>", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"</(?=[^a-zA-Z]|$)", "", cleaned)
     if not preserve_segment_tokens:
-        cleaned = re.sub(r"<\|\d+\|>", "", cleaned)
+        cleaned = re.sub(r"<\|\d+\|>?", "", cleaned)  # <|3|> and <|3|
     cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip()
@@ -152,7 +152,17 @@ class CustomOpenAiTranslator(ConfigGPT, CommonTranslator):
         cleaned_query = _strip_generation_artifacts(query or "")
         cleaned_trans = _clean_watermark_fragments(_strip_generation_artifacts(trans or ""))
 
-        if _contains_watermark_text(cleaned_query) and cleaned_trans == "":
+        # Invisible ZWJ watermark marker produced by our fallback → accept, no outer retry.
+        if cleaned_trans == "\u200d":
+            return False
+
+        # Source-text fallback (translation identical to original) → accept, no outer retry.
+        # MIT's post-processing will filter it as "Translation identical to original",
+        # leaving the original Chinese text visible instead of rendering English.
+        if cleaned_query.lower().strip() == cleaned_trans.lower().strip():
+            return False
+
+        if _contains_watermark_text(cleaned_query) and cleaned_trans in ("", "\u200d"):
             return False
         if _target_is_vietnamese(getattr(self, "_active_to_lang", "")) and _needs_vietnamese_retry(cleaned_trans):
             return True
@@ -233,6 +243,11 @@ class CustomOpenAiTranslator(ConfigGPT, CommonTranslator):
         self.logger.debug(f'Temperature: {self.temperature}, TopP: {self.top_p}')
 
         for prompt, query_size in self._assemble_prompts(from_lang, to_lang, queries):
+            # Track which source queries belong to this batch so we can map
+            # fallback values back to the correct index after retries.
+            batch_offset = len(translations)
+            batch_queries = queries[batch_offset:batch_offset + query_size]
+
             language_retry_attempt = 0
             request_prompt = prompt
             self._vi_retry_extra_system = ''  # reset per prompt batch
@@ -321,7 +336,7 @@ class CustomOpenAiTranslator(ConfigGPT, CommonTranslator):
 
                 if _target_is_vietnamese(to_lang):
                     non_vietnamese = [t for t in cleaned_translations if _needs_vietnamese_retry(t)]
-                    if non_vietnamese and language_retry_attempt < 2:
+                    if non_vietnamese and language_retry_attempt < 10:
                         language_retry_attempt += 1
                         self.logger.warning(
                             f'Retrying because output is not fully Vietnamese. Attempt: {language_retry_attempt}'
@@ -335,6 +350,35 @@ class CustomOpenAiTranslator(ConfigGPT, CommonTranslator):
 
                 self._vi_retry_extra_system = ''  # clear after successful pass
                 break
+
+            # ── Post-retry fallback for Vietnamese target ──────────────────────────────
+            # Applied AFTER all inner Vietnamese retries are exhausted.
+            #
+            # • Watermark source queries → replace with U+200D (ZERO WIDTH JOINER):
+            #     - '\u200d'.strip() == '\u200d'  (non-empty → MIT keeps region)
+            #     - Region is inpainted (watermark area erased from image)
+            #     - ZWJ has no visible glyph → nothing is rendered in its place
+            #     - Fixes Issue 3a: watermarks are now actually erased
+            #
+            # • Content queries still returning English → fall back to source text:
+            #     - MIT sees translation == original → "Translation identical to original"
+            #     - Region is NOT inpainted; original Chinese text stays visible
+            #     - Better than rendering English text on the image
+            #     - Fixes Issue 1 + Issue 3b (slot stays occupied, no misalignment)
+            if _target_is_vietnamese(to_lang):
+                for i in range(len(cleaned_translations)):
+                    src = batch_queries[i] if i < len(batch_queries) else ""
+                    if _contains_watermark_text(src):
+                        # Always erase watermarks regardless of what model returned.
+                        cleaned_translations[i] = "\u200d"
+                    elif _needs_vietnamese_retry(cleaned_translations[i]):
+                        # Translation still English after all retries.
+                        # Revert to source so MIT preserves the original Chinese text.
+                        self.logger.warning(
+                            f'Segment {i} not Vietnamese after retries; '
+                            f'reverting to source text to preserve original.'
+                        )
+                        cleaned_translations[i] = src if src else cleaned_translations[i]
 
             translations.extend(cleaned_translations)
 

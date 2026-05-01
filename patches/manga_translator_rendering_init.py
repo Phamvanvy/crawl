@@ -335,6 +335,8 @@ def render(
             bg,
             line_spacing,
         )
+    if temp_box is None:
+        return img
     h, w, _ = temp_box.shape
     r_temp = w / h
 

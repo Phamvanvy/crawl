@@ -46,7 +46,7 @@ def _strip_generation_artifacts(text: str, preserve_segment_tokens: bool = False
         return text
 
     cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE)
-    cleaned = re.sub(r"</\|\d+\|>", "", cleaned)
+    cleaned = re.sub(r"</\|\d+\|>?", "", cleaned)  # </|3|> and </|3|
     cleaned = re.sub(
         r"<\|(?:assistant|user|system|im_start|im_end|eot_id|end_of_text|endoftext|begin_of_text|bos|eos|pad|unk)\|>",
         "",
@@ -57,7 +57,7 @@ def _strip_generation_artifacts(text: str, preserve_segment_tokens: bool = False
     cleaned = re.sub(r"\[/?INST\]|<<SYS>>|<</SYS>>", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"</(?=[^a-zA-Z]|$)", "", cleaned)
     if not preserve_segment_tokens:
-        cleaned = re.sub(r"<\|\d+\|>", "", cleaned)
+        cleaned = re.sub(r"<\|\d+\|>?", "", cleaned)  # <|3|> and <|3|
     cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip()
@@ -182,13 +182,10 @@ def _detect_relationship_context(text: str) -> str | None:
 
 
 def _apply_relationship_pronouns(translated: str, relationship: str | None) -> str:
-    """Áp dụng đại từ nhân xưng phù hợp dựa trên quan hệ đã phát hiện."""
-    if not translated or not relationship:
-        return translated
-    
-    if relationship == "parent_child":
-        translated = re.sub(r'\b(tôi|em)\b', 'con', translated)
-    
+    """Không thay thế đại từ nhân xưng tự động — để model tự xử lý qua context_history.
+    Hàm giữ lại để tránh lỗi import, nhưng không làm gì cả.
+    Lý do: regex blanket replace gây sai xưng hô cho các câu không liên quan.
+    """
     return translated
 
 
