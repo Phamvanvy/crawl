@@ -4,6 +4,7 @@ _translate.py — Ollama helpers, text normalization, batch translation with agg
 
 import json
 import re
+import time
 
 import requests
 
@@ -335,7 +336,10 @@ def post_process_translation(translated_text: str, source_text: str = "") -> str
 def translate_batch(texts: list[str], model: str, src_lang: str = "zh",
                    context_history: list[tuple[str, str]] | None = None,
                    constraints: list[dict] | None = None,
-                   force_vietnamese: bool = True) -> list[str]:
+                   force_vietnamese: bool = True,
+                   max_retries: int = 3,
+                   retry_delay: float = 2.0,
+                   timeout: int = 180) -> list[str]:
     """Dịch batch texts qua Ollama API với prompt mạnh buộc dịch sang tiếng Việt.
     
     Args:
@@ -459,17 +463,32 @@ def translate_batch(texts: list[str], model: str, src_lang: str = "zh",
                     return _clean_watermark_fragments(_normalize_vietnamese(_normalize_newlines(v)))
         return _clean_watermark_fragments(_normalize_vietnamese(_normalize_newlines(str(t))))
 
-    for prompt_attempt in prompt_attempts:
+    # ── RETRY LOGIC WITH TIMEOUT AND BACKOFF ────────────────────────────────────
+    for attempt_idx, prompt_attempt in enumerate(prompt_attempts):
         try:
             payload = {"model": model, "prompt": prompt_attempt, "stream": False}
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             headers = {"Content-Type": "application/json; charset=utf-8"}
+            
             resp = requests.post(
                 f"{OLLAMA_BASE}/api/generate",
                 data=body,
                 headers=headers,
-                timeout=180,
+                timeout=timeout,  # Use configurable timeout
             )
+            
+            if not resp.ok:
+                error_msg = f"HTTP {resp.status_code}: {resp.text[:200]}"
+                print(f"⚠️  API Error (attempt {attempt_idx + 1}/{len(prompt_attempts)}): {error_msg}")
+                
+                if resp.status_code in (502, 503, 504, 429) or "connection" in error_msg.lower():
+                    wait_time = min(retry_delay * (attempt_idx + 1), 60)
+                    print(f"⏳ Chờ {wait_time}s trước khi retry...")
+                    time.sleep(wait_time)
+                    continue
+                
+                return []
+            
             resp.raise_for_status()
             raw = _strip_generation_artifacts(resp.json().get("response", "") or "")
 
@@ -479,12 +498,35 @@ def translate_batch(texts: list[str], model: str, src_lang: str = "zh",
                 parsed = json.loads(raw[s:e])
                 if isinstance(parsed, list) and len(parsed) == len(texts):
                     extracted = [_extract(t) for t in parsed]
+                    
                     if force_vietnamese and any(_needs_vietnamese_retry(t) for t in extracted):
+                        print("⚠️  Kết quả không phải tiếng Việt, retry...")
                         continue
+                    
                     return extracted
-        except Exception:
-            continue
+        except requests.exceptions.Timeout:
+            print(f"⏱️  Request timeout (attempt {attempt_idx + 1}/{len(prompt_attempts)})")
+            if attempt_idx < len(prompt_attempts) - 1:
+                wait_time = min(retry_delay * (attempt_idx + 1), 60)
+                print(f"⏳ Chờ {wait_time}s trước khi retry...")
+                time.sleep(wait_time)
+                continue
+        except requests.exceptions.ConnectionError as ce:
+            print(f"🔌 Connection error: {str(ce)[:200]}")
+            if attempt_idx < len(prompt_attempts) - 1:
+                wait_time = min(retry_delay * (attempt_idx + 1), 60)
+                print(f"⏳ Chờ {wait_time}s trước khi retry...")
+                time.sleep(wait_time)
+                continue
+        except Exception as e:
+            error_msg = str(e)[:200]
+            print(f"❌ Unexpected error (attempt {attempt_idx + 1}/{len(prompt_attempts)}): {error_msg}")
+            if attempt_idx < len(prompt_attempts) - 1:
+                wait_time = min(retry_delay * (attempt_idx + 1), 60)
+                print(f"⏳ Chờ {wait_time}s trước khi retry...")
+                time.sleep(wait_time)
+                continue
     
     # Fallback: return original texts if translation fails completely
+    print("⚠️  Tất cả attempts thất bại, trả về text gốc.")
     return texts
-

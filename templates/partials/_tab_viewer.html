@@ -83,6 +83,8 @@
           <div data-i18n="v.key.click">Click ảnh trái/phải để chuyển</div>
           <div data-i18n="v.key.prev_chap">[  — Chap trước</div>
           <div data-i18n="v.key.next_chap">]  — Chap sau</div>
+          <div>Del — Xóa ảnh hiện tại</div>
+          <div>F &nbsp;— Toàn màn hình</div>
         </div>
       </div>
     </div>
@@ -90,7 +92,7 @@
   </div><!-- end left -->
 
   <!-- ── Right: reader panel ───────────────────────────────────────────── -->
-  <div class="viewer-panel">
+  <div class="viewer-panel" id="vPanel">
 
     <!-- toolbar -->
     <div class="viewer-toolbar">
@@ -102,7 +104,9 @@
         <option value="original" data-i18n="v.fit.original">1:1 Kích thước gốc</option>
       </select>
       <button id="vDeleteBtn" class="btn btn-danger" style="padding:4px 10px;font-size:.78rem;flex-shrink:0;display:none"
-              onclick="vDeleteCurrent()" title="Xóa ảnh hiện tại">🗑 Xóa</button>
+              onclick="vDeleteCurrent()" title="Xóa ảnh hiện tại (Del)">🗑 Xóa</button>
+      <button id="vFullscreenBtn" class="btn btn-ghost" onclick="vToggleFullscreen()"
+              title="Toàn màn hình (F)" style="padding:4px 10px;font-size:.78rem;flex-shrink:0">⛶ Full</button>
     </div>
 
     <!-- scroll view -->

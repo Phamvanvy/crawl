@@ -494,6 +494,8 @@ async function runCheck() {
 // ── Translate log helpers ─────────────────────────────────────────────────────
 const tLogBox = () => $('tLogBox');
 
+const T_LOG_MAX_DOM = 400; // Giới hạn DOM nodes trong log box
+
 function tAddLog(msg, cls) {
   const box   = tLogBox();
   const empty = box.querySelector('.log-empty');
@@ -502,6 +504,10 @@ function tAddLog(msg, cls) {
   line.className = 'log-line' + (cls ? ' ' + cls : '');
   line.textContent = msg;
   box.appendChild(line);
+  // Xóa node cũ nhất khi vượt giới hạn (tránh DOM phình to)
+  while (box.children.length > T_LOG_MAX_DOM) {
+    box.removeChild(box.firstChild);
+  }
   box.scrollTop = box.scrollHeight;
 }
 

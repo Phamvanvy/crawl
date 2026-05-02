@@ -21,7 +21,10 @@ _easyocr_lock   = threading.Lock()
 
 
 def _get_paddle_reader(gpu: bool = True, lang: str = "ch"):
-    """PaddleOCR — hiệu quả hơn nhiều cho font bold/comic và vertical text."""
+    """
+    PaddleOCR — hiệu quả hơn nhiều cho font bold/comic và vertical text.
+    ✅ Điều chỉnh ngưỡng thấp hơn để bắt text mờ/nhiều màu tốt hơn.
+    """
     key = (lang, gpu)
     with _paddle_lock:
         if key not in _paddle_readers:
@@ -33,9 +36,9 @@ def _get_paddle_reader(gpu: bool = True, lang: str = "ch"):
                 show_log=False,
                 enable_mkldnn=False if not gpu else True,
                 cpu_threads=int(_ML_THREAD_LIMIT),
-                det_db_thresh=0.2,
-                det_db_box_thresh=0.3,
-                det_db_unclip_ratio=2.0,
+                det_db_thresh=0.15,  # Giảm từ 0.2 → bắt text mờ hơn
+                det_db_box_thresh=0.25,  # Giảm từ 0.3 → giảm bỏ sót
+                det_db_unclip_ratio=1.6,  # Giảm từ 2.0 → bbox chính xác hơn
             )
     return _paddle_readers[key]
 
@@ -59,37 +62,136 @@ def _get_reader(gpu: bool = True):
 
 
 def _preprocess_for_ocr(img_array):
-    """Tăng contrast và khử nhiễu nền cho CG/VN/scene text."""
+    """
+    Tăng contrast và khử nhiễu nền cho CG/VN/scene text.
+    ✅ Xử lý tốt chữ nhiều màu sắc bằng LAB color space.
+    """
     import cv2
-    gray = cv2.cvtColor(img_array, cv2.COLOR_BGR2GRAY)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    enhanced = clahe.apply(gray)
-    return cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
+    
+    # LAB Color Space: Lightness channel giữ tốt text nhiều màu
+    lab = cv2.cvtColor(img_array, cv2.COLOR_BGR2LAB)
+    l_channel = lab[:, :, 0]
+    
+    # CLAHE trên L channel với clipLimit cao hơn để tăng contrast tốt hơn
+    clahe = cv2.createCLAHE(clipLimit=3.5, tileGridSize=(8, 8))
+    enhanced_l = clahe.apply(l_channel)
+    
+    return cv2.cvtColor(enhanced_l, cv2.COLOR_GRAY2BGR)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Option 2: Multi-channel adaptive thresholding (tùy chọn - có thể thêm sau)
+def _preprocess_multichannel(img_array):
+    """Xử lý từng kênh màu và kết hợp lại."""
+    import cv2
+    import numpy as np
+    
+    channels = cv2.split(img_array)
+    
+    # Apply adaptive threshold to each channel
+    combined_mask = np.zeros_like(channels[0], dtype=np.uint8)
+    for i, channel in enumerate(channels):
+        _, mask = cv2.adaptiveThreshold(
+            channel, 255, 
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY, 11, 2
+        )
+        combined_mask = cv2.bitwise_or(combined_mask, mask)
+    
+    # Clean up noise with morphological operations
+    kernel = np.ones((3, 3), np.uint8)
+    cleaned = cv2.morphologyEx(combined_mask, cv2.MORPH_CLOSE, kernel)
+    cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_OPEN, kernel)
+    
+    return cleaned * 255
+
+# ─────────────────────────────────────────────────────────────────────────────
+def _run_multichannel_ocr(img_array, gpu: bool = True, paddle_lang: str = "ch") -> list[tuple]:
+    """
+    OCR đa kênh cho ảnh có chữ nhiều màu sắc.
+    Xử lý từng kênh màu và kết hợp kết quả.
+    """
+    import cv2
+    import numpy as np
+    
+    channels = cv2.split(img_array)
+    
+    # Apply adaptive threshold to each channel
+    combined_mask = np.zeros_like(channels[0], dtype=np.uint8)
+    for i, channel in enumerate(channels):
+        _, mask = cv2.adaptiveThreshold(
+            channel, 255, 
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY, 11, 2
+        )
+        combined_mask = cv2.bitwise_or(combined_mask, mask)
+    
+    # Clean up noise with morphological operations
+    kernel = np.ones((3, 3), np.uint8)
+    cleaned = cv2.morphologyEx(combined_mask, cv2.MORPH_CLOSE, kernel)
+    cleaned = cv2.morphologyEx(cleaned, cv2.MORPH_OPEN, kernel)
+    
+    if cleaned.sum() == 0:
+        return []
+    
+    # Convert back to BGR for OCR (cleaned already has values 0/255)
+    enhanced_bgr = cv2.cvtColor(cleaned, cv2.COLOR_GRAY2BGR)
+    
+    try:
+        paddle = _get_paddle_reader(gpu, lang=paddle_lang)
+        result = paddle.ocr(enhanced_bgr, cls=True)
+        hits = [(line[0], line[1][0], float(line[1][1])) for line in result[0]] if result and result[0] else []
+        
+        # Nếu có kết quả từ đa kênh, ưu tiên dùng nó
+        return hits if len(hits) > 0 else []
+    except Exception:
+        pass
+    
+    return []
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 def _run_ocr_engine(img_array, gpu: bool = True, src_lang: str = "zh") -> list[tuple]:
     """
     Raw OCR engine trên numpy array ảnh.
     Ưu tiên PaddleOCR, fallback sang EasyOCR.
+    ✅ Thêm multi-channel preprocessing cho text nhiều màu sắc.
     Trả về list of (bbox_4pts, text, confidence).
     """
     paddle_lang = "ch" if src_lang == "zh" else "en"
+    
+    # ── Bước 1: PaddleOCR trực tiếp trên ảnh gốc (ưu tiên nhất) ────────────
     try:
         paddle = _get_paddle_reader(gpu, lang=paddle_lang)
         result = paddle.ocr(img_array, cls=True)
         hits = [(line[0], line[1][0], float(line[1][1])) for line in result[0]] if result and result[0] else []
-        if len(hits) < 2:
-            processed = _preprocess_for_ocr(img_array)
-            result2 = paddle.ocr(processed, cls=True)
-            hits2 = [(line[0], line[1][0], float(line[1][1])) for line in result2[0]] if result2 and result2[0] else []
-            if len(hits2) > len(hits):
-                hits = hits2
+        if len(hits) >= 2:
+            return hits
+        
+        # ── Bước 2: Preprocessed (LAB CLAHE) nếu ít kết quả ────────────────
+        processed = _preprocess_for_ocr(img_array)
+        result2 = paddle.ocr(processed, cls=True)
+
+        hits2 = [(line[0], line[1][0], float(line[1][1])) for line in result2[0]] if result2 and result2[0] else []
+        if len(hits2) > len(hits):
+            hits = hits2
+        
+        # ── Bước 3: Multi-channel fallback nếu vẫn không có kết quả ────────
+        if len(hits) == 0:
+            try:
+                multi_result = _run_multichannel_ocr(img_array, gpu, paddle_lang)
+                if multi_result:
+                    return multi_result
+            except Exception:
+                pass
+        
         return hits
     except ImportError:
         pass
     except Exception:
         pass
-    # EasyOCR fallback
+    
+    # EasyOCR fallback (cuối cùng)
     reader = _get_easyocr_reader(gpu, src_lang=src_lang)
     raw = reader.readtext(
         img_array,
@@ -109,7 +211,6 @@ def _find_speech_bubbles(img) -> list[tuple]:
     Returns: list of (x1, y1, x2, y2)
     """
     import cv2
-    import numpy as np
 
     h, w = img.shape[:2]
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)

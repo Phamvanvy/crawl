@@ -7,8 +7,20 @@ async function tPoll() {
     data = await res.json();
   } catch { return; }
 
+  // Batch log: gom tất cả log entries vào DocumentFragment 1 lần để tránh nhiều reflow
+  const box  = $('tLogBox');
+  const frag = document.createDocumentFragment();
+  let   hasLog = false;
   for (const entry of data.logs) {
-    if (entry.type === 'log')      tAddLog(entry.msg, tClassify(entry.msg));
+    if (entry.type === 'log') {
+      const empty = !hasLog && box.querySelector('.log-empty');
+      if (empty) empty.remove();
+      const line = document.createElement('div');
+      line.className = 'log-line' + (entry.cls || (' ' + tClassify(entry.msg)) || '');
+      line.textContent = entry.msg;
+      frag.appendChild(line);
+      hasLog = true;
+    }
     if (entry.type === 'progress') tShowProgress(entry.done, entry.total);
     if (entry.type === 'done') {
       tShowStats(entry.success, entry.failed);
@@ -17,6 +29,12 @@ async function tPoll() {
       $('tProgLabel').textContent = tr('prog.done_translate', entry.success + entry.failed);
       if (entry.output_dir) { _tOutputDir = entry.output_dir; tRefreshPreview(); }
     }
+  }
+  if (hasLog) {
+    box.appendChild(frag);
+    // Xóa node cũ khi vượt giới hạn (tránh DOM phình to)
+    while (box.children.length > T_LOG_MAX_DOM) box.removeChild(box.firstChild);
+    box.scrollTop = box.scrollHeight;
   }
   _tCursor = data.total;
 
@@ -274,37 +292,94 @@ async function tRetryFailed() {
 }
 
 // ── Preview ───────────────────────────────────────────────────────────────────
+const T_PREVIEW_PER_PAGE = 60;
+let _tPreviewAllImages   = [];   // cache: all image metadata from server
+let _tPreviewPage        = 0;    // current page (0-based)
+let _tFocusedPreviewImg  = null; // { path, name, cardEl } — for Delete key
+
 async function tRefreshPreview() {
   const folder = _tOutputDir || getVal('tOutputDir').trim();
   if (!folder) return;
   let data;
   try {
-    const res = await fetch('/api/translate/preview?folder=' + encodeURIComponent(folder));
+    const res = await fetch('/api/translate/preview?folder=' + encodeURIComponent(folder) + '&limit=0');
     data = await res.json();
   } catch { return; }
+  _tPreviewAllImages = data.images || [];
+  _tPreviewPage      = 0;
+  tRenderPreviewPage();
+}
 
-  const grid = $('tPreviewGrid');
-  if (!data.images || data.images.length === 0) {
-    grid.innerHTML = '<div class="log-empty" style="height:120px;grid-column:1/-1"><span>🖼</span><span>Chưa có ảnh</span></div>';
+function tRenderPreviewPage() {
+  const total     = _tPreviewAllImages.length;
+  const pageCount = Math.max(1, Math.ceil(total / T_PREVIEW_PER_PAGE));
+  if (_tPreviewPage >= pageCount) _tPreviewPage = Math.max(0, pageCount - 1);
+  const start    = _tPreviewPage * T_PREVIEW_PER_PAGE;
+  const end      = Math.min(start + T_PREVIEW_PER_PAGE, total);
+  const pageImgs = _tPreviewAllImages.slice(start, end);
+  const grid     = $('tPreviewGrid');
+  const pager    = $('tPreviewPager');
+  _tFocusedPreviewImg = null;
+
+  if (!total) {
+    grid.innerHTML      = '<div class="log-empty" style="height:120px;grid-column:1/-1"><span>🖼</span><span>Chưa có ảnh</span></div>';
+    pager.style.display = 'none';
     return;
   }
-  grid.innerHTML = '';
-  const _lbList = [];
-  for (const img of data.images) {
+
+  // Build lightbox list + cards in one pass
+  const lbList = [];
+  const frag   = document.createDocumentFragment();
+  for (let i = 0; i < pageImgs.length; i++) {
+    const img  = pageImgs[i];
     const card = document.createElement('div');
     card.className = 'preview-card';
-    const src = '/api/translate/image?path=' + encodeURIComponent(img.path) + '&t=' + Date.now();
-    const lbIdx = _lbList.length;
-    _lbList.push({ src, path: img.path, name: img.name, cardEl: card });
-    card.innerHTML = `<img src="${src}" loading="lazy" alt="" />`
+    card.tabIndex  = 0;
+    const src = '/api/translate/image?path=' + encodeURIComponent(img.path)
+              + '&rev=' + encodeURIComponent(img.mtime || '0');
+    lbList.push({ src, path: img.path, name: img.name, cardEl: card });
+    card.innerHTML = `<img src="${src}" loading="lazy" decoding="async" alt="" />`
                    + `<div class="pc-name">${escHtml(img.name)}</div>`
-                   + `<button class="pc-del-btn" title="Xóa ảnh này để dịch lại">🗑</button>`;
-    card.querySelector('img').addEventListener('click', () => openLightbox(_lbList, lbIdx));
+                   + `<button class="pc-del-btn" title="Xóa ảnh này để dịch lại (Del)">🗑</button>`;
+    card.querySelector('img').addEventListener('click', ((_i) => () => openLightbox(lbList, _i))(i));
     card.querySelector('.pc-del-btn').addEventListener('click', e => {
       e.stopPropagation();
       tDeletePreviewImg(img.path, img.name, card);
     });
-    grid.appendChild(card);
+    // Track focused card for Delete key
+    card.addEventListener('mouseenter', () => { _tFocusedPreviewImg = { path: img.path, name: img.name, cardEl: card }; });
+    card.addEventListener('focus',      () => { _tFocusedPreviewImg = { path: img.path, name: img.name, cardEl: card }; });
+    frag.appendChild(card);
+  }
+  grid.innerHTML = '';
+  grid.appendChild(frag);
+
+  // Pagination bar
+  if (pageCount > 1) {
+    pager.style.display                = 'flex';
+    $('tPreviewPageInfo').textContent  = `${_tPreviewPage + 1} / ${pageCount}`;
+    $('tPreviewTotalInfo').textContent = `(${total} ảnh)`;
+    $('tPreviewPrevBtn').disabled      = _tPreviewPage === 0;
+    $('tPreviewNextBtn').disabled      = _tPreviewPage >= pageCount - 1;
+  } else {
+    pager.style.display = 'none';
+  }
+}
+
+function tPreviewPrevPage() {
+  if (_tPreviewPage > 0) {
+    _tPreviewPage--;
+    tRenderPreviewPage();
+    $('tPreviewGrid').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+}
+
+function tPreviewNextPage() {
+  const pageCount = Math.ceil(_tPreviewAllImages.length / T_PREVIEW_PER_PAGE);
+  if (_tPreviewPage < pageCount - 1) {
+    _tPreviewPage++;
+    tRenderPreviewPage();
+    $('tPreviewGrid').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 }
 
@@ -312,20 +387,19 @@ async function tDeletePreviewImg(path, name, cardEl) {
   if (!confirm(`Xóa ảnh đã dịch "${name}"?\n→ Chạy lại sẽ dịch lại ảnh này.`)) return;
   try {
     const res  = await fetch('/api/viewer/delete', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ path }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path }),
     });
     const data = await res.json();
     if (!res.ok) { alert(`Lỗi: ${data.error || 'không xóa được'}`); return; }
   } catch (e) {
     alert(`Lỗi kết nối: ${e}`); return;
   }
-  cardEl.remove();
-  const grid = $('tPreviewGrid');
-  if (!grid.querySelector('.preview-card')) {
-    grid.innerHTML = '<div class="log-empty" style="height:120px;grid-column:1/-1"><span>🖼</span><span>Chưa có ảnh</span></div>';
-  }
+  // Remove from cache and re-render current page
+  const idx = _tPreviewAllImages.findIndex(img => img.path === path);
+  if (idx >= 0) _tPreviewAllImages.splice(idx, 1);
+  if (_tFocusedPreviewImg && _tFocusedPreviewImg.path === path) _tFocusedPreviewImg = null;
+  tRenderPreviewPage();
 }
 
 </script>

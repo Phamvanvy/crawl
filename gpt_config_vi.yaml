@@ -1,6 +1,6 @@
 ollama:
-  temperature: 0.1
-  top_p: 0.9
+  temperature: 0.05
+  top_p: 0.85
   
   chat_system_template: |
     # MANDATORY: TARGET LANGUAGE IS VIETNAMESE (Tiếng Việt)

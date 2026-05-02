@@ -66,6 +66,7 @@ document.addEventListener('keydown', e => {
     if (e.key === 'Escape')      { closeLightbox(); return; }
     if (e.key === 'ArrowLeft')   { e.preventDefault(); lbPrev(); return; }
     if (e.key === 'ArrowRight')  { e.preventDefault(); lbNext(); return; }
+    if (e.key === 'Delete')      { e.preventDefault(); lbDelete(); return; }
     if (e.key === '+' || e.key === '=') { e.preventDefault(); lbZoomIn(); return; }
     if (e.key === '-')           { e.preventDefault(); lbZoomOut(); return; }
     if (e.key === '0')           { e.preventDefault(); lbZoomReset(); return; }
@@ -77,12 +78,22 @@ document.addEventListener('keydown', e => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
     if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); vNext(); }
     if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   { e.preventDefault(); vPrev(); }
+    if (e.key === 'Delete') { e.preventDefault(); vDeleteCurrent(); }
   }
-  // Chapter navigation shortcuts ([ and ]) — work in both scroll and page mode
+  // Chapter navigation + fullscreen shortcuts — work in both scroll and page mode
   if ($('tab-viewer') && $('tab-viewer').style.display !== 'none') {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
     if (e.key === '[' || e.key === 'BracketLeft')  { e.preventDefault(); vPrevChap(); }
     if (e.key === ']' || e.key === 'BracketRight') { e.preventDefault(); vNextChap(); }
+    if (e.key === 'f' || e.key === 'F')            { e.preventDefault(); vToggleFullscreen(); }
+  }
+  // Translate preview: Delete key xóa card đang hover/focus
+  if ($('tab-translate') && $('tab-translate').style.display !== 'none') {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'BUTTON') return;
+    if (e.key === 'Delete' && typeof _tFocusedPreviewImg !== 'undefined' && _tFocusedPreviewImg) {
+      e.preventDefault();
+      tDeletePreviewImg(_tFocusedPreviewImg.path, _tFocusedPreviewImg.name, _tFocusedPreviewImg.cardEl);
+    }
   }
 });
 

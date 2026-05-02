@@ -242,6 +242,28 @@ function vPageClick(e) {
   if (e.offsetX > w / 2) vNext(); else vPrev();
 }
 
+// ── Fullscreen ────────────────────────────────────────────────────────────────
+function vToggleFullscreen() {
+  const panel = $('vPanel');
+  if (!panel) return;
+  if (!document.fullscreenElement) {
+    panel.requestFullscreen().catch(() => {});
+  } else {
+    document.exitFullscreen();
+  }
+}
+document.addEventListener('fullscreenchange', () => {
+  const btn = $('vFullscreenBtn');
+  if (!btn) return;
+  if (document.fullscreenElement) {
+    btn.textContent = '✕ Thu nhỏ';
+    btn.title       = 'Thoát toàn màn hình (Esc / F)';
+  } else {
+    btn.textContent = '⛶ Full';
+    btn.title       = 'Toàn màn hình (F)';
+  }
+});
+
 // ── Delete current image ──────────────────────────────────────────────────────
 async function vDeleteCurrent() {
   if (_vMode !== 'page' || !_vImages.length) return;

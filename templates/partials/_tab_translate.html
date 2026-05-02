@@ -491,11 +491,19 @@ CG/subtitle: dùng FFFFFF:000000 để đảm bảo đọc được trên mọi 
     <div class="card" style="flex:1">
       <div class="card-header">
         <span data-i18n="t.preview.header">Ảnh đã dịch</span>
+        <span style="font-size:.7rem;color:var(--text-muted);margin-right:auto" title="Di chuột lên ảnh rồi nhấn Delete để xóa">Del = xóa</span>
         <button class="btn btn-ghost" style="padding:3px 10px;font-size:.75rem" onclick="tRefreshPreview()"
                 data-i18n="btn.refresh">↺ Làm mới</button>
       </div>
       <div id="tPreviewGrid" class="preview-grid">
         <div class="log-empty" style="height:120px;grid-column:1/-1"><span>🖼</span><span data-i18n="t.preview.empty">Ảnh kết quả sẽ hiện ở đây</span></div>
+      </div>
+      <!-- Pagination -->
+      <div id="tPreviewPager" style="display:none;align-items:center;justify-content:center;gap:8px;padding:8px 12px;border-top:1px solid var(--border);flex-wrap:wrap">
+        <button class="btn btn-ghost" id="tPreviewPrevBtn" onclick="tPreviewPrevPage()" style="padding:3px 12px;font-size:.78rem" disabled>← Trước</button>
+        <span id="tPreviewPageInfo" style="font-size:.82rem;color:var(--text-muted);min-width:60px;text-align:center">1 / 1</span>
+        <button class="btn btn-ghost" id="tPreviewNextBtn" onclick="tPreviewNextPage()" style="padding:3px 12px;font-size:.78rem" disabled>Sau →</button>
+        <span id="tPreviewTotalInfo" style="font-size:.75rem;color:var(--text-muted)"></span>
       </div>
     </div>
 

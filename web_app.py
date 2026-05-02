@@ -748,8 +748,8 @@ def api_translate_image():
         return jsonify({"error": "File không hợp lệ"}), 400
     mime, _ = mimetypes.guess_type(str(p))
     resp = send_file(str(p), mimetype=mime or "image/jpeg")
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
-    resp.headers["Pragma"] = "no-cache"
+    # Cho phép browser cache thumbnail preview (mtime-based rev từ client)
+    resp.headers["Cache-Control"] = "public, max-age=3600, immutable"
     return resp
 
 
@@ -758,16 +758,27 @@ def api_translate_preview():
     """Liệt kê các ảnh đã xử lý trong output_dir."""
     folder = request.args.get("folder", "").strip()
     if not folder:
-        return jsonify({"images": []})
+        return jsonify({"images": [], "total": 0})
     p = Path(folder).resolve()
     if not p.is_dir():
-        return jsonify({"images": []})
+        return jsonify({"images": [], "total": 0})
+    try:
+        limit = int(request.args.get("limit", 0))
+    except (TypeError, ValueError):
+        limit = 0
+
+    all_files = sorted(
+        (f for f in p.iterdir() if f.suffix.lower() in te.IMAGE_EXTS),
+        key=lambda f: f.stat().st_mtime,
+    )
+    total = len(all_files)
+    # limit=0 → trả về tất cả
+    display = all_files if limit <= 0 else all_files[-limit:]
     images = [
-        {"name": f.name, "path": str(f)}
-        for f in sorted(p.iterdir())
-        if f.suffix.lower() in te.IMAGE_EXTS
+        {"name": f.name, "path": str(f), "mtime": int(f.stat().st_mtime)}
+        for f in display
     ]
-    return jsonify({"images": images})
+    return jsonify({"images": images, "total": total})
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
