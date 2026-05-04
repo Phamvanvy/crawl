@@ -27,15 +27,15 @@ def check(label, ok, extra=""):
 
 def main():
     print("=" * 52)
-    print("  Image Translator — Setup cho GTX 1660 SUPER")
+    print("  Image Translator — Setup (RTX / CUDA)")
     print("=" * 52)
 
-    # ── 1. PyTorch CUDA 12.1 ──────────────────────────────────────────────
-    section(1, 5, "PyTorch + CUDA 12.1")
+    # ── 1. PyTorch CUDA 12.4 ───────────────────────────────────────────
+    section(1, 5, "PyTorch + CUDA 12.4")
     print("  Đang tải (~2 GB lần đầu)…")
     pip(
         "install", "torch", "torchvision",
-        "--index-url", "https://download.pytorch.org/whl/cu121",
+        "--index-url", "https://download.pytorch.org/whl/cu124",
     )
 
     # ── 2. PaddleOCR ──────────────────────────────────────────────────────

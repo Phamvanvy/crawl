@@ -183,11 +183,64 @@ def _detect_relationship_context(text: str) -> str | None:
 
 
 def _apply_relationship_pronouns(translated: str, relationship: str | None) -> str:
-    """Không thay thế đại từ nhân xưng tự động — để model tự xử lý qua context_history.
-    Hàm giữ lại để tránh lỗi import, nhưng không làm gì cả.
-    Lý do: regex blanket replace gây sai xưng hô cho các câu không liên quan.
+    """Adjust pronouns based on detected relationship context.
+    
+    This function applies pronoun adjustments AFTER translation to ensure consistency.
+    It uses context_history from ImageTranslator to maintain pronoun consistency across sentences.
     """
-    return translated
+    if not translated or not translated.strip():
+        return translated
+    
+    # Pronoun adjustment rules based on relationship type
+    replacements = {
+        # Parent-child relationships (mother/father) - child speaks to parent
+        "parent_child": [
+            (r'\btôi\b', 'con'),  # Replace 'tôi' with 'con' when child speaks to parent
+            (r'\bem\b',   'con'),   # Replace 'em' with 'con' when child speaks to parent
+        ],
+        # Romantic relationships - keep original pronouns (tôi/em are acceptable)
+        "romantic": [],
+        # School/friend relationships - neutral pronouns are acceptable as-is
+        "school": [],
+    }
+    
+    adjusted = translated
+    
+    if relationship and relationship in replacements:
+        for pattern, replacement in replacements[relationship]:
+            adjusted = re.sub(pattern, replacement, adjusted, flags=re.IGNORECASE)
+    
+    return adjusted
+
+
+def _build_pronoun_context_prompt(context_history: list[tuple[str, str]]) -> str:
+    """Build pronoun context prompt from translation history.
+    
+    Extracts pronoun usage patterns from previous translations to guide current translation.
+    """
+    if not context_history or len(context_history) < 2:
+        return ""
+    
+    # Get recent exchanges (last 5-6 pairs)
+    recent = list(context_history)[-6:]
+    
+    lines = []
+    for orig, trans in recent:
+        clean_orig = orig.strip()[:80] if len(orig) > 80 else orig.strip()
+        clean_trans = trans.strip()[:120] if len(trans) > 120 else trans.strip()
+        
+        # Extract pronouns from translation
+        pronouns_found = []
+        for p in ['con', 'tôi', 'em', 'mẹ', 'ba', 'anh']:
+            if re.search(rf'\b{p}\b', clean_trans, flags=re.IGNORECASE):
+                pronouns_found.append(p)
+        
+        if pronouns_found:
+            lines.append(f"Source: {clean_orig}")
+            lines.append(f"Translation: {clean_trans}")
+            lines.append(f"Pronouns used: {', '.join(pronouns_found)}")
+    
+    return "\n\n".join(lines)
 
 
 def _fix_pronoun_patterns(translated: str, source: str = "") -> str:

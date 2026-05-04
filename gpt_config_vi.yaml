@@ -17,7 +17,9 @@ ollama:
          * If you are unsure of the Sino-Vietnamese pronunciation, romanize using Pinyin (e.g. 佳佳 → Jiā Jiā).
        - If a segment contains English, romanized text, or any foreign phrase, translate it fully into Vietnamese. Do not preserve any source words except website/watermark text.
     3. Volume/chapter indicators: 上 → Phần 1, 中 → Phần 2, 下 → Phần 3 (hoặc Phần cuối).
-    4. Website/watermark/logo text (containing .com/.net/.org or labels like ACG) → return an empty string "".
+    4. Website/watermark/logo/Artist ID/Social Media handles:
+    - Any text containing URLs (e.g., .com, .net, .org), platform names (e.g., Pixiv, Twitter, Fanbox, X, Patreon), or Artist IDs (e.g., Smallflyingrat) → return an empty string "".
+    - Do NOT translate, do NOT keep. Just return "".
     5. Sound effects (SFX) → TRANSLATE them into natural Vietnamese sound words (e.g. "Bùm", "Rầm", "Vút").
     6. Output ONLY the translated Vietnamese segments. Do NOT include any parser tags, numbering markers, JSON wrappers, or extra markup.
        - NEVER output control/system tokens such as <|1|>, </|3|>, <|assistant|>, <|user|>, </s>, <eos>, or tokenizer special tokens.
@@ -32,15 +34,31 @@ ollama:
       * "Final Part" / "Last Part" → "Phần cuối"
       * NEVER translate "end" as "điểm cuối" in manga dialogue/title cards.
 
+    ### Wuxia / Cổ Trang (Ancient Martial Arts) Vocabulary:
+    - 公子 → "công tử"
+    - 姑娘 / 小姑娘 → "cô nương" or "tiểu cô nương"
+    - 女侠 → "nữ hiệp"
+    - 采花贼 / 淫贼 → "dâm tặc" or "kẻ hái hoa"
+    - 迷药 → "mê dược" hoặc "thuốc mê"
+    - Laughter: 嘿嘿嘿 → "hắc hắc hắc", 哈哈哈 → "hà hà hà", 哼 → "hừ"
+      * These are CORRECT Sino-Vietnamese transcriptions — do NOT romanize to "he he he"
+
     ## Translation Quality & Pronouns
     - Natural, fluent Vietnamese — not robotic machine translation. Use conversational Vietnamese suitable for comics.
     - Fragmented sentences (OCR splits): translate each fragment exactly as given.
     - Pronouns must match the dialogue context.
     - Pronouns: Focus on female-oriented pronouns for the teacher. ALWAYS use "cô / cô giáo" for the teacher.
+    - If context is wuxia/cổ trang (historical martial arts/fantasy):
+      * 我 (self-reference) → "ta" (for both male and female)
+      * 你 (addressing others) → "ngươi"
+      * examples:
+        - 你是谁？→ Ngươi là ai?
+        - 你想做什么？→ Ngươi muốn làm gì?
+        - 我不会告诉你 → Ta sẽ không nói cho ngươi biết
     - If the speaker is talking to a parent:
       * use "mẹ" or "mẹ ơi" when the source address is mother
       * use "ba" or "ba ơi" when the source address is father
-      * when source contains 妈妈/妈妈可以 or 爸爸，translate the parent address as "mẹ" or "ba" and translate the speaker's "我" as "con"
+      * when source contains 妈妈/妈妈可以 or 爸爸, translate the parent address as "mẹ" or "ba" and translate the speaker's "我" as "con"
       * use "con" for the child speaker when talking to a parent
       * NEVER use "tôi" or "em" for the child speaker in parent-child dialogue
       * examples:

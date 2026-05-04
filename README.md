@@ -76,8 +76,10 @@ Script sẽ cài: **PyTorch (CUDA)**, **EasyOCR**, **OpenCV**, font **NotoSans**
 Hoặc cài thủ công:
 
 ```bash
-# PyTorch với CUDA 12.1
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+# PyTorch với CUDA 12.4 (tương thích RTX 30/40/50 series)
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+# RTX 50 series (Blackwell): nếu có lỗi CUDA, dùng nightly:
+# pip install --pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu128
 
 # OCR + xử lý ảnh
 pip install easyocr opencv-python-headless
@@ -89,9 +91,10 @@ pip install easyocr opencv-python-headless
 2. Kéo model về:
 
 ```bash
-ollama pull qwen2.5:7b    # ~4.7 GB, chất lượng cao
-# hoặc
-ollama pull qwen2.5:3b    # ~2 GB, nhanh hơn
+ollama pull qwen2.5:7b       # ~4.7 GB, cân bằng tốt/nhanh
+ollama pull qwen3:14b        # ~9 GB, chất lượng cao (cần 12+ GB VRAM)
+# GPU 16 GB: nên dùng qwen3:14b hoặc qwen2.5:32b-q4
+ollama pull qwen2.5:32b-q4_K_M  # ~20 GB RAM (có thể dùng với 16 GB VRAM + RAM swap)
 ```
 
 3. Đảm bảo Ollama đang chạy (tray icon hoặc `ollama serve`)
@@ -202,10 +205,14 @@ crawl/
 
 | Cấu hình | OCR (mỗi ảnh) | Dịch (mỗi ảnh) |
 |---------|--------------|----------------|
-| GPU (GTX 1660+) | ~1–2s | ~5–15s |
+| **RTX 5060 Ti 16 GB (Blackwell)** | **<0.5s** | **~2–5s** |
+| RTX 4070+ / 3080+ (12–16 GB) | ~0.5–1s | ~3–8s |
+| GTX 1660 / RTX 3060 (6–8 GB) | ~1–2s | ~5–15s |
 | CPU only | ~5–10s | ~5–15s |
 
 Thắt cổ chai chính là Ollama — thời gian dịch phụ thuộc model và số vùng text.
+
+**GPU 16 GB VRAM:** có thể chạy model tới **qwen3:14b** hoặc **qwen2.5:32b-q4** cho chất lượng dịch tốt nhất.
 
 ---
 
