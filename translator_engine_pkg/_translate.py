@@ -314,7 +314,7 @@ def comprehensive_post_processing(translated: str, source: str = "") -> str:
     return translated
 
 
-def aggressive_vietnamese_enforcement(text: str, source_text: str = "", max_retries: int = 3) -> str:
+def aggressive_vietnamese_enforcement(text: str, source_text: str = "", max_retries: int = 15) -> str:
     """Áp dụng xử lý mạnh buộc dịch hoàn toàn sang tiếng Việt.
     
     Args:

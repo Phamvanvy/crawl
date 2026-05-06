@@ -271,6 +271,8 @@ class MITImageTranslator:
 
         try:
             sub_env = os.environ.copy()
+            sub_env["PYTHONIOENCODING"] = "utf-8"
+            sub_env["PYTHONUTF8"] = "1"
             if self.translator == "custom_openai" and self.ollama_model:
                 sub_env["CUSTOM_OPENAI_MODEL"] = self.ollama_model
                 self._log(f"  [ENV] CUSTOM_OPENAI_MODEL={self.ollama_model}")
