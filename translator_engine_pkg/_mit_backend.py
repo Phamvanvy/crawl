@@ -209,15 +209,29 @@ class MITImageTranslator:
         if self.font_color:
             cfg.setdefault("render", {})["font_color"] = self.font_color
 
+        # Font Việt hóa — ưu tiên MTO Astro City, fallback NotoSans
+        _vi_font_priority = [
+            "MTO Astro City.ttf",
+            # "NotoSans-Regular.ttf",
+            # "BeVietnamPro-Regular.ttf",
+        ]
+        for _fn in _vi_font_priority:
+            _fp = _PROJECT_ROOT / "fonts" / _fn
+            if _fp.exists():
+                cfg["font_path"] = str(_fp)
+                self._log(f"  [FONT] Dùng font Việt: {_fn}")
+                break
+
         # Vietnamese auto-apply
+        # Bỏ fixed font_size — để MIT tự scale theo từng bubble.
+        # Chỉ áp offset nhẹ (-8) để bù cho ký tự Latin rộng hơn CJK (~1.3x).
         if self.target_lang in ("VIN", "vi") and not self.font_size_fixed:
-            cfg.setdefault("render", {})["font_size"] = 16
-            self._log("  [RENDER] Auto font_size=16 (Latin wider than CJK)")
+            pass  # Không cố định font_size — MIT sẽ tự tính
         if self.target_lang in ("VIN", "vi") and not self.font_size_offset and not self.font_size_fixed:
-            cfg.setdefault("render", {})["font_size_offset"] = -16
-            self._log("  [RENDER] Auto font_size_offset=-16 (Latin ~1.6x wider than CJK)")
+            cfg.setdefault("render", {})["font_size_offset"] = -8
+            self._log("  [RENDER] Auto font_size_offset=-8 (Latin rộng hơn CJK, scale nhẹ)")
         if self.target_lang in ("VIN", "vi") and not self.font_size_minimum:
-            cfg.setdefault("render", {})["font_size_minimum"] = 10
+            cfg.setdefault("render", {})["font_size_minimum"] = 12
         if self.target_lang in ("VIN", "vi") and not self.unclip_ratio:
             cfg.setdefault("detector", {})["unclip_ratio"] = 3.5
             self._log("  [DETECT] Auto unclip_ratio=3.5 (Latin/VI text rộng hơn CJK)")

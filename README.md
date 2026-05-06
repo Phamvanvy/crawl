@@ -1,10 +1,18 @@
-# Image Crawler & Translator
+# 🕷️ Image Crawler & Manga Translator
 
-![Python](https://img.shields.io/badge/python-3.11%2B-blue)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
 
-Ứng dụng web để **crawl ảnh** từ trang web và **dịch text Trung → Việt** trong ảnh (manhwa/manhua).
+> **Image Crawler** — Công cụ tải ảnh từ web + dịch manga (Trung → Việt) với OCR và model AI.
+
+Một ứng dụng web Python kết hợp 4 chức năng chính:
+1. 🕷️ **Crawl ảnh từ web** — Tự động phát hiện và tải ảnh từ bất kỳ trang web nào
+2. ⬇️ **Download hàng loạt** — Multi-thread download (4 luồng), retry với backoff, thread-safe file naming
+3. 🌐 **Dịch manga** — Dịch text Trung/Anh → Việt trong ảnh với OCR + Ollama hoặc `manga-image-translator`
+4. 👁️ **Xem ảnh** — Lightbox viewer trực tiếp trên trình duyệt
+
+---
 
 ---
 
@@ -63,7 +71,48 @@ Hỗ trợ 2 backend:
 
 ## Cài đặt tính năng dịch ảnh
 
-### Backend OCR + Ollama
+## 🕷️ Crawl & Download Ảnh
+
+### Tính năng chính
+| # | Chức năng | Mô tả |
+|-|-|-|
+| 1 | **Trích xuất URL ảnh** | Tự động parse `<img>`, `<source>`, `srcset`, lazy-load (data-lazy, data-src), JSON trong script |
+| 2 | **Download hàng loạt** | Multi-thread với 4 luồng, semaphore-controlled, retry max 3 lần với exponential backoff |
+| 3 | **Thread-safe naming** | Lock + `_claimed` set để tránh file conflict khi nhiều threads cùng ghi |
+| 4 | **Wnacg support** | Tự động crawl trang tìm kiếm, phát hiện series prefix cho folder structure |
+
+### CLI Usage
+```bash
+python crawler.py <url> <output_folder> \
+    --delay 0.3   # Thời gian delay giữa requests (giây)
+    --workers 4   # Số luồng song song (mặc định: 4)
+    --timeout 20  # Timeout mỗi request (giây, mặc định: 20)
+```
+
+### API Usage
+```python
+from crawler import crawl
+
+ok, fail, failed = crawl(
+    url="https://example.com/gallery",
+    output_folder="./output",
+    delay=0.3,
+    max_workers=4,
+    timeout=20,
+)
+# ok: số ảnh thành công, fail: số ảnh lỗi
+```
+
+### Structure
+```
+crawler.py (690 dòng)
+├── ImageDownloader class          — Multi-thread download với semaphore
+├── extract_image_urls()           — Parse HTML + JS cho lazy-load
+├── _crawl_single_page()           — Crawl một trang đơn
+└── crawl()                        — Entry point, tự động detect wnacg search
+```
+
+---
 
 #### Bước 1 — Cài dependencies AI
 
@@ -101,7 +150,54 @@ ollama pull qwen2.5:32b-q4_K_M  # ~20 GB RAM (có thể dùng với 16 GB VRAM +
 
 ---
 
-### Backend manga-image-translator
+## 🌐 Dịch Ảnh (Text Trung → Việt)
+
+### 2 Backend hỗ trợ
+
+| Backend | Chất lượng | Yêu cầu |
+|---------|-----------|---------|
+| **OCR + Ollama** | Tốt | EasyOCR/PaddleOCR + Ollama với model Qwen |
+| **manga-image-translator** | Tốt hơn | Inpaint + render chuyên dụng, cần Python 3.11 riêng |
+
+### OCR + Ollama Backend
+
+Cài dependencies AI:
+```bash
+python setup_translator.py
+```
+
+Hoặc thủ công:
+```bash
+# PyTorch với CUDA 12.4 (RTX 30/40/50 series)
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+
+# OCR + xử lý ảnh
+pip install easyocr opencv-python-headless
+```
+
+**Cài model Ollama:**
+```bash
+ollama pull qwen2.5:7b       # ~4.7 GB, cân bằng tốt/nhanh
+ollama pull qwen3:14b        # ~9 GB, chất lượng cao (cần 12+ GB VRAM)
+```
+
+### manga-image-translator Backend
+
+Cần **Python 3.10 hoặc 3.11**. Tạo venv riêng trong project:
+```bash
+py -3.11 -m venv mit_venv
+mit_venv\Scripts\pip install git+https://github.com/zyddnys/manga-image-translator.git
+
+# Áp dụng patches tùy chỉnh
+python apply_patches.py
+```
+
+`apply_patches.py` sẽ copy các patch vào `manga_translator`:
+- Fix Vietnamese text rendering (word-wrap với `target_font_size`)
+- Guard empty `line_width_list` trong `text_render.py`
+- Custom OpenAI translator với watermark detection → ZWJ fallback
+
+---
 
 manga-image-translator yêu cầu **Python 3.10 hoặc 3.11** (không tương thích Python 3.12+).  
 Cần tạo một venv riêng bên cạnh venv chính:
@@ -122,7 +218,35 @@ mit_venv\Scripts\pip install git+https://github.com/zyddnys/manga-image-translat
 
 ---
 
+## ⚙️ Cấu hình & Patching
+
 ### Kiểm tra hệ thống
+
+Trong tab **Dịch ảnh**, bấm **🔍 Kiểm tra** để xem trạng thái:
+
+| Mục | Trạng thái | Hành động |
+|-----|-----------|-----------|
+| PyTorch | ❌ | `pip install torch` |
+| CUDA | ❌ No GPU | CPU vẫn hoạt động, chậm hơn |
+| EasyOCR | ❌ | `pip install easyocr` |
+| Ollama | ❌ not running | Mở app Ollama |
+| MIT (manga-image-translator) | ❌ | Xem hướng dẫn bên dưới |
+
+---
+
+### Patching manga_translator
+
+Tự động áp dụng các patches tùy chỉnh:
+```bash
+python apply_patches.py
+```
+
+Các patch được apply tự động vào `manga_translator`:
+1. **rendering/__init__.py** — Fix word-wrap với Vietnamese text dài
+2. **rendering/text_render.py** — Guard empty line_width_list
+3. **translators/custom_openai.py** — Custom translator với watermark detection
+
+---
 
 Trong tab **Dịch ảnh**, bấm **🔍 Kiểm tra** để xem trạng thái:
 
@@ -180,7 +304,24 @@ crawl/
 
 ---
 
-## Sử dụng
+## 📖 Hướng dẫn sử dụng
+
+### 1. Crawl ảnh từ web
+1. Mở tab **🕷️ Crawl ảnh**
+2. Nhập URL trang chứa ảnh
+3. Chọn thư mục lưu (nút 📁)
+4. Chọn preset hoặc tùy chỉnh delay/workers/timeout
+5. Bấm **▶ Bắt đầu**
+
+### 2. Dịch manga (Trung → Việt)
+1. Mở tab **🌐 Dịch ảnh**
+2. Bấm **🔍 Kiểm tra** — đảm bảo tất cả ✅
+3. Chọn **Thư mục nguồn** (ảnh cần dịch)
+4. Chọn **Backend**: OCR+Ollama hoặc manga-image-translator
+5. Chọn model Ollama (nếu dùng OCR backend)
+6. Bấm **▶ Bắt đầu dịch**
+
+---
 
 ### Crawl ảnh
 

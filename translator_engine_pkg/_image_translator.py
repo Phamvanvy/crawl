@@ -215,7 +215,7 @@ class ImageTranslator:
                     )
 
             img_pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-            for grp, trans_list in zip(groups, group_trans):
+            for grp_idx, (grp, trans_list) in enumerate(zip(groups, group_trans)):
                 rects = [_bbox_xyxy(b) for b, _, _ in grp]
                 gx1 = int(min(r[0] for r in rects))
                 gy1 = int(min(r[1] for r in rects))
@@ -245,7 +245,8 @@ class ImageTranslator:
                 merged_bbox = [[rx1, ry1], [rx2, ry1], [rx2, ry2], [rx1, ry2]]
                 img_pil = render_text(img_pil, merged_bbox, full_text, self.font_path,
                                       strict_clip=(best_cov > 0.4),
-                                      font_scale=self.font_scale)
+                                      font_scale=self.font_scale,
+                                      bbox_index=grp_idx)
 
             dst.parent.mkdir(parents=True, exist_ok=True)
             if src.suffix.lower() in (".jpg", ".jpeg"):

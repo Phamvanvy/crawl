@@ -392,7 +392,7 @@ def translate_batch(texts: list[str], model: str, src_lang: str = "zh",
                    force_vietnamese: bool = True,
                    max_retries: int = 3,
                    retry_delay: float = 2.0,
-                   timeout: int = 180) -> list[str]:
+                   timeout: int = 600) -> list[str]:
     """Dịch batch texts qua Ollama API với prompt mạnh buộc dịch sang tiếng Việt.
     
     Args:

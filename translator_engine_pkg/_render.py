@@ -10,9 +10,30 @@ from ._utils import _bbox_xyxy
 # ── Font cache ────────────────────────────────────────────────────────────────
 _font_cache: dict = {}
 
+# Dấu câu không bao giờ được đứng đầu dòng (lưu ý 7)
+_PUNCT_HEAD = set(".,!?;:…—–»")
+
+# ── Danh sách font Việt hóa trong thư mục fonts/ (lưu ý 2, 4: đa dạng font)
+_FONTS_DIR = Path(__file__).parent.parent / "fonts"
+
+def _list_vi_fonts() -> list[str]:
+    """Quét .ttf/.otf trong fonts/ theo thứ tự ưu tiên: MTO trước, rồi các font khác."""
+    if not _FONTS_DIR.exists():
+        return []
+    all_fonts = sorted(str(p) for p in _FONTS_DIR.glob("*.ttf")) + \
+                sorted(str(p) for p in _FONTS_DIR.glob("*.otf"))
+    # Ưu tiên MTO trước
+    priority = [str(_FONTS_DIR / "MTO Astro City.ttf")]
+    rest = [f for f in all_fonts if f not in priority and "BeVietnamPro" not in f and "NotoSans" not in f]
+    fallback = [f for f in all_fonts if "BeVietnamPro" in f or "NotoSans" in f]
+    result = [f for f in priority if Path(f).exists()] + rest + fallback
+    return [f for f in result if Path(f).exists()]
+
+_VI_FONTS: list[str] = _list_vi_fonts()
+
 
 def _load_font(font_path: str | None, size: int):
-    """Lazy-load ImageFont, tránh import lỗi khi Pillow chưa cài."""
+    """Lazy-load ImageFont, ưu tiên MTO Astro City, bỏ font hệ thống mặc định (lưu ý 2)."""
     from PIL import ImageFont  # lazy
     key = (font_path, size)
     if key in _font_cache:
@@ -20,14 +41,11 @@ def _load_font(font_path: str | None, size: int):
     candidates = []
     if font_path:
         candidates.append(font_path)
+    # Ưu tiên toàn bộ font Việt trong fonts/ trước khi fallback hệ thống
+    candidates += _VI_FONTS
     candidates += [
-        str(Path(__file__).parent.parent / "fonts" / "BeVietnamPro-Regular.ttf"),
         r"C:\Windows\Fonts\arial.ttf",
         r"C:\Windows\Fonts\segoeui.ttf",
-        r"C:\Windows\Fonts\msyh.ttc",
-        r"C:\Windows\Fonts\msyh.ttf",
-        r"C:\Windows\Fonts\simhei.ttf",
-        str(Path(__file__).parent.parent / "fonts" / "NotoSans-Regular.ttf"),
         r"C:\Windows\Fonts\tahoma.ttf",
     ]
     for p in candidates:
@@ -40,12 +58,20 @@ def _load_font(font_path: str | None, size: int):
     return ImageFont.load_default()
 
 
+def _pick_font_path(bbox_index: int = 0) -> str | None:
+    """Chọn font theo bbox_index để đa dạng font giữa các bong bóng (lưu ý 4)."""
+    if not _VI_FONTS:
+        return None
+    return _VI_FONTS[bbox_index % len(_VI_FONTS)]
+
+
 # ── Drawing helpers ───────────────────────────────────────────────────────────
 
 def _draw_text_with_shadow(draw, pos, text, font, text_color, shadow_color):
     tx, ty = pos
+    # Stroke dày hơn để chữ nổi bật (lưu ý phần màu đỏ không rõ)
     draw.text((tx, ty), text, font=font, fill=text_color,
-              stroke_width=1, stroke_fill=shadow_color)
+              stroke_width=2, stroke_fill=shadow_color)
 
 
 def _wrap_text_px(draw, text: str, font, max_px: int, allow_hard_split: bool = False) -> list | None:
@@ -106,7 +132,16 @@ def _wrap_text_px(draw, text: str, font, max_px: int, allow_hard_split: bool = F
         if current:
             lines.append(" ".join(current))
 
-    return lines or [""]
+    # Lưu ý 7: Dấu câu không bao giờ đứng đầu dòng — merge vào dòng trước
+    merged: list[str] = []
+    for line in lines:
+        stripped = line.lstrip()
+        if merged and stripped and stripped[0] in _PUNCT_HEAD:
+            merged[-1] = merged[-1].rstrip() + stripped
+        else:
+            merged.append(line)
+
+    return merged or [""]
 
 
 def _render_line_height_sample(text: str) -> str:
@@ -121,12 +156,20 @@ def _render_line_height_sample(text: str) -> str:
 
 
 def render_text(img_pil, bbox, text: str, font_path: str | None,
-                strict_clip: bool = False, font_scale: float = 1.0):
-    """Vẽ text ngang vào vùng bbox với pixel-accurate word wrap."""
+                strict_clip: bool = False, font_scale: float = 1.0,
+                bbox_index: int = 0):
+    """Vẽ text ngang vào vùng bbox với pixel-accurate word wrap.
+    
+    bbox_index: dùng để chọn font đa dạng giữa các bong bóng (lưu ý 4).
+    """
     from PIL import ImageDraw
     import numpy as np
     if not text.strip():
         return img_pil
+
+    # Lưu ý 2, 4: Ưu tiên font Việt hóa, xoay vòng theo bbox_index nếu font_path không chỉ định
+    if not font_path:
+        font_path = _pick_font_path(bbox_index)
 
     if img_pil.mode != "RGB":
         img_pil = img_pil.convert("RGB")
@@ -213,15 +256,18 @@ def render_text(img_pil, bbox, text: str, font_path: str | None,
     total_h   = len(best_lines) * (best_lh + line_spacing) - line_spacing
     actual_y2 = min(y2i, y1i + total_h + pad * 2)
 
-    draw.rectangle([x1i - 3, y1i - 3, x2i + 3, actual_y2 + 3], fill=bg_rgb)
+    # Lưu ý 1: Không bôi trắng — inpainter đã xử lý nền, chỉ vẽ chữ lên.
+    # (Bỏ draw.rectangle fill để tránh tạo hộp màu đặc che mất artwork gốc)
 
-    ty = y1i + max(pad, (actual_y2 - y1i - total_h) // 2)
+    # Căn giữa dọc (lưu ý 5, 6: xếp dòng ở giữa bong bóng)
+    ty = y1i + max(pad, (bh - total_h) // 2)
     for line in best_lines:
         try:
             lb = draw.textbbox((0, 0), line, font=best_font)
             lw = lb[2] - lb[0]
         except Exception:
             lw = len(line) * best_lh // 2
+        # Căn giữa ngang
         tx = x1i + max(pad, (bw - lw) // 2)
         _draw_text_with_shadow(draw, (tx, ty), line, best_font, text_color, shadow_color)
         ty += best_lh + line_spacing

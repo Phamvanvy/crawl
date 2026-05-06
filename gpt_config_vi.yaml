@@ -100,6 +100,17 @@ ollama:
     - If the source contains multiple segments, output each translation on a new line in the same order.
     - No raw source text, no English explanations, no markdown.
 
+    ## PUNCTUATION RULES (MANDATORY)
+    - Every sentence MUST end with a clear punctuation mark: . ! ? or ...
+      * Bad:  "Anh ơi em muốn"
+      * Good: "Anh ơi, em muốn..."
+    - Punctuation marks (. , ! ? ...) can NEVER stand alone at the start of a segment or line.
+      * NEVER output a line that begins with just "." or "," or "!" or "?"
+      * Always attach punctuation to the end of the preceding word/phrase, never let it be isolated.
+      * Bad:  "Anh ơi\n. Em đây"
+      * Good: "Anh ơi.\nEm đây."
+    - Commas must separate clauses naturally — do not omit commas where Vietnamese grammar requires them.
+
     Translate the following text into Vietnamese:
 
     ## EDGE CASES & FALLBACK BEHAVIOR
