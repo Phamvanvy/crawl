@@ -648,7 +648,11 @@ def calc_horizontal(font_size: int, text: str, max_width: int, max_height: int, 
             except Exception:
                 new_syls = []
         if len(new_syls) == 0:
-            if len(word) <= 3:
+            # For Latin/Vietnamese text never split at character level — the whole word
+            # is the minimum unit.  CJK "words" (no spaces) can fall back to per-char.
+            if re.search(r'[a-zA-Z\u00C0-\u024F\u1E00-\u1EFF]', word):
+                new_syls = [word]
+            elif len(word) <= 3:
                 new_syls = [word]
             else:
                 new_syls = list(word)
@@ -659,12 +663,17 @@ def calc_horizontal(font_size: int, text: str, max_width: int, max_height: int, 
         #     if w > max_width:
         #         max_width = w
 
-        # Split up syllables that are too large
+        # Split up syllables that are too large.
+        # For Latin/Vietnamese syllables keep the unit whole (accept overflow) rather
+        # than breaking individual letters apart.
         normalized_syls = []
         for syl in new_syls:
             syl_width = get_string_width(font_size, syl)
             if syl_width > max_width:
-                normalized_syls.extend(list(syl))
+                if re.search(r'[a-zA-Z\u00C0-\u024F\u1E00-\u1EFF]', syl):
+                    normalized_syls.append(syl)   # keep Latin/VI word whole
+                else:
+                    normalized_syls.extend(list(syl))
             else:
                 normalized_syls.append(syl)
         syllables.append(normalized_syls)

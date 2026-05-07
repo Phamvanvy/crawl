@@ -388,9 +388,9 @@ _t_stop = threading.Event()
 
 
 def _find_font() -> str | None:
-    # System fonts first — Arial & Segoe UI have full Vietnamese (Latin Extended Additional)
-    # NotoSans from the latin-greek-cyrillic repo may lack Vietnamese glyphs
+    # Ưu tiên MTO Astro City cho dịch tiếng Việt, sau đến các font khác
     candidates = [
+        Path(__file__).parent / "fonts" / "MTO Astro City.ttf",
         Path(__file__).parent / "fonts" / "BeVietnamPro-Regular.ttf",
         Path(r"C:\Windows\Fonts\arial.ttf"),
         Path(r"C:\Windows\Fonts\segoeui.ttf"),

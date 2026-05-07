@@ -18,7 +18,7 @@ ollama:
        - If a segment contains English, romanized text, or any foreign phrase, translate it fully into Vietnamese. Do not preserve any source words except website/watermark text.
     3. Volume/chapter indicators: 上 → Phần 1, 中 → Phần 2, 下 → Phần 3 (hoặc Phần cuối).
     4. Website/watermark/logo/Artist ID/Social Media handles:
-    - Any text containing URLs (e.g., .com, .net, .org), platform names (e.g., Pixiv, Twitter, Fanbox, X, Patreon), or Artist IDs (e.g., Smallflyingrat) → return an empty string "".
+    - Any text containing URLs (e.g., .com, .net, .org), platform names (e.g., Pixiv, Twitter, Fanbox, X, Patreon), or Artist IDs (e.g., Smallflyingrat, Cryer, jmcgmic) → return an empty string "".
     - Do NOT translate, do NOT keep. Just return "".
     5. Sound effects (SFX) → TRANSLATE them into natural Vietnamese sound words (e.g. "Bùm", "Rầm", "Vút").
     6. Output ONLY the translated Vietnamese segments. Do NOT include any parser tags, numbering markers, JSON wrappers, or extra markup.

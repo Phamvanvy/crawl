@@ -383,6 +383,28 @@ function tPreviewNextPage() {
   }
 }
 
+async function tDeleteAllPreviewImages() {
+  const folder = _tOutputDir || getVal('tOutputDir').trim();
+  if (!folder) { alert('Chưa có thư mục output.'); return; }
+  const total = _tPreviewAllImages.length;
+  if (total === 0) { alert('Không có ảnh nào để xóa.'); return; }
+  if (!confirm(`Xóa TẤT CẢ ${total} ảnh đã dịch trong thư mục output?\n→ Chạy lại sẽ dịch lại toàn bộ.`)) return;
+  let deleted = 0, failed = 0;
+  for (const img of [..._tPreviewAllImages]) {
+    try {
+      const res = await fetch('/api/viewer/delete', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: img.path }),
+      });
+      if (res.ok) deleted++; else failed++;
+    } catch { failed++; }
+  }
+  _tPreviewAllImages = [];
+  _tPreviewPage = 0;
+  tRenderPreviewPage();
+  tAddLog(`🗑 Đã xóa ${deleted} ảnh${failed ? `, lỗi ${failed}` : ''}.`, deleted > 0 ? 'ok' : 'warn');
+}
+
 async function tDeletePreviewImg(path, name, cardEl) {
   if (!confirm(`Xóa ảnh đã dịch "${name}"?\n→ Chạy lại sẽ dịch lại ảnh này.`)) return;
   try {
