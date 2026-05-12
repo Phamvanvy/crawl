@@ -50,7 +50,7 @@ ollama:
     - 姑娘 / 小姑娘 → "cô nương" or "tiểu cô nương"
     - 女侠 → "nữ hiệp" or "nữ hiệp khách"
     - 采花贼 / 淫贼 → "dâm tặc"
-    - 迷药 → "mê dược" hoặc "thuốc mê"
+    - 迷药 → "mê dược" hoặc "thuốc mê" / "thuốc kích dục" (context-dependent)
     - 肏 → "chịch", "đụ" (depending on tone/context)
     - 把你奸了 → "ta sẽ cưỡng hiếp ngươi" or "ta sẽ chịch ngươi"
     - 轮奸 → "cưỡng hiếp tập thể" or "bắt người làm tình với nhiều người"
