@@ -349,70 +349,43 @@ def render(
     #print(f"Target language: {region.target_lang}")      
     #print(f"Region horizontal: {region.horizontal}")  
     #print(f"Starting image adjustment: r_temp={r_temp}, r_orig={r_orig}, h={h}, w={w}")  
+    # Cap h_ext/w_ext to prevent enormous numpy array allocation when r_orig is
+    # near-zero (very narrow region) or very large (very wide region).
+    _MAX_BOX_SIDE = 4096
+
     if region.horizontal:  
-        #print("Processing HORIZONTAL region")  
-        
         if r_temp > r_orig:   
-            #print(f"Case: r_temp({r_temp}) > r_orig({r_orig}) - Need vertical padding")  
-            h_ext = int((w / r_orig - h) // 2) if r_orig > 0 else 0  
-            #print(f"Calculated h_ext = {h_ext}")  
-            
+            h_ext = int((w / r_orig - h) // 2) if r_orig > 0 else 0
+            h_ext = min(h_ext, max((_MAX_BOX_SIDE - h) // 2, 0))  # guard
             if h_ext >= 0:  
-                #print(f"Creating new box with dimensions: {h + h_ext * 2}x{w}")  
                 box = np.zeros((h + h_ext * 2, w, 4), dtype=np.uint8)  
-                #print(f"Placing temp_box at position [h_ext:h_ext+h, :w] = [{h_ext}:{h_ext+h}, 0:{w}]")  
-                # Columns fully filled, rows centered
                 box[h_ext:h_ext+h, 0:w] = temp_box  
             else:  
-                #print("h_ext < 0, using original temp_box")  
                 box = temp_box.copy()  
         else:   
-            #print(f"Case: r_temp({r_temp}) <= r_orig({r_orig}) - Need horizontal padding")  
-            w_ext = int((h * r_orig - w) // 2)  
-            #print(f"Calculated w_ext = {w_ext}")  
-            
+            w_ext = int((h * r_orig - w) // 2)
+            w_ext = min(w_ext, max((_MAX_BOX_SIDE - w) // 2, 0))  # guard
             if w_ext >= 0:  
-                #print(f"Creating new box with dimensions: {h}x{w + w_ext * 2}")  
                 box = np.zeros((h, w + w_ext * 2, 4), dtype=np.uint8)  
-                #print(f"Placing temp_box at position [:, :w] = [0:{h}, 0:{w}]")  
-         
-                # The line is full, and there should be no empty columns on the left side of the text. Otherwise, when multiple text boxes are aligned on the left, the translated text cannot be aligned. Common scenarios: borderless comics, comic postscript.  
-                # When there are bubbles on the current page, it can be changed to center: box[0:h, w_ext:w_ext+w] = temp_box, requiring more accurate bubble detection. But not changing it doesn't have much impact.
                 box[0:h, 0:w] = temp_box  
             else:  
-                #print("w_ext < 0, using original temp_box")  
                 box = temp_box.copy()  
     else:  
-        #print("Processing VERTICAL region")  
-        
         if r_temp > r_orig:   
-            #print(f"Case: r_temp({r_temp}) > r_orig({r_orig}) - Need vertical padding")  
-            h_ext = int(w / (2 * r_orig) - h / 2) if r_orig > 0 else 0   
-            #print(f"Calculated h_ext = {h_ext}")  
-            
+            h_ext = int(w / (2 * r_orig) - h / 2) if r_orig > 0 else 0
+            h_ext = min(h_ext, max((_MAX_BOX_SIDE - h) // 2, 0))  # guard
             if h_ext >= 0:   
-                #print(f"Creating new box with dimensions: {h + h_ext * 2}x{w}")  
                 box = np.zeros((h + h_ext * 2, w, 4), dtype=np.uint8)  
-                #print(f"Placing temp_box at position [0:h, 0:w] = [0:{h}, 0:{w}]")  
-                # The rows are full, and there should be no empty lines above the text; otherwise, when multiple text boxes have their top edges aligned, the text cannot be aligned. Common scenario: borderless comics, CG. 
-                # When there are bubbles on the current page, it can be changed to center: box[h_ext:h_ext+h, 0:w] = temp_box, requiring more accurate bubble detection.
                 box[0:h, 0:w] = temp_box  
             else:   
-                #print("h_ext < 0, using original temp_box")  
                 box = temp_box.copy()   
         else:   
-            #print(f"Case: r_temp({r_temp}) <= r_orig({r_orig}) - Need horizontal padding")  
-            w_ext = int((h * r_orig - w) / 2)  
-            #print(f"Calculated w_ext = {w_ext}")  
-            
+            w_ext = int((h * r_orig - w) / 2)
+            w_ext = min(w_ext, max((_MAX_BOX_SIDE - w) // 2, 0))  # guard
             if w_ext >= 0:  
-                #print(f"Creating new box with dimensions: {h}x{w + w_ext * 2}")  
                 box = np.zeros((h, w + w_ext * 2, 4), dtype=np.uint8)  
-                #print(f"Placing temp_box at position [0:h, w_ext:w_ext+w] = [0:{h}, {w_ext}:{w_ext+w}]") 
-                # Rows are fully filled, columns are centered
                 box[0:h, w_ext:w_ext+w] = temp_box  
             else:   
-                #print("w_ext < 0, using original temp_box")  
                 box = temp_box.copy()   
     #print(f"Final box dimensions: {box.shape if box is not None else 'None'}")  
 

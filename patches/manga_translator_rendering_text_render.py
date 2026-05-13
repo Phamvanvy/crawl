@@ -729,7 +729,8 @@ def calc_horizontal(font_size: int, text: str, max_width: int, max_height: int, 
             line_width += current_width + word_widths[i]
             i += 1
         elif word_widths[i] > max_width:
-            # We know no syllable can be larger than max_width
+            # Split word by syllables; for Latin/VI whole words kept as single syllable,
+            # force-place them on a new line (accept overflow) rather than looping forever.
             j = 0
             hyphenation_idx = 0
             while j < len(syllables[i]):
@@ -743,8 +744,16 @@ def calc_horizontal(font_size: int, text: str, max_width: int, max_height: int, 
                     if hyphenation_idx > 0:
                         line_words.append(i)
                         line_width += current_width
-                    current_width = 0
-                    break_line()
+                        current_width = 0
+                        break_line()
+                    elif line_width > 0:
+                        # Current line has content — flush it first, then retry same syllable
+                        break_line()
+                    else:
+                        # Empty line and syllable still too wide — force-place and advance
+                        current_width += syl_width
+                        j += 1
+                        hyphenation_idx = j
             line_words.append(i)
             line_width += current_width
             i += 1

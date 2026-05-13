@@ -29,25 +29,15 @@ def _find_mit_python() -> str | None:
     Ưu tiên: mit_venv trong thư mục project → fallback py.exe -3.11.
     """
     def _has_manga_translator(python_exe: Path) -> bool:
-        for sp_root in [
-            python_exe.parent.parent / "Lib" / "site-packages",
-            python_exe.parent.parent / "lib" / "site-packages",
-        ]:
-            if (sp_root / "manga_translator" / "__init__.py").exists():
-                return True
         try:
             r = subprocess.run(
                 [str(python_exe), "-c",
-                 "import sysconfig; print(sysconfig.get_path('purelib'))"],
+                 "import importlib.util; print(importlib.util.find_spec('manga_translator') is not None)"],
                 capture_output=True, text=True, timeout=10,
             )
-            if r.returncode == 0:
-                sp = Path(r.stdout.strip())
-                if (sp / "manga_translator" / "__init__.py").exists():
-                    return True
+            return r.returncode == 0 and r.stdout.strip().lower().startswith("true")
         except Exception:
-            pass
-        return False
+            return False
 
     candidates = [
         _PROJECT_ROOT / "mit_venv" / "Scripts" / "python.exe",
@@ -72,12 +62,49 @@ def _find_mit_python() -> str | None:
     return None
 
 
+def _python_imports_ok(python_exe: Path, modules: list[str]) -> tuple[bool, str]:
+    try:
+        imports = "; ".join(f"import {m}" for m in modules)
+        r = subprocess.run(
+            [str(python_exe), "-c", f"{imports}; print('OK')"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=15,
+        )
+        stdout = (r.stdout or "").strip()
+        stderr = (r.stderr or "").strip()
+        if r.returncode == 0 and stdout.endswith("OK"):
+            return True, ""
+        if stderr:
+            return False, stderr
+        if stdout:
+            return False, stdout
+        return False, f"returncode={r.returncode}"
+    except Exception as exc:
+        return False, str(exc)
+
+
 def check_mit() -> dict:
     """Kiểm tra manga-image-translator đã cài và tìm Python phù hợp."""
     exe = _find_mit_python()
-    if exe:
+    if not exe:
+        return {"ok": False, "error": _MIT_INSTALL_HINT}
+
+    ok, error = _python_imports_ok(Path(exe), ["manga_translator", "torch", "PIL"])
+    if ok:
         return {"ok": True, "version": "installed", "python": exe}
-    return {"ok": False, "error": _MIT_INSTALL_HINT}
+
+    return {
+        "ok": False,
+        "python": exe,
+        "error": (
+            f"Đã tìm thấy Python: {exe}, nhưng thiếu dependency runtime: {error}\n"
+            f"Cài thêm package thiếu trong venv đó, ví dụ:\n"
+            f"{exe} -m pip install pillow torch --index-url https://download.pytorch.org/whl/cu124"
+        ),
+    }
 
 
 class MITImageTranslator:
@@ -218,7 +245,7 @@ class MITImageTranslator:
         for _fn in _vi_font_priority:
             _fp = _PROJECT_ROOT / "fonts" / _fn
             if _fp.exists():
-                cfg["font_path"] = str(_fp)
+                cfg.setdefault("render", {})["font_path"] = str(_fp)
                 self._log(f"  [FONT] Dùng font Việt: {_fn}")
                 break
 
@@ -287,6 +314,7 @@ class MITImageTranslator:
             sub_env = os.environ.copy()
             sub_env["PYTHONIOENCODING"] = "utf-8"
             sub_env["PYTHONUTF8"] = "1"
+            sub_env["PYTHONUNBUFFERED"] = "1"
             if self.translator == "custom_openai" and self.ollama_model:
                 sub_env["CUSTOM_OPENAI_MODEL"] = self.ollama_model
                 self._log(f"  [ENV] CUSTOM_OPENAI_MODEL={self.ollama_model}")

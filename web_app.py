@@ -547,6 +547,10 @@ def api_translate_start():
             if backend == "mit":
                 _t_push({"type": "log", "msg": f"Backend: manga-image-translator  translator={mit_translator}  →{mit_target_lang}  GPU={use_gpu}"})
                 mit_check = te.check_mit()
+                if not mit_check.get("ok"):
+                    _t_push({"type": "log", "msg": f"  [FAIL] {mit_check.get('error')}"})
+                    _t_push({"type": "log", "msg": "  [FAIL] Không thể chạy manga-image-translator do thiếu dependency."})
+                    return
                 translator = te.MITImageTranslator(
                     translator=mit_translator,
                     target_lang=mit_target_lang,

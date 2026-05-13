@@ -24,9 +24,11 @@ Patches applied:
      - Retry up to 10 times when output is not Vietnamese.
 """
 
+import json
 import shutil
 import sys
 from pathlib import Path
+from urllib.parse import urlparse, unquote
 
 PATCHES_DIR = Path(__file__).parent / "patches"
 
@@ -42,13 +44,42 @@ def find_site_packages() -> Path | None:
         if sp.name == "site-packages" and (sp / "manga_translator").exists():
             candidates.insert(0, sp)
 
+    def _detect_editable_source(sp: Path) -> Path | None:
+        for dist in sp.glob("manga_image_translator-*.dist-info"):
+            direct_url = dist / "direct_url.json"
+            if not direct_url.exists():
+                continue
+            try:
+                data = json.loads(direct_url.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if not data.get("dir_info", {}).get("editable"):
+                continue
+            url = data.get("url", "")
+            parsed = urlparse(url)
+            if parsed.scheme != "file":
+                continue
+            path = unquote(parsed.path)
+            if path.startswith("/") and len(path) > 3 and path[2] == ":":
+                path = path.lstrip("/")
+            src = Path(path)
+            if (src / "manga_translator").exists():
+                return src
+        return None
+
     for sp in candidates:
         if (sp / "manga_translator").exists():
             return sp
+        editable_src = _detect_editable_source(sp)
+        if editable_src is not None:
+            return editable_src
         # Linux layout: site-packages is inside lib/pythonX.Y/
         for child in sp.glob("python*/site-packages"):
             if (child / "manga_translator").exists():
                 return child
+            editable_src = _detect_editable_source(child)
+            if editable_src is not None:
+                return editable_src
     return None
 
 

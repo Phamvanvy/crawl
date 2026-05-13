@@ -114,25 +114,31 @@ crawler.py (690 dòng)
 
 ---
 
-#### Bước 1 — Cài dependencies AI
+#### Bước 1 — Cài dependencies AI cho web app và OCR
 
 ```bash
 python setup_translator.py
 ```
 
-Script sẽ cài: **PyTorch (CUDA)**, **EasyOCR**, **OpenCV**, font **NotoSans**.
+Script sẽ cài: **PyTorch (CUDA)**, **PaddleOCR**, **EasyOCR**, **OpenCV**, và font tiếng Việt.
 
-Hoặc cài thủ công:
+Hoặc cài thủ công trong môi trường chính của app:
 
 ```bash
+# Cập nhật pip trước
+python -m pip install --upgrade pip
+
 # PyTorch với CUDA 12.4 (tương thích RTX 30/40/50 series)
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
-# RTX 50 series (Blackwell): nếu có lỗi CUDA, dùng nightly:
-# pip install --pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu128
+
+# Nếu không dùng GPU hoặc không cần CUDA
+# pip install torch torchvision
 
 # OCR + xử lý ảnh
-pip install easyocr opencv-python-headless
+pip install paddlepaddle paddleocr easyocr opencv-python
 ```
+
+> Lưu ý: `python setup_translator.py` và `pip install ...` bên trên cài vào môi trường đang active để chạy `web_app.py`, không phải vào `mit_venv` nếu bạn dùng backend `manga-image-translator`.
 
 #### Bước 2 — Cài Ollama + model
 
@@ -183,38 +189,69 @@ ollama pull qwen3:14b        # ~9 GB, chất lượng cao (cần 12+ GB VRAM)
 
 ### manga-image-translator Backend
 
-Cần **Python 3.10 hoặc 3.11**. Tạo venv riêng trong project:
-```bash
-py -3.11 -m venv mit_venv
-mit_venv\Scripts\pip install git+https://github.com/zyddnys/manga-image-translator.git
+`manga-image-translator` yêu cầu **Python 3.10 hoặc 3.11** và phải cài vào venv riêng, không dùng venv chính của `web_app.py`.
 
-# Áp dụng patches tùy chỉnh
+> ⚠️ **Lưu ý quan trọng:** KHÔNG dùng `pip install git+https://...` — lệnh này chỉ cài được top-level file (`manga_translator.py`), bỏ sót toàn bộ subpackages (`utils/`, `rendering/`, `translators/`...) dẫn đến lỗi `ModuleNotFoundError`. Phải clone repo rồi install editable.
+
+Chạy từng lệnh dưới đây từ thư mục `E:\repos\crawl`:
+
+```powershell
+# Bước 1 — Tạo venv với Python 3.11
+#   Tải Python 3.11 từ https://python.org nếu chưa có (chọn "Add to PATH")
+py -3.11 -m venv mit_venv
+
+# Bước 2 — Nâng cấp pip (CHỈ pip, không nâng setuptools/wheel — tránh conflict)
+.\mit_venv\Scripts\python.exe -m pip install --upgrade pip
+
+# Bước 3 — Cài PyTorch CUDA 12.4 (RTX 30/40/50 series)
+.\mit_venv\Scripts\python.exe -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+# Nếu không có GPU: .\mit_venv\Scripts\python.exe -m pip install torch torchvision
+
+# Bước 4 — Clone source repo (BẮT BUỘC để có đầy đủ subpackages)
+git clone https://github.com/zyddnys/manga-image-translator.git tmp_repo
+
+# Bước 5 — Cài dependencies từ requirements của repo
+.\mit_venv\Scripts\python.exe -m pip install -r tmp_repo\requirements.txt
+
+# Bước 6 — Cài package ở chế độ editable (đầy đủ utils/, rendering/, translators/...)
+.\mit_venv\Scripts\python.exe -m pip install -e tmp_repo
+
+# Bước 7 — Áp dụng patch tùy chỉnh
 python apply_patches.py
 ```
 
-`apply_patches.py` sẽ copy các patch vào `manga_translator`:
-- Fix Vietnamese text rendering (word-wrap với `target_font_size`)
-- Guard empty `line_width_list` trong `text_render.py`
-- Custom OpenAI translator với watermark detection → ZWJ fallback
+**Kiểm tra sau khi cài:**
+```powershell
+.\mit_venv\Scripts\python.exe -c "import manga_translator; print('OK')"
+# Kết quả mong đợi: OK
+```
 
 ---
 
-manga-image-translator yêu cầu **Python 3.10 hoặc 3.11** (không tương thích Python 3.12+).  
-Cần tạo một venv riêng bên cạnh venv chính:
+### One-shot cài `mit_venv` nhanh
 
-```bat
-REM 1. Cài Python 3.11 từ https://python.org (tích "Add to PATH")
+Dán toàn bộ khối lệnh sau vào PowerShell từ `E:\repos\crawl`:
 
-REM 2. Tạo venv riêng tên "mit_venv" trong thư mục project
+```powershell
 py -3.11 -m venv mit_venv
-
-REM 3. Cài manga-image-translator vào venv đó
-mit_venv\Scripts\pip install git+https://github.com/zyddnys/manga-image-translator.git
+.\mit_venv\Scripts\python.exe -m pip install --upgrade pip
+.\mit_venv\Scripts\python.exe -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+git clone https://github.com/zyddnys/manga-image-translator.git tmp_repo
+.\mit_venv\Scripts\python.exe -m pip install -r tmp_repo\requirements.txt
+.\mit_venv\Scripts\python.exe -m pip install -e tmp_repo
+python apply_patches.py
 ```
+
+`apply_patches.py` sẽ copy các patch vào thư mục `manga_translator` của `mit_venv`:
+- Fix Vietnamese text rendering (word-wrap với `target_font_size`)
+- Giữ boundary clipping để text không tràn ra khỏi viền
+- Guard empty `line_width_list` trong `text_render.py`
+- Custom OpenAI translator với watermark detection → ZWJ fallback
 
 Ứng dụng sẽ tự phát hiện `mit_venv\Scripts\python.exe` khi bấm **🔍 Kiểm tra** trong tab Dịch ảnh.
 
-> **Lưu ý:** `mit_venv` phải nằm trong cùng thư mục với `web_app.py`. Không cần thay đổi venv chính dùng để chạy `web_app.py`.
+> **Lưu ý:** `mit_venv` phải nằm trong cùng thư mục với `web_app.py` và `apply_patches.py`.
+> Nếu cài lại `mit_venv`, chạy lại `python apply_patches.py`.
 
 ---
 
