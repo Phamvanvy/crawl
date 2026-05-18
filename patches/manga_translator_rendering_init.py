@@ -81,13 +81,13 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
 
         # ── Adaptive factor: scale down font proportionally to how much longer VN is ──
         if expansion_ratio <= 1.3:
-            adaptive_factor = 0.95
+            adaptive_factor = 1.0
         elif expansion_ratio <= 1.8:
-            adaptive_factor = 0.87
+            adaptive_factor = 0.93
         elif expansion_ratio <= 2.5:
-            adaptive_factor = 0.77
+            adaptive_factor = 0.85
         else:
-            adaptive_factor = 0.66
+            adaptive_factor = 0.76
 
         if font_size_fixed is not None:
             target_font_size = font_size_fixed
@@ -133,12 +133,12 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
             if is_bubble:
                 # Inside styled bubble: allow wrapping to fill bbox height naturally
                 def rows_capacity(fs):
-                    return max(used_rows, int(bbox_h / max(1, fs * 1.2)))
+                    return max(used_rows, int(bbox_h / max(1, fs * 1.1)))
             else:
                 # Overlay on artwork: allow generous rows to preserve adaptive font size
                 # Allowing +3 extra rows prevents the font from shrinking to illegible sizes
                 def rows_capacity(fs):
-                    return max(used_rows + 3, int(bbox_h / max(1, fs * 1.2)))
+                    return max(used_rows + 3, int(bbox_h / max(1, fs * 1.1)))
 
             while needed_rows > rows_capacity(fit_size) and fit_size > font_size_minimum:
                 fit_size = max(font_size_minimum, fit_size - 1)
