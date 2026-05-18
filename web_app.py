@@ -506,8 +506,15 @@ def api_translate_start():
     mit_overwrite     = bool(data.get("mit_overwrite",   False))
     overwrite         = bool(data.get("overwrite",       False))
     cpu_priority      = str(data.get("cpu_priority",     "below_normal")).strip()
+    translation_style = str(data.get("translation_style", "modern")).strip().lower()
+    llm_base_url      = str(data.get("llm_base_url", "")).strip()
+    llm_api_type      = str(data.get("llm_api_type", "ollama")).strip().lower()
     if cpu_priority not in ("normal", "below_normal", "idle"):
         cpu_priority = "below_normal"
+    if translation_style not in ("modern", "wuxia", "school", "lightnovel"):
+        translation_style = "modern"
+    if llm_api_type not in ("ollama", "openai_compat"):
+        llm_api_type = "ollama"
     inpainter         = str(data.get("inpainter",        "opencv")).strip()
     try:
         font_scale = float(data.get("font_scale", 0.60))
@@ -573,6 +580,7 @@ def api_translate_start():
                     skip_no_text=mit_skip_no_text,
                     overwrite=mit_overwrite,
                     cpu_priority=cpu_priority,
+                    gpt_style=translation_style,
                     on_log=on_log,
                     on_progress=on_progress,
                 )
@@ -588,6 +596,9 @@ def api_translate_start():
                     overwrite=overwrite,
                     font_scale=font_scale,
                     cpu_priority=cpu_priority,
+                    translation_style=translation_style,
+                    llm_base_url=llm_base_url,
+                    llm_api_type=llm_api_type,
                     on_log=on_log,
                     on_progress=on_progress,
                 )

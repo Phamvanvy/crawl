@@ -37,6 +37,9 @@ class ImageTranslator:
         overwrite: bool = False,
         font_scale: float = 0.60,
         cpu_priority: str = "below_normal",
+        translation_style: str = "modern",
+        llm_base_url: str = "",
+        llm_api_type: str = "ollama",
         on_log=None,
         on_progress=None,
     ):
@@ -47,6 +50,9 @@ class ImageTranslator:
         self.inpainter    = inpainter if inpainter in ("opencv", "lama") else "opencv"
         self.overwrite    = overwrite
         self.font_scale   = max(0.3, min(2.0, float(font_scale)))
+        self.translation_style = translation_style if translation_style in ("modern", "wuxia", "school", "lightnovel") else "modern"
+        self.llm_base_url = llm_base_url or ""
+        self.llm_api_type = llm_api_type if llm_api_type in ("ollama", "openai_compat") else "ollama"
         self.cpu_priority = cpu_priority if cpu_priority in ("normal", "below_normal", "idle") else "below_normal"
         self.on_log       = on_log or print
         self.on_progress  = on_progress or (lambda d, t: None)
@@ -185,6 +191,9 @@ class ImageTranslator:
                 src_lang=self.src_lang,
                 context_history=list(self.context_history),
                 constraints=constraints,
+                style=self.translation_style,
+                llm_base_url=self.llm_base_url,
+                llm_api_type=self.llm_api_type,
             )
 
             # ── POST-PROCESSING + CONTEXT HISTORY UPDATE ──────────────────────────

@@ -22,6 +22,48 @@ from ._common_utils import (
 
 OLLAMA_BASE = "http://localhost:11434"
 
+
+def _call_llm_api(
+    prompt: str,
+    model: str,
+    llm_base_url: str = "",
+    llm_api_type: str = "ollama",
+    timeout: int = 600,
+) -> str:
+    """Gọi LLM API — hỗ trợ Ollama native hoặc OpenAI-compatible (llama.cpp, LM Studio, vLLM).
+
+    llm_api_type:
+      "ollama"        → POST /api/generate  (mặc định, Ollama)
+      "openai_compat" → POST /v1/chat/completions  (llama.cpp, LM Studio)
+    """
+    base = (llm_base_url.rstrip("/") if llm_base_url else OLLAMA_BASE)
+    if llm_api_type == "openai_compat":
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False,
+        }
+        resp = requests.post(
+            f"{base}/v1/chat/completions",
+            json=payload,
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        return resp.json()["choices"][0]["message"]["content"]
+    else:
+        payload = {"model": model, "prompt": prompt, "stream": False}
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        headers = {"Content-Type": "application/json; charset=utf-8"}
+        resp = requests.post(
+            f"{base}/api/generate",
+            data=body,
+            headers=headers,
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        return resp.json().get("response", "") or ""
+
+
 # ── Compiled regex patterns ─
 _WATERMARK_DOMAIN_RE = re.compile(
     r"[a-z0-9][a-z0-9._-]{1,64}\.(?:com|net|org|info|xyz|top|site|online|tv|cc)\b",
@@ -441,7 +483,10 @@ def translate_batch(texts: list[str], model: str = "qwen3:8b", src_lang: str = "
                    force_vietnamese: bool = True,
                    max_retries: int = 3,
                    retry_delay: float = 2.0,
-                   timeout: int = 600) -> list[str]:
+                   timeout: int = 600,
+                   style: str = "modern",
+                   llm_base_url: str = "",
+                   llm_api_type: str = "ollama") -> list[str]:
     """Dịch batch texts qua Ollama API với prompt mạnh buộc dịch sang tiếng Việt.
     
     Args:
@@ -451,6 +496,7 @@ def translate_batch(texts: list[str], model: str = "qwen3:8b", src_lang: str = "
         context_history: Lịch sử hội thoại gần nhất (~12 trao đổi) để duy trì ngữ cảnh xưng hô
         constraints: Giới hạn độ dài bong bóng (max_chars, max_lines)
         force_vietnamese: Kích hoạt chế độ ép buộc dịch 100% tiếng Việt
+        style: Phong cách dịch — "modern" | "wuxia" | "school"
         
     Returns:
         Danh sách văn bản đã dịch
@@ -548,7 +594,37 @@ def translate_batch(texts: list[str], model: str = "qwen3:8b", src_lang: str = "
         "- KHÔNG thêm giải thích hay bình luận\n"
         "- Nếu câu quá dài: dùng \\n để ngắt dòng\n\n"
     )
-    
+
+    # Inject style-specific pronoun rules
+    if style == "wuxia":
+        PROMPT_RULES += (
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "PHONG CÁCH CỔ TRANG / WUXIA — BẮT BUỘC:\n"
+            "- 我 LUÔN LUÔN dịch là 'ta' (cả nam lẫn nữ).\n"
+            "- 你 LUÔN LUÔN dịch là 'ngươi'.\n"
+            "- TUYỆT ĐỐI không dùng anh/em/tôi/bạn trong phong cách cổ trang.\n"
+            "- Từ điển: 公子→công tử, 姑娘→cô nương, 女侠→nữ hiệp, 采花贼→dâm tặc, 迷药→mê dược.\n\n"
+        )
+    elif style == "school":
+        PROMPT_RULES += (
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "PHONG CÁCH HỌC ĐƯỜNG — BẮT BUỘC:\n"
+            "- Học sinh (我) → 'em'. Giáo viên (我) → 'tôi/cô/thầy' (theo ngữ cảnh).\n"
+            "- 你 (học sinh→giáo viên) → 'cô/thầy'. 你 (bạn bè) → 'bạn/cậu'.\n"
+            "- Giáo viên: 'cô giáo' hoặc 'thầy' (theo giới tính). Học sinh: 'em'.\n\n"
+        )
+    elif style == "lightnovel":
+        PROMPT_RULES += (
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "PHONG CÁCH LIGHT NOVEL / MANGA NHẬT — BẮT BUỘC:\n"
+            "- 私/わたし → 'tôi' hoặc 'mình' (casual). 僕 → 'mình' (nam nhẹ) hoặc 'tôi'.\n"
+            "- 俺 → 'tao' (thô) hoặc 'tớ' (casual). 俺様 → 'ta' (kiêu ngạo).\n"
+            "- あなた/君 → 'bạn'/'cậu' (bạn bè), 'em' (romantic). お前 → 'mày' hoặc 'cậu'.\n"
+            "- 先生 → 'thầy'/'cô' (theo giới tính). 先輩 → 'senpai' hoặc 'đàn anh/đàn chị'.\n"
+            "- Isekai: 勇者→dũng sĩ, 魔王→ma vương, 転生→chuyển sinh, 異世界→dị giới.\n"
+            "- Honorifics: -san/giữ nguyên hoặc bỏ, -kun/bỏ, -chan/bỏ, -sama→'sama'/'đại nhân'.\n\n"
+        )
+
     # Thêm yêu cầu force Vietnamese nếu được kích hoạt
     if force_vietnamese:
         PROMPT_RULES += (
@@ -579,31 +655,13 @@ def translate_batch(texts: list[str], model: str = "qwen3:8b", src_lang: str = "
     # ── RETRY LOGIC WITH TIMEOUT AND BACKOFF ────────────────────────────────────
     for attempt_idx, prompt_attempt in enumerate(prompt_attempts):
         try:
-            payload = {"model": model, "prompt": prompt_attempt, "stream": False}
-            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-            headers = {"Content-Type": "application/json; charset=utf-8"}
-            
-            resp = requests.post(
-                f"{OLLAMA_BASE}/api/generate",
-                data=body,
-                headers=headers,
-                timeout=timeout,  # Use configurable timeout
+            raw_text = _call_llm_api(
+                prompt_attempt, model,
+                llm_base_url=llm_base_url,
+                llm_api_type=llm_api_type,
+                timeout=timeout,
             )
-            
-            if not resp.ok:
-                error_msg = f"HTTP {resp.status_code}: {resp.text[:200]}"
-                print(f"⚠️  API Error (attempt {attempt_idx + 1}/{len(prompt_attempts)}): {error_msg}")
-                
-                if resp.status_code in (502, 503, 504, 429) or "connection" in error_msg.lower():
-                    wait_time = min(retry_delay * (attempt_idx + 1), 60)
-                    print(f"⏳ Chờ {wait_time}s trước khi retry...")
-                    time.sleep(wait_time)
-                    continue
-                
-                return []
-            
-            resp.raise_for_status()
-            raw = _strip_generation_artifacts(resp.json().get("response", "") or "")
+            raw = _strip_generation_artifacts(raw_text)
 
             s = raw.find("[")
             e = raw.rfind("]") + 1
@@ -617,6 +675,16 @@ def translate_batch(texts: list[str], model: str = "qwen3:8b", src_lang: str = "
                         continue
                     
                     return extracted
+        except requests.exceptions.HTTPError as http_err:
+            status_code = http_err.response.status_code if http_err.response is not None else 0
+            error_msg = f"HTTP {status_code}: {str(http_err)[:200]}"
+            print(f"⚠️  API Error (attempt {attempt_idx + 1}/{len(prompt_attempts)}): {error_msg}")
+            if status_code in (502, 503, 504, 429):
+                wait_time = min(retry_delay * (attempt_idx + 1), 60)
+                print(f"⏳ Chờ {wait_time}s trước khi retry...")
+                time.sleep(wait_time)
+                continue
+            return []
         except requests.exceptions.Timeout:
             print(f"⏱️  Request timeout (attempt {attempt_idx + 1}/{len(prompt_attempts)})")
             if attempt_idx < len(prompt_attempts) - 1:

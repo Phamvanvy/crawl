@@ -151,6 +151,9 @@ async function tStart() {
   const _mitOllamaModel  = (getVal('tMITOllamaModel') || '').trim();
   const use_gpu          = $('tUseGpu').checked;
   const src_lang         = getVal('tSrcLang');
+  const translation_style = getVal('tTranslationStyle') || 'modern';
+  const llm_api_type      = getVal('tLlmApiType') || 'ollama';
+  const llm_base_url      = (getVal('tLlmBaseUrl') || '').trim();
   const backend          = document.querySelector('input[name="tBackend"]:checked').value;
   const mit_translator   = getVal('tMITTranslator');
   const mit_target_lang  = getVal('tMITTargetLang');
@@ -196,7 +199,8 @@ async function tStart() {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({
-        input_dir, output_dir, model, use_gpu, src_lang, backend,
+        input_dir, output_dir, model, use_gpu, src_lang, backend, translation_style,
+        llm_api_type, llm_base_url,
         mit_translator, mit_target_lang,
         mit_detector, mit_inpainter, mit_upscale, mit_det_size,
         mit_mask_dil, mit_unclip, mit_font_ofs, mit_font_min, mit_font_fixed, mit_font_color,

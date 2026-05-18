@@ -542,7 +542,7 @@ def put_text_vertical(font_size: int, text: str, h: int, alignment: str, fg: Tup
     text = compact_special_symbols(text)
     if not text :
         return
-    bg_size = int(max(font_size * 0.07, 1)) if bg is not None else 0
+    bg_size = int(max(font_size * 0.15, 2)) if bg is not None else 0
     spacing_x = int(font_size * (line_spacing or 0.2))
 
     # make large canvas
@@ -1121,7 +1121,7 @@ def put_text_horizontal(font_size: int, text: str, width: int, height: int, alig
     text = compact_special_symbols(text)
     if not text :
         return
-    bg_size = int(max(font_size * 0.07, 1)) if bg is not None else 0
+    bg_size = int(max(font_size * 0.15, 2)) if bg is not None else 0
     spacing_y = int(font_size * (line_spacing or 0.01))
 
     # calc

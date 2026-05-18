@@ -67,11 +67,10 @@ def _pick_font_path(bbox_index: int = 0) -> str | None:
 
 # ── Drawing helpers ───────────────────────────────────────────────────────────
 
-def _draw_text_with_shadow(draw, pos, text, font, text_color, shadow_color):
+def _draw_text_with_shadow(draw, pos, text, font, text_color, shadow_color, stroke_width: int = 2):
     tx, ty = pos
-    # Stroke dày hơn để chữ nổi bật (lưu ý phần màu đỏ không rõ)
     draw.text((tx, ty), text, font=font, fill=text_color,
-              stroke_width=2, stroke_fill=shadow_color)
+              stroke_width=stroke_width, stroke_fill=shadow_color)
 
 
 def _wrap_text_px(draw, text: str, font, max_px: int, allow_hard_split: bool = False) -> list | None:
@@ -195,21 +194,24 @@ def render_text(img_pil, bbox, text: str, font_path: str | None,
     brightness   = sum(bg_rgb) / 3
     text_color   = (255, 255, 255) if brightness < 140 else (0, 0, 0)
     shadow_color = (0, 0, 0)       if brightness < 140 else (255, 255, 255)
+    # Vùng tối: stroke dày hơn để chữ trắng nổi bật trên nền đen
+    # Vùng sáng: stroke mỏng hơn để không làm loè nền trắng
+    stroke_width = 7 if brightness < 80 else (5 if brightness < 140 else 2)
 
     pad     = max(4, int(min(bw, bh) * 0.07))
     inner_w = max(bw - pad * 2, 20)
     inner_h = max(bh - pad * 2, 12)
 
     # Khi strict_clip=False, bbox đã được expand ~30-40% so với OCR text thực tế.
-    # Dùng 65% inner để tính font/wrap, giữ chữ nằm gọn trong balloon thực tế.
+    # Dùng 80% inner để tính font/wrap, cho phép chữ to hơn và fit bubble tốt hơn.
     if strict_clip:
         render_w = inner_w
         render_h = inner_h
-        abs_max_font = 18
+        abs_max_font = 26
     else:
-        render_w = max(20, int(inner_w * 0.65))
-        render_h = max(12, int(inner_h * 0.65))
-        abs_max_font = 16
+        render_w = max(20, int(inner_w * 0.80))
+        render_h = max(12, int(inner_h * 0.80))
+        abs_max_font = 22
 
     max_start = max(min(render_h // 4, abs_max_font), 6)
     max_start = max(6, int(max_start * font_scale))
@@ -278,7 +280,7 @@ def render_text(img_pil, bbox, text: str, font_path: str | None,
             lw = len(line) * best_lh // 2
         # Căn giữa ngang — tx là tọa độ trong region, không thể vượt quá bw
         tx = max(pad, (bw - lw) // 2)
-        _draw_text_with_shadow(draw, (tx, ty), line, best_font, text_color, shadow_color)
+        _draw_text_with_shadow(draw, (tx, ty), line, best_font, text_color, shadow_color, stroke_width)
         ty += best_lh + line_spacing
 
     # Paste region đã vẽ chữ trở lại ảnh gốc — mọi pixel ngoài (bw×bh) tự bị clip

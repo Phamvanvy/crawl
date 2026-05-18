@@ -70,16 +70,39 @@
             </select>
           </div>
           <div class="field">
-            <label>Ollama Model</label>
-            <div class="folder-row">
-              <input type="text" id="tModel" value="qwen2.5:7b" placeholder="qwen2.5:7b" />
-              <select id="tModelSelect"
-                style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:0 8px;font-family:inherit;font-size:.82rem;cursor:pointer"
-                onchange="if(this.value)setVal('tModel',this.value)">
-                <option value="">— models —</option>
-              </select>
+            <label>Phong cách dịch</label>
+            <select id="tTranslationStyle" class="field select">
+              <option value="modern" selected>🏙️ Hiện đại / Slice-of-life</option>
+              <option value="wuxia">⚔️ Cổ trang / Kiếm hiệp</option>
+              <option value="school">🏫 Học đường / Romance</option>
+              <option value="lightnovel">📚 Light Novel / Manga Nhật</option>
+            </select>
+            <div class="field-hint">
+              Hiện đại: anh/em/tôi · Cổ trang: ta/ngươi · Học đường: em/cô/thầy · LN: mình/tớ/tao/senpai
             </div>
-            <div class="field-hint" data-i18n="t.model.hint">Qwen2.5:7b (~4.7GB) | Qwen2.5:3b (~2GB, nhanh hơn)</div>
+          </div>
+          <div class="field">
+            <label>LLM Backend</label>
+            <select id="tLlmApiType" class="field select" onchange="onLlmApiTypeChange()">
+              <option value="ollama" selected>🦙 Ollama  (localhost:11434)</option>
+              <option value="openai_compat">⚡ OpenAI-compatible  (llama.cpp / LM Studio)</option>
+            </select>
+          </div>
+          <div class="field" id="tLlmBaseUrlField" style="display:none">
+            <label>LLM Server URL</label>
+            <input type="text" id="tLlmBaseUrl" placeholder="http://localhost:8080  (llama.cpp)  hoặc  http://localhost:1234  (LM Studio)" />
+            <div class="field-hint">llama.cpp: :8080 · LM Studio: :1234 · vLLM: :8000</div>
+          </div>
+          <div class="field">
+            <label>Model name</label>
+            <input type="text" id="tModel" value="" placeholder="Nhập qwen2.5-vl-7b-instruct" 
+              style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-family:inherit;font-size:.9rem;outline:none;margin-bottom:6px" />
+            <select id="tModelSelect"
+              style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-family:inherit;font-size:.9rem;cursor:pointer"
+              onchange="if(this.value)setVal('tModel',this.value)">
+              <option value="">— models —</option>
+            </select>
+            <div class="field-hint" data-i18n="t.model.hint">Ollama: qwen3:8b · llama.cpp/LM Studio: điền tên model đã load</div>
           </div>
           <div class="field">
             <label>Inpainter (xóa chữ)</label>

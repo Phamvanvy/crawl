@@ -22,6 +22,80 @@ _MIT_INSTALL_HINT = (
 # Project root = parent of this package directory
 _PROJECT_ROOT = Path(__file__).parent.parent
 
+# ── Translation style templates (dùng cho MIT custom_openai) ─────────────────
+_GPT_BASE_RULES = """\
+[ROLE] Expert Vietnamese manga localizer. OUTPUT ONLY VIETNAMESE.
+
+CORE RULES:
+1. Vietnamese ONLY — no CJK, no English, no system tokens (</s>, </, </|3|>, <|assistant|>, <|user|>, etc.) — EXCEPT segment markers <|n|>.
+2. NAMES → Sino-Vietnamese: 佳佳→Giai Giai, 陈伟→Trần Vỹ, 北京→Bắc Kinh.
+3. VOLUMES: 上→Phần 1, 中→Phần 2, 下→Phần 3 / Phần cuối.
+4. WATERMARK/URL/logo/ACG/handle → return "" (empty, nothing else).
+5. SFX → Vietnamese: 嘭→Bùm, 哈哈哈→hà hà hà, 哼→hừ, 嘿嘿嘿→hắc hắc hắc.
+6. FORMAT: Start EVERY translated segment with its input marker <|n|> (same number, same order). Content may span multiple lines for long text. No JSON/numbering/other markup.
+7. LENGTH: Keep translations concise. For long text use \\n within the segment to break lines (≤4 words/sub-line).
+8. PUNCT: every segment ends with . ! ? or … Never start a line with . , ! ?
+9. TONE: RAW — literal, preserve harsh/vulgar/blunt tone, no softening.
+10. GLOSSARY: 老师→cô giáo | 催眠→thôi miên | The End→Hết | 小 (prefix)→Tiểu
+11. FALLBACK: garbled OCR → translate visible + [...]. Empty/URL input → return "".
+"""
+
+_GPT_STYLE_MODERN = """\
+PRONOUNS (Modern / Slice-of-life):
+- Default: 我→anh/em/tôi (context), 你→bạn/em/anh (context).
+- Parent-child: child="con", parent="mẹ/ba". NEVER "tôi" for child speaking to parent.
+  * 妈妈可以给我吗？→ Mẹ có cho con không?
+- Romance: anh/em (casual: tôi/bạn).
+- Teacher: "cô/thầy". Student: "em". Peer: "tôi/bạn".
+- Ambiguous context → default to neutral "em/tôi".
+"""
+
+_GPT_STYLE_WUXIA = """\
+PRONOUNS (Cổ trang / Wuxia) — STRICT:
+- 我 ALWAYS → "ta" (self, any gender).
+- 你 ALWAYS → "ngươi".
+  * 你是谁？→ Ngươi là ai? | 我不会告诉你 → Ta sẽ không nói cho ngươi.
+WUXIA VOCABULARY:
+- 公子→công tử | 姑娘/小姑娘→cô nương/tiểu cô nương | 女侠→nữ hiệp
+- 采花贼/淫贼→dâm tặc | 迷药→mê dược | 肏→chịch/đụ
+- 把你奸了→ta sẽ cưỡng hiếp ngươi | 轮奸→cưỡng hiếp tập thể
+- 嘿嘿嘿→hắc hắc hắc | 哈哈哈→hà hà hà | 哼→hừ
+"""
+
+_GPT_STYLE_SCHOOL = """\
+PRONOUNS (Học đường / School):
+- Student (我) → "em". Teacher (我) → "tôi/cô/thầy" (context).
+- 你 (student→teacher) → "cô/thầy". 你 (peer) → "bạn/cậu".
+- Teacher: "cô giáo" or "thầy" (match gender context). Student: "em".
+- Class group: "chúng em / cả lớp". Romantic (age-gap): anh/em.
+"""
+
+_GPT_STYLE_LIGHTNOVEL = """\
+PRONOUNS (Light Novel / Manga Nhật):
+- 私/わたし (watashi) → "tôi" (neutral/formal) or "mình" (casual).
+- 僕/ぼく (boku) → "mình" (casual male, soft) or "tôi".
+- 俺/おれ (ore) → "tao" (brash/rough) or "tớ" (casual).
+- 俺様 (ore-sama) → "ta" (arrogant self-address).
+- あなた/君/きみ (anata/kimi) → "bạn" or "cậu" (peer). Context: "em" if romantic.
+- お前/おまえ (omae) → "mày" (rough) or "cậu" (casual).
+- 先生 (sensei) → "thầy" or "cô" (match gender). Never translate as "giáo viên".
+- 先輩 (senpai) → "senpai" (keep as-is) or "đàn anh/đàn chị".
+- 後輩 (kouhai) → "đàn em" or "hậu bối".
+- 俺の嫁 / 嫁 → "vợ tao" / "vợ".
+JAPANESE SFX → Vietnamese: バン→Bàng, ドン→Đùng, ズキズキ→Nhói nhói, キャー→Kyaaa, ドキドキ→Tim đập mạnh.
+LIGHT NOVEL TONE:
+- Preserve internal monologue style (italics in source → translate directly).
+- Isekai/fantasy titles: 勇者→dũng sĩ, 魔王→ma vương, 転生→chuyển sinh, 異世界→dị giới.
+- Honorifics: -san→"san" or drop, -kun→drop or "cậu", -chan→"chan" or drop, -sama→"sama" or "đại nhân".
+"""
+
+_GPT_STYLE_BLOCKS: dict[str, str] = {
+    "modern":     _GPT_STYLE_MODERN,
+    "wuxia":      _GPT_STYLE_WUXIA,
+    "school":     _GPT_STYLE_SCHOOL,
+    "lightnovel": _GPT_STYLE_LIGHTNOVEL,
+}
+
 
 def _find_mit_python() -> str | None:
     """
@@ -136,6 +210,7 @@ class MITImageTranslator:
         skip_no_text: bool = False,
         overwrite: bool = False,
         cpu_priority: str = "below_normal",
+        gpt_style: str = "",
         on_log=None,
         on_progress=None,
     ):
@@ -159,6 +234,7 @@ class MITImageTranslator:
         self.verbose               = verbose
         self.skip_no_text          = skip_no_text
         self.overwrite             = overwrite
+        self.gpt_style             = gpt_style if gpt_style in _GPT_STYLE_BLOCKS else "modern"
         self.cpu_priority = cpu_priority if cpu_priority in ("normal", "below_normal", "idle") else "below_normal"
         self.on_log       = on_log or print
         self.on_progress  = on_progress or (lambda d, t: None)
@@ -267,8 +343,28 @@ class MITImageTranslator:
         if self.translator == "custom_openai":
             gpt_cfg = _PROJECT_ROOT / "gpt_config_vi.yaml"
             if gpt_cfg.exists():
-                cfg.setdefault("translator", {})["gpt_config"] = str(gpt_cfg)
-                self._log(f"  [GPT] Using custom gpt_config: {gpt_cfg.name}")
+                if self.gpt_style and self.gpt_style != "modern":
+                    # Tạo temp config với style-specific template
+                    style_block = _GPT_STYLE_BLOCKS.get(self.gpt_style, _GPT_STYLE_MODERN)
+                    composed = _GPT_BASE_RULES + "\n" + style_block + "\nTranslate the following text into Vietnamese:\n"
+                    indented = "\n".join("    " + line if line else "" for line in composed.splitlines())
+                    yaml_content = (
+                        f"ollama:\n"
+                        f"  temperature: 0.1\n"
+                        f"  top_p: 0.85\n"
+                        f"  chat_system_template: |\n"
+                        f"{indented}\n"
+                    )
+                    tf_style = tempfile.NamedTemporaryFile(
+                        mode="w", suffix=".yaml", delete=False, encoding="utf-8"
+                    )
+                    tf_style.write(yaml_content)
+                    tf_style.close()
+                    cfg.setdefault("translator", {})["gpt_config"] = tf_style.name
+                    self._log(f"  [GPT] Style: {self.gpt_style} → temp config {tf_style.name}")
+                else:
+                    cfg.setdefault("translator", {})["gpt_config"] = str(gpt_cfg)
+                    self._log(f"  [GPT] Using custom gpt_config: {gpt_cfg.name}")
 
         tf = tempfile.NamedTemporaryFile(
             mode="w", suffix=".json", delete=False, encoding="utf-8"

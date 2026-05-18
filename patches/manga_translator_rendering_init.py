@@ -32,12 +32,13 @@ def fg_bg_compare(fg, bg):
     fg_avg = np.mean(fg)
     if color_difference(fg, bg) < 30:
         bg = (255, 255, 255) if fg_avg <= 127 else (0, 0, 0)
-    # Extra: khi bg tối (vùng không có speech bubble) mà fg cũng tối
-    # → chữ vô hình trên nền tối. Đổi fg=trắng, bg=đen để luôn đọc được.
+    # Extra: khi bg tối (vùng artwork không có speech bubble) mà fg cũng tối
+    # → chữ đen + stroke TRẮNG: halo trắng nổi bật rõ trên nền tối.
+    # Không trigger với chữ trắng (fg_avg ≥ 160) trên bubble đen như "TOÀN THÂN NÓNG RỰC".
     bg_avg = np.mean(bg)
     if bg_avg < 100 and np.mean(fg) < 160:
-        fg = (255, 255, 255)
-        bg = (0, 0, 0)
+        fg = (0, 0, 0)           # chữ đen
+        bg = (255, 255, 255)     # stroke trắng — halo nổi trên nền tối
     return fg, bg
 
 def count_text_length(text: str) -> float:
