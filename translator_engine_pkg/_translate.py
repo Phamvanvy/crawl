@@ -1,5 +1,6 @@
 """
 _translate.py — Ollama helpers, text normalization, batch translation with aggressive Vietnamese enforcement.
+Hỗ trợ: Tiếng Trung (zh), tiếng Nhật (ja), tiếng Anh (en).
 """
 
 import json
@@ -8,10 +9,20 @@ import time
 
 import requests
 
+from ._common_utils import (
+    ZH_RE,
+    JA_HIRAGANA_RE,
+    JA_KATAKANA_RE,
+    JA_KANJI_RE,
+    JA_RE,
+    contains_chinese,
+    contains_japanese,
+    contains_cjk,
+)
+
 OLLAMA_BASE = "http://localhost:11434"
 
-# ── Compiled regex patterns (must be at top — used by helper functions below) ─
-CHINESE_RE = re.compile(r'[\u4e00-\u9fff\u3400-\u4dbf]')
+# ── Compiled regex patterns ─
 _WATERMARK_DOMAIN_RE = re.compile(
     r"[a-z0-9][a-z0-9._-]{1,64}\.(?:com|net|org|info|xyz|top|site|online|tv|cc)\b",
     re.IGNORECASE,
@@ -65,25 +76,27 @@ def _strip_generation_artifacts(text: str, preserve_segment_tokens: bool = False
 
 
 def _needs_vietnamese_retry(text: str) -> bool:
-    """True if text is likely English/Chinese rather than Vietnamese."""
+    """True if text is likely English/Chinese/Japanese rather than Vietnamese."""
     cleaned = _clean_watermark_fragments(_strip_generation_artifacts(text))
     if not cleaned or len(cleaned.strip()) < 4:
         return False
-    if CHINESE_RE.search(cleaned):
-        return True  # Untranslated Chinese
+    # Check for untranslated CJK characters
+    if contains_chinese(cleaned) or contains_japanese(cleaned):
+        return True
     if _VI_DIACRITIC_RE.search(cleaned):
         return False  # Vietnamese diacritics present = Vietnamese
     en_words = _EN_WORD_RE.findall(cleaned)
     return len(en_words) >= 2  # 2+ plain Latin words, no VI diacritics = English
 
 
-def _build_vietnamese_retry_prompt(prompt: str) -> str:
+def _build_vietnamese_retry_prompt(prompt: str, src_lang: str = "zh") -> str:
+    lang_name = "Trung" if src_lang == "zh" else "Nhật" if src_lang == "ja" else "Anh"
     return (
-        "LẦN THỬ LẠI BẮT BUỘC:\n"
+        f"LẦN THỬ LẠI BẮT BUỘC:\n"
         "- Chỉ được trả về tiếng Việt tự nhiên.\n"
         "- Mỗi phần tử trong JSON array phải tương ứng đúng 1 câu nguồn theo đúng thứ tự.\n"
         "- Nếu phần tử là watermark/logo hoặc chứa ACG, com, .com, .net, .org thì trả về chuỗi rỗng \"\" ở đúng vị trí đó.\n"
-        "- CẤM tiếng Anh, tiếng Trung, và token rác như </, </|3|>, <|assistant|>, </s>.\n\n"
+        f"- CẤM {lang_name}, tiếng Anh, và token rác như </, </|3|>, <|assistant|>, </s>.\n\n"
         f"{prompt}"
     )
 
@@ -145,34 +158,65 @@ def _normalize_vietnamese(text: str) -> str:
     return normalized
 
 
-def _detect_relationship_context(text: str) -> str | None:
-    """Phát hiện ngữ cảnh quan hệ từ nội dung text để chọn đại từ nhân xưng phù hợp."""
-    parent_child_patterns = [
+def _detect_relationship_context(text: str, src_lang: str = "zh") -> str | None:
+    """Phát hiện ngữ cảnh quan hệ từ nội dung text để chọn đại từ nhân xưng phù hợp.
+    
+    Args:
+        text: Văn bản nguồn hoặc đã dịch
+        src_lang: Ngôn ngữ nguồn để chọn patterns phù hợp
+    """
+    # Chinese relationship patterns
+    zh_parent_child_patterns = [
         r'妈妈|爸爸|母亲|父亲|妈咪|老爸',  # Mẹ, Bố
         r'零花钱|压岁钱|红包',  # Tiền lì xì
         r'学费|补习班|考试',  # Học phí, lớp học thêm
         r'奶奶|爷爷|外婆|外公',  # Bà, Ông
     ]
     
-    for pattern in parent_child_patterns:
+    # Japanese relationship patterns
+    ja_parent_child_patterns = [
+        r'ママ|お母さん|母|父親|父|父上',  # Mẹ, Bố (Japanese)
+        r'お小遣い|お年玉|ポチ袋',  # Tiền lì xì (Japanese)
+        r'学費|塾|テスト',  # Học phí, lớp học thêm (Japanese)
+        r'おばあちゃん|おじいちゃん|祖母|祖父',  # Bà, Ông (Japanese)
+    ]
+    
+    patterns = zh_parent_child_patterns
+    if src_lang == "ja":
+        patterns = patterns + ja_parent_child_patterns
+    
+    for pattern in patterns:
         if re.search(pattern, text):
             return "parent_child"
     
     romantic_patterns = [
-        r'(亲爱的|宝贝)',  # Yêu thương
-        r'男朋友|女朋友|未婚夫|未婚妻',  # Bạn trai/gái
-        r'老公|老婆|丈夫|妻子',  # Chồng, Vợ
-        r'我爱你|我喜欢你|嫁给我',  # Tình yêu
+        r'(亲爱的|宝贝)',  # Yêu thương (Chinese)
+        r'男朋友|女朋友|未婚夫|未婚妻',  # Bạn trai/gái (Chinese)
+        r'老公|老婆|丈夫|妻子',  # Chồng, Vợ (Chinese)
+        r'我爱你|我喜欢你|嫁给我',  # Tình yêu (Chinese)
     ]
     
-    for pattern in romantic_patterns:
+    # Japanese romantic patterns
+    ja_romantic_patterns = [
+        r'(大好き|可愛い|愛してる)',  # Yêu thương (Japanese)
+        r'(彼氏|彼女|婚約者)',  # Bạn trai/gái (Japanese)
+        r'(旦那|奥さん|主人|妻)',  # Chồng, Vợ (Japanese)
+        r'愛してる|好きだよ|結婚して',  # Tình yêu (Japanese)
+    ]
+    
+    all_romantic = romantic_patterns + (ja_romantic_patterns if src_lang == "ja" else [])
+    
+    for pattern in all_romantic:
         if re.search(pattern, text):
             return "romantic"
     
     school_friend_patterns = [
-        r'(同学|同班|同桌)',  # Bạn cùng lớp
-        r'老师|教授|导师',  # Giáo viên
-        r'学长|学姐|学弟|学妹',  # Cấp trên/cấp dưới trường học
+        r'(同学|同班|同桌)',  # Bạn cùng lớp (Chinese)
+        r'老师|教授|导师',  # Giáo viên (Chinese)
+        r'学长|学姐|学弟|学妹',  # Cấp trên/cấp dưới trường học (Chinese)
+        r'(クラスメート|同級生)',  # Bạn cùng lớp (Japanese)
+        r'先生|教授',  # Giáo viên (Japanese)
+        r'先輩|後輩',  # Cấp trên/cấp dưới (Japanese)
     ]
     
     for pattern in school_friend_patterns:
@@ -300,10 +344,12 @@ def comprehensive_post_processing(translated: str, source: str = "") -> str:
     # Bước 1: Sửa lỗi đại từ nhân xưng bằng regex (lớp bảo vệ cuối)
     translated = _fix_pronoun_patterns(translated, source)
     
-    # Bước 2: Kiểm tra và sửa chữ Hán chưa dịch
-    remaining_zh = CHINESE_RE.findall(translated)
-    if remaining_zh:
-        print(f"⚠️  Lỗi dịch: {len(remaining_zh)} ký tự Hán chưa được dịch trong: {translated[:100]}...")
+    # Bước 2: Kiểm tra và sửa chữ Hán/Nhật chưa dịch
+    remaining_cjk = contains_cjk(translated)
+    if remaining_cjk:
+        remaining_zh = ZH_RE.findall(translated)
+        remaining_ja = JA_RE.findall(translated)
+        print(f"⚠️  Lỗi dịch: {len(remaining_zh)} ký tự Trung, {len(remaining_ja)} ký tự Nhật chưa được dịch trong: {translated[:100]}...")
     
     # Bước 3: Sửa lỗi giới tính giáo viên (nếu cần)
     translated = _fix_teacher_gender(translated)
@@ -314,13 +360,14 @@ def comprehensive_post_processing(translated: str, source: str = "") -> str:
     return translated
 
 
-def aggressive_vietnamese_enforcement(text: str, source_text: str = "", max_retries: int = 15) -> str:
+def aggressive_vietnamese_enforcement(text: str, source_text: str = "", max_retries: int = 15, src_lang: str = "zh") -> str:
     """Áp dụng xử lý mạnh buộc dịch hoàn toàn sang tiếng Việt.
     
     Args:
         text: Văn bản cần dịch
         source_text: Văn bản gốc để so sánh (nếu có)
-        max_retries: Số lần thử lại khi phát hiện chữ Hán chưa dịch
+        max_retries: Số lần thử lại khi phát hiện chữ Hán/Nhật chưa dịch
+        src_lang: Ngôn ngữ nguồn ("zh" = Trung, "ja" = Nhật, "en" = Anh)
         
     Returns:
         Văn bản đã được xử lý, đảm bảo 100% tiếng Việt
@@ -328,25 +375,23 @@ def aggressive_vietnamese_enforcement(text: str, source_text: str = "", max_retr
     if not text or not text.strip():
         return text
     
-    # Bước 1: Kiểm tra xem còn chữ Hán không
-    remaining_zh = CHINESE_RE.findall(text)
+    # Bước 1: Kiểm tra xem còn chữ Hán/Nhật không
+    remaining_cjk = contains_cjk(text)
     
     retry_count = 0
-    while remaining_zh and retry_count < max_retries:
-        print(f"⚠️  CHỮ HÁN CHƯA DỊCH (thử {retry_count + 1}/{max_retries}): {text[:100]}...")
-        
-        if remaining_zh in source_text:
-            print("⚠️  Lỗi OCR: Một số ký tự Trung chưa được nhận diện")
+    while remaining_cjk and retry_count < max_retries:
+        lang_name = "Trung" if src_lang == "zh" else "Nhật" if src_lang == "ja" else "Anh"
+        print(f"⚠️  CHỮ {lang_name} CHƯA DỊCH (thử {retry_count + 1}/{max_retries}): {text[:100]}...")
         
         # Bước 2: Áp dụng xử lý đại từ nhân xưng
-        relationship = _detect_relationship_context(source_text)
+        relationship = _detect_relationship_context(source_text, src_lang)
         text = _apply_relationship_pronouns(text, relationship)
         
         # Bước 3: Loại bỏ watermark và brand names
         text = _clean_watermark_fragments(text, source_text)
         
-        # Nếu vẫn còn chữ Hán sau xử lý, thử lại với prompt gắt hơn
-        remaining_zh = CHINESE_RE.findall(text)
+        # Nếu vẫn còn chữ Hán/Nhật sau xử lý, thử lại với prompt gắt hơn
+        remaining_cjk = contains_cjk(text)
         retry_count += 1
     
     return text
@@ -357,17 +402,19 @@ def regex_based_chinese_fix(translated: str, source: str = "") -> str:
     if not translated or not translated.strip():
         return translated
     
-    remaining_zh = CHINESE_RE.findall(translated)
+    remaining_cjk = contains_cjk(translated)
     
-    if not remaining_zh:
+    if not remaining_cjk:
         return translated
     
-    print(f"⚠️  Lỗi dịch: {len(remaining_zh)} ký tự Hán chưa được dịch trong: {translated[:100]}...")
+    remaining_zh = ZH_RE.findall(translated)
+    remaining_ja = JA_RE.findall(translated)
+    print(f"⚠️  Lỗi dịch: {len(remaining_zh)} ký tự Trung, {len(remaining_ja)} ký tự Nhật chưa được dịch trong: {translated[:100]}...")
     
     return translated
 
 
-def post_process_translation(translated_text: str, source_text: str = "") -> str:
+def post_process_translation(translated_text: str, source_text: str = "", src_lang: str = "zh") -> str:
     """Xử lý hậu kỳ để cải thiện đại từ nhân xưng và đảm bảo dịch đầy đủ."""
     if not translated_text or not translated_text.strip():
         return translated_text
@@ -375,18 +422,20 @@ def post_process_translation(translated_text: str, source_text: str = "") -> str
     if _contains_watermark_text(translated_text) or _contains_watermark_text(source_text):
         return ""
     
-    remaining_zh = CHINESE_RE.findall(translated_text)
+    remaining_cjk = contains_cjk(translated_text)
     
-    if remaining_zh:
-        print(f"⚠️  Cảnh báo: Phát hiện {len(remaining_zh)} ký tự Hán chưa dịch trong: {translated_text[:100]}...")
+    if remaining_cjk:
+        remaining_zh = ZH_RE.findall(translated_text)
+        remaining_ja = JA_RE.findall(translated_text)
+        print(f"⚠️  Cảnh báo: Phát hiện {len(remaining_zh)} ký tự Trung, {len(remaining_ja)} ký tự Nhật chưa dịch trong: {translated_text[:100]}...")
     
-    relationship = _detect_relationship_context(source_text)
+    relationship = _detect_relationship_context(source_text, src_lang)
     translated_text = _apply_relationship_pronouns(translated_text, relationship)
 
     return _clean_watermark_fragments(translated_text, source_text)
 
 
-def translate_batch(texts: list[str], model: str, src_lang: str = "zh",
+def translate_batch(texts: list[str], model: str = "qwen3:8b", src_lang: str = "zh",
                    context_history: list[tuple[str, str]] | None = None,
                    constraints: list[dict] | None = None,
                    force_vietnamese: bool = True,
@@ -398,7 +447,7 @@ def translate_batch(texts: list[str], model: str, src_lang: str = "zh",
     Args:
         texts: Danh sách văn bản cần dịch
         model: Tên model Ollama (mặc định: qwen3:8b)
-        src_lang: Ngôn ngữ nguồn ("zh" = Trung, "en" = Anh)
+        src_lang: Ngôn ngữ nguồn ("zh" = Trung, "ja" = Nhật, "en" = Anh)
         context_history: Lịch sử hội thoại gần nhất (~12 trao đổi) để duy trì ngữ cảnh xưng hô
         constraints: Giới hạn độ dài bong bóng (max_chars, max_lines)
         force_vietnamese: Kích hoạt chế độ ép buộc dịch 100% tiếng Việt
@@ -408,6 +457,9 @@ def translate_batch(texts: list[str], model: str, src_lang: str = "zh",
     """
     if not texts:
         return []
+    
+    # Xác định ngôn ngữ nguồn để hiển thị trong prompt
+    lang_name = "Trung Quốc" if src_lang == "zh" else "Nhật Bản" if src_lang == "ja" else "Anh"
     
     # ── BUILD CONTEXT PROMPT FROM HISTORY ───────────────────────────────────────
     context_prompt = ""
@@ -427,7 +479,15 @@ def translate_batch(texts: list[str], model: str, src_lang: str = "zh",
             context_prompt = "\n\n".join(context_parts) + "\n\n=== KẾT THÚC NGỮ CẢNH ===\n\n"
 
     # ── BUILD TRANSLATION PROMPT: context first, then rules, then texts ──────────
-    numbered = "\n".join(f"{i+1}. {t}" for i, t in enumerate(texts))
+    # Chuẩn bị text số hóa cho prompt
+    if src_lang == "ja":
+        # Thêm note về Japanese-specific characters
+        numbered = (
+            "[NGUỒN TIẾNG NHẬT/TRUNG]\n" +
+            "\n".join(f"{i+1}. {t}" for i, t in enumerate(texts))
+        )
+    else:
+        numbered = "\n".join(f"{i+1}. {t}" for i, t in enumerate(texts))
     
     # Phần 1: Context history (đặt TRƯỚC rules để model đọc ngữ cảnh trước)
     if context_prompt:
@@ -442,15 +502,15 @@ def translate_batch(texts: list[str], model: str, src_lang: str = "zh",
     
     # Quy tắc dịch thuật - CỰC KỲ GẠT (Force Vietnamese)
     PROMPT_RULES = (
-        "\n=== BẮT BUỘC: DỊCH TOÀN BỘ SANG TIẾNG VIỆT ===\n\n"
+        f"\n=== BẮT BUỘC: DỊCH TOÀN BỘ TỪ {lang_name.upper()} SANG TIẾNG VIỆT ===\n\n"
         "Bạn là một dịch giả chuyên nghiệp. Dịch MỌI nội dung sau sang tiếng Việt.\n\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         "QUY TẮC BẮT BUỘC (TỐI THƯỢNG):\n"
-        "1. KHÔNG bao giờ để lại chữ Hán, Anh, hay bất kỳ ngôn ngữ nào khác\n"
+        "1. KHÔNG bao giờ để lại chữ Trung, Nhật, Anh, hay bất kỳ ngôn ngữ nào khác\n"
         "2. Tên riêng: Dịch âm Hán-Việt (佳佳→Giai Giai, 小明→Tiểu Minh, 美香→Mỹ Hương)\n"
         "3. Nếu text là watermark/logo hoặc chứa ACG, com, .com, .net, .org: trả về chuỗi rỗng \"\"\n"
         "4. Emoji và ký tự đặc biệt: Giữ nguyên\n"
-        "5. CẤM tuyệt đối đầu ra tiếng Anh hoặc Trung Quốc\n"
+        f"5. CẤM tuyệt đối đầu ra tiếng Anh, {lang_name}, hoặc bất kỳ ngôn ngữ nào khác\n"
         "6. CẤM xuất token hệ thống hoặc rác như </, </|3|>, <|assistant|>, <|user|>, </s>\n\n"
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         "XỬ LÝ ĐẠI TỪ NHÂN XƯNG (QUAN TRỌNG):\n"
@@ -494,7 +554,7 @@ def translate_batch(texts: list[str], model: str, src_lang: str = "zh",
         PROMPT_RULES += (
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             "LẶP LẠI TỰ ĐỘNG:\n"
-            "Nếu phát hiện chữ Hán trong kết quả, hãy yêu cầu model dịch lại.\n"
+            "Nếu phát hiện chữ Hán/Nhật trong kết quả, hãy yêu cầu model dịch lại.\n"
             "Mục tiêu: 100% tiếng Việt, không sót ký tự nào.\n\n"
         )
     
@@ -502,7 +562,7 @@ def translate_batch(texts: list[str], model: str, src_lang: str = "zh",
 
     prompt_attempts = [base_prompt]
     if force_vietnamese:
-        prompt_attempts.extend([_build_vietnamese_retry_prompt(base_prompt)] * 2)
+        prompt_attempts.extend([_build_vietnamese_retry_prompt(base_prompt, src_lang)] * 2)
 
     def _extract(t):
         if isinstance(t, str):

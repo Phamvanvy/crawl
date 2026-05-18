@@ -9,12 +9,13 @@ from collections import deque
 from pathlib import Path
 
 from ._ocr import (
-    _run_ocr, _find_speech_bubbles, has_chinese, has_english, _bubble_coverage,
+    _run_ocr, _find_speech_bubbles, has_chinese, has_japanese, has_english, _bubble_coverage,
 )
 from ._translate import (
     translate_batch, post_process_translation,
-    comprehensive_post_processing, CHINESE_RE,
+    comprehensive_post_processing,
 )
+from ._common_utils import contains_chinese, contains_japanese, contains_cjk, JA_RE
 from ._utils import (
     _bbox_xyxy, _union_bboxes, _rect_expand, _rect_intersects, _expand_bbox,
     _looks_like_watermark,
@@ -42,7 +43,7 @@ class ImageTranslator:
         self.model        = model
         self.font_path    = font_path
         self.use_gpu      = use_gpu
-        self.src_lang     = src_lang if src_lang in ("zh", "en") else "zh"
+        self.src_lang     = src_lang if src_lang in ("zh", "en", "ja") else "zh"
         self.inpainter    = inpainter if inpainter in ("opencv", "lama") else "opencv"
         self.overwrite    = overwrite
         self.font_scale   = max(0.3, min(2.0, float(font_scale)))
@@ -112,6 +113,21 @@ class ImageTranslator:
                     self._log(f"  [SKIP] Không có text Trung: {src.name}")
                     shutil.copy2(src, dst)
                     return True
+
+            elif self.src_lang == "ja":
+                for b, t, c in raw_results:
+                    ja_len = len([ch for ch in t if '\u3040' <= ch <= '\u30ff' or '\u4e00' <= ch <= '\u9fff'])
+                    flag = "✓" if has_japanese(t) and (c > 0.1 or ja_len >= 3) else "✗"
+                    self._log(f"    {flag} conf={c:.2f} ja={has_japanese(t)} text={t!r:.50}")
+                results = [
+                    (b, t, c) for b, t, c in raw_results
+                    if has_japanese(t) and (c > 0.1 or len([ch for ch in t if '\u3040' <= ch <= '\u30ff' or '\u4e00' <= ch <= '\u9fff']) >= 3)
+                ]
+                if not results:
+                    self._log(f"  [SKIP] Không có text Nhật: {src.name}")
+                    shutil.copy2(src, dst)
+                    return True
+
             else:
                 for b, t, c in raw_results:
                     flag = "✓" if c > 0.3 and has_english(t) else "✗"
@@ -125,7 +141,7 @@ class ImageTranslator:
                     shutil.copy2(src, dst)
                     return True
 
-            src_lbl = "Trung" if self.src_lang == "zh" else "Anh"
+            src_lbl = "Trung" if self.src_lang == "zh" else "Nhật" if self.src_lang == "ja" else "Anh"
             self._log(f"  [OCR] {len(results)} vùng text {src_lbl} (sau lọc)")
 
             groups = _group_nearby_regions(results)
@@ -175,13 +191,13 @@ class ImageTranslator:
             # Duyệt qua từng cặp (original, translated), áp dụng post-processing,
             # rồi cập nhật context_history để các câu sau kế thừa ngữ cảnh xưng hô.
             for i, (orig, trans) in enumerate(zip(all_texts, all_trans)):
-                # Kiểm tra ký tự Hán sót lại
-                if CHINESE_RE.search(trans):
-                    n_zh = len(CHINESE_RE.findall(trans))
-                    self._log(f"    ⚠  {n_zh} ký tự Hán chưa dịch → post-process")
+                # Kiểm tra ký tự CJK (Hán/Nhật) sót lại
+                if contains_cjk(trans):
+                    n_cjk = len(JA_RE.findall(trans))
+                    self._log(f"    ⚠  {n_cjk} ký tự CJK chưa dịch → post-process")
                     trans = comprehensive_post_processing(trans, orig)
                 # Áp dụng đại từ nhân xưng theo ngữ cảnh
-                trans = post_process_translation(trans, orig)
+                trans = post_process_translation(trans, orig, src_lang=self.src_lang)
                 all_trans[i] = trans
                 # Cập nhật context cho các câu tiếp theo trong ảnh này
                 self._update_context_history(orig, trans)

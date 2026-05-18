@@ -33,8 +33,10 @@ from ._ocr import (
     _bubble_coverage,
     _run_ocr,
     has_chinese,
+    has_japanese,
     has_english,
     _ZH_RE,
+    _JA_RE,
     _EN_RE,
 )
 
@@ -81,9 +83,9 @@ from ._mit_backend import (
 
 __all__ = [
     # ocr
-    "has_chinese", "has_english", "_run_ocr", "_run_ocr_engine",
+    "has_chinese", "has_japanese", "has_english", "_run_ocr", "_run_ocr_engine",
     "_find_speech_bubbles", "_iou_rect", "_bubble_coverage",
-    "_ZH_RE", "_EN_RE",
+    "_ZH_RE", "_JA_RE", "_EN_RE",
     # utils
     "_looks_like_watermark", "_bbox_xyxy", "_union_bboxes",
     "_rect_expand", "_rect_intersects", "_expand_bbox",

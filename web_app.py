@@ -516,7 +516,7 @@ def api_translate_start():
         font_scale = 0.75
     if inpainter not in ("opencv", "lama"):
         inpainter = "opencv"
-    if src_lang not in ("zh", "en"):
+    if src_lang not in ("zh", "en", "ja"):
         src_lang = "zh"
     if backend not in ("default", "mit"):
         backend = "default"
@@ -577,8 +577,8 @@ def api_translate_start():
                     on_progress=on_progress,
                 )
             else:
-                _t_push({"type": "log", "msg": f"Model : {model}  GPU={use_gpu}  Inpainter={inpainter}"})
-                _t_push({"type": "log", "msg": f"Lang  : {'ZH→VI' if src_lang == 'zh' else 'EN→VI'}"})
+                lang_label = "ZH→VI" if src_lang == "zh" else "JA→VI" if src_lang == "ja" else "EN→VI"
+                _t_push({"type": "log", "msg": f"Backend: default  Lang={lang_label}  Model={model}  GPU={use_gpu}  Inpainter={inpainter}"})
                 translator = te.ImageTranslator(
                     model=model,
                     font_path=_find_font(),
@@ -591,6 +591,7 @@ def api_translate_start():
                     on_log=on_log,
                     on_progress=on_progress,
                 )
+
             ok, fail, failed_images = translator.process_folder(
                 input_dir=input_dir,
                 output_dir=output_dir,
@@ -658,8 +659,16 @@ def api_translate_retry_failed():
     inpainter   = str(data.get("inpainter", "opencv")).strip()
     if inpainter not in ("opencv", "lama"):
         inpainter = "opencv"
-    if src_lang not in ("zh", "en"):
+    if src_lang not in ("zh", "en", "ja"):
         src_lang = "zh"
+    cpu_priority = str(data.get("cpu_priority", "below_normal")).strip()
+    if cpu_priority not in ("normal", "below_normal", "idle"):
+        cpu_priority = "below_normal"
+    try:
+        font_scale = float(data.get("font_scale", 0.60))
+        font_scale = max(0.3, min(2.0, font_scale))
+    except (TypeError, ValueError):
+        font_scale = 0.60
 
     _t_reset()
 
@@ -674,19 +683,19 @@ def api_translate_retry_failed():
                     _t_state["total"] = total
                 _t_push({"type": "progress", "done": done, "total": total})
 
-            _t_push({"type": "log", "msg": "─" * 60})
-            _t_push({"type": "log", "msg": f"↺  Retry {len(failed_images)} ảnh dịch lỗi…"})
-
             translator = te.ImageTranslator(
                 model=model,
                 font_path=_find_font(),
                 use_gpu=use_gpu,
                 src_lang=src_lang,
                 inpainter=inpainter,
+                overwrite=True,
                 font_scale=font_scale,
+                cpu_priority=cpu_priority,
                 on_log=on_log,
                 on_progress=on_progress,
             )
+
             ok, fail, new_failed = translator.process_folder(
                 input_dir=input_dir,
                 output_dir=output_dir,

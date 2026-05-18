@@ -255,10 +255,10 @@ class MITImageTranslator:
         if self.target_lang in ("VIN", "vi") and not self.font_size_fixed:
             pass  # Không cố định font_size — MIT sẽ tự tính
         if self.target_lang in ("VIN", "vi") and not self.font_size_offset and not self.font_size_fixed:
-            cfg.setdefault("render", {})["font_size_offset"] = -8
-            self._log("  [RENDER] Auto font_size_offset=-8 (Latin rộng hơn CJK, scale nhẹ)")
+            cfg.setdefault("render", {})["font_size_offset"] = 0
+            self._log("  [RENDER] font_size_offset=0 (adaptive factor in patch handles VI scaling)")
         if self.target_lang in ("VIN", "vi") and not self.font_size_minimum:
-            cfg.setdefault("render", {})["font_size_minimum"] = 12
+            cfg.setdefault("render", {})["font_size_minimum"] = 14
         if self.target_lang in ("VIN", "vi") and not self.unclip_ratio:
             cfg.setdefault("detector", {})["unclip_ratio"] = 3.5
             self._log("  [DETECT] Auto unclip_ratio=3.5 (Latin/VI text rộng hơn CJK)")

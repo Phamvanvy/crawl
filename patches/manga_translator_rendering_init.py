@@ -32,6 +32,12 @@ def fg_bg_compare(fg, bg):
     fg_avg = np.mean(fg)
     if color_difference(fg, bg) < 30:
         bg = (255, 255, 255) if fg_avg <= 127 else (0, 0, 0)
+    # Extra: khi bg tối (vùng không có speech bubble) mà fg cũng tối
+    # → chữ vô hình trên nền tối. Đổi fg=trắng, bg=đen để luôn đọc được.
+    bg_avg = np.mean(bg)
+    if bg_avg < 100 and np.mean(fg) < 160:
+        fg = (255, 255, 255)
+        bg = (0, 0, 0)
     return fg, bg
 
 def count_text_length(text: str) -> float:
@@ -45,206 +51,165 @@ def count_text_length(text: str) -> float:
             length += 1.0
     return length
 
-def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock'], font_size_fixed: int, font_size_offset: int, font_size_minimum: int):  
+def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock'], font_size_fixed: int, font_size_offset: int, font_size_minimum: int):
     """
-    Adjust text region size to accommodate font size and translated text length.
-    
-    Args:  
-        img: Input image
-        text_regions: List of text regions to process
-        font_size_fixed: Fixed font size (overrides other font parameters)
-        font_size_offset: Font size offset
-        font_size_minimum: Minimum font size (-1 for auto-calculation)
+    Adjust font size to fit translated text within the original speech bubble bbox.
 
-    Returns:  
-        List of adjusted text region bounding boxes
-    """    
-    
-    # Define minimum font size
-    if font_size_minimum == -1:  
-        font_size_minimum = round((img.shape[0] + img.shape[1]) / 200)  
-    # logger.debug(f'font_size_minimum {font_size_minimum}')  
-    font_size_minimum = max(1, font_size_minimum)  
+    Strategy (Vietnamese / Latin text is ~1.3-1.5x longer than CJK source):
+      1. Apply font_size_offset to get target_font_size.
+      2. For horizontal regions: iteratively reduce font_size until the text wraps
+         into <= used_rows rows inside the ORIGINAL bbox width/height.
+         Only if even font_size_minimum cannot fit, allow a HEIGHT-only expansion
+         (never WIDTH — width expansion overflows into adjacent artwork).
+      3. General fallback: use original min_rect unchanged (no bbox scaling).
+    """
+    if font_size_minimum == -1:
+        font_size_minimum = round((img.shape[0] + img.shape[1]) / 200)
+    font_size_minimum = max(1, font_size_minimum)
 
-    dst_points_list = []  
-    for region in text_regions: 
-    
-        # Store and validate original font size
-        original_region_font_size = region.font_size  
-        if original_region_font_size <= 0:  
-            # logger.warning(f"Invalid original font size ({original_region_font_size}) for text '{region.translation}'. Using default value {font_size_minimum}.")  
+    dst_points_list = []
+    for region in text_regions:
+
+        original_region_font_size = region.font_size
+        if original_region_font_size <= 0:
             original_region_font_size = font_size_minimum
 
-        # Determine target font size
-        current_base_font_size = original_region_font_size  
-        if font_size_fixed is not None:  
-            target_font_size = font_size_fixed  
-        else:  
-            target_font_size = current_base_font_size + font_size_offset  
+        # ── Compute expansion ratio (Vietnamese vs Chinese source) ──
+        cn_chars = max(1.0, sum(count_text_length(t) for t in region.texts))
+        vn_chars = max(1.0, count_text_length(region.translation))
+        expansion_ratio = vn_chars / cn_chars
 
-        target_font_size = max(target_font_size, font_size_minimum, 1)  
-        # print("-" * 50)
-        # logger.debug(f"Calculated target font size: {target_font_size} for text '{region.translation}'")  
+        # ── Adaptive factor: scale down font proportionally to how much longer VN is ──
+        if expansion_ratio <= 1.3:
+            adaptive_factor = 0.95
+        elif expansion_ratio <= 1.8:
+            adaptive_factor = 0.87
+        elif expansion_ratio <= 2.5:
+            adaptive_factor = 0.77
+        else:
+            adaptive_factor = 0.66
 
-        # Single-axis text box expansion
-        single_axis_expanded = False
+        if font_size_fixed is not None:
+            target_font_size = font_size_fixed
+        else:
+            base = int(original_region_font_size * adaptive_factor)
+            target_font_size = max(font_size_minimum, base + font_size_offset)
+
+        target_font_size = max(target_font_size, font_size_minimum, 1)
+
+        # ── Detect if inside a styled speech bubble ──
+        # High contrast (white-on-black / black-on-white) OR light background
+        try:
+            fg_col, bg_col = region.get_font_colors()
+            bg_avg = np.mean(bg_col)
+            contrast = color_difference(fg_col, bg_col)
+            is_bubble = bg_avg > 140 or contrast > 100
+        except Exception:
+            is_bubble = True  # safer default
+
         dst_points = None
-        
-        if region.horizontal: 
-            used_rows = len(region.texts)
-            # logger.debug(f"Horizontal text - used rows: {used_rows}")
-            
+        single_axis_expanded = False
+
+        if region.horizontal:
+            used_rows = max(1, len(region.texts))
+            bbox_h = region.unrotated_size[1]
+            bbox_w = region.unrotated_size[0]
+
+            # ── Step 1: reduce font until text fits within original bbox ──
+            # rows_capacity = how many rows the bbox can physically hold at
+            # current font size (≈ font_size × 1.2 line height).
+            # This allows Vietnamese text to use MORE rows than the original
+            # Chinese source when the bubble has room — avoiding tiny fonts.
+            fit_size = target_font_size
             line_text_list, _ = text_render.calc_horizontal(
-                target_font_size,
+                fit_size,
                 region.translation,
-                max_width=region.unrotated_size[0],
-                max_height=region.unrotated_size[1],
-                language=getattr(region, "target_lang", "en_US")
+                max_width=bbox_w,
+                max_height=bbox_h,
+                language=getattr(region, "target_lang", "en_US"),
             )
             needed_rows = len(line_text_list)
-            # logger.debug(f"Needed rows: {needed_rows}")                
 
-            if needed_rows > used_rows:
-                try:  
+            if is_bubble:
+                # Inside styled bubble: allow wrapping to fill bbox height naturally
+                def rows_capacity(fs):
+                    return max(used_rows, int(bbox_h / max(1, fs * 1.2)))
+            else:
+                # Overlay on artwork: allow generous rows to preserve adaptive font size
+                # Allowing +3 extra rows prevents the font from shrinking to illegible sizes
+                def rows_capacity(fs):
+                    return max(used_rows + 3, int(bbox_h / max(1, fs * 1.2)))
+
+            while needed_rows > rows_capacity(fit_size) and fit_size > font_size_minimum:
+                fit_size = max(font_size_minimum, fit_size - 1)
+                line_text_list, _ = text_render.calc_horizontal(
+                    fit_size,
+                    region.translation,
+                    max_width=bbox_w,
+                    max_height=bbox_h,
+                    language=getattr(region, "target_lang", "en_US"),
+                )
+                needed_rows = len(line_text_list)
+
+            target_font_size = fit_size
+            single_axis_expanded = True  # skip general-scaling fallback
+
+            # ── Step 2: if still can't fit → expand HEIGHT only (never width) ──
+            if needed_rows > rows_capacity(fit_size):
+                try:
                     poly = Polygon(region.unrotated_min_rect[0])
                     minx, miny, maxx, maxy = poly.bounds
                     region_width = maxx - minx
                     img_width = img.shape[1]
+                    scale_y = min(needed_rows / used_rows, 2.0)
                     if region_width > img_width * 0.5:
-                        # Wide region (CG/subtitle): expand HEIGHT upward so bbox stays at bottom
-                        scale_y = needed_rows / used_rows
+                        # Wide region (CG/subtitle): grow upward, anchor at bottom
                         poly = affinity.scale(poly, xfact=1.0, yfact=scale_y, origin=(minx, maxy))
                     else:
-                        # Narrow region (manga bubble): expand WIDTH (original behaviour)
-                        scale_x = ((needed_rows - used_rows) / used_rows) * 1 + 1
-                        poly = affinity.scale(poly, xfact=scale_x, yfact=1.0, origin=(minx, miny))
-                
-                    pts = np.array(poly.exterior.coords[:4])  
-                    dst_points = rotate_polygons(  
-                        region.center, pts.reshape(1, -1), -region.angle,  
-                        to_int=False  
-                    ).reshape(-1, 4, 2)  
-                    # 移除边界限制，允许文本超出检测框边界
-                    # dst_points[..., 0] = dst_points[..., 0].clip(0, img.shape[1] - 1)  
-                    # dst_points[..., 1] = dst_points[..., 1].clip(0, img.shape[0] - 1)  
+                        # Narrow region (manga bubble): grow downward, anchor at top
+                        poly = affinity.scale(poly, xfact=1.0, yfact=scale_y, origin=(minx, miny))
+                    pts = np.array(poly.exterior.coords[:4])
+                    dst_points = rotate_polygons(
+                        region.center, pts.reshape(1, -1), -region.angle,
+                        to_int=False,
+                    ).reshape(-1, 4, 2)
                     dst_points = dst_points.astype(np.int64)
-                    # Clip to image bounds — prevent text from overflowing right/bottom edge
                     dst_points[..., 0] = dst_points[..., 0].clip(0, img.shape[1] - 1)
                     dst_points[..., 1] = dst_points[..., 1].clip(0, img.shape[0] - 1)
-                    single_axis_expanded = True
-                    # logger.debug(f"Successfully expanded horizontal text width: xfact={scale_x:.2f}")  
-                except Exception as e:  
-                    # logger.error(f"Failed to expand horizontal text: {e}")  
+                except Exception:
                     pass
-                    
+
         if region.vertical:
-            used_cols = len(region.texts)
-            # logger.debug(f"Vertical text - used columns: {used_cols}")
-            
+            used_cols = max(1, len(region.texts))
             line_text_list, _ = text_render.calc_vertical(
-                region.font_size, 
-                region.translation, 
+                region.font_size,
+                region.translation,
                 max_height=region.unrotated_size[1],
             )
             needed_cols = len(line_text_list)
-            # logger.debug(f"Needed columns: {needed_cols}") 
             if needed_cols > used_cols:
-                scale_x = ((needed_cols - used_cols) / used_cols) * 1 + 1
-                try:  
+                scale_x = min(((needed_cols - used_cols) / used_cols) + 1, 2.0)
+                try:
                     poly = Polygon(region.unrotated_min_rect[0])
                     minx, miny, maxx, maxy = poly.bounds
-                    poly = affinity.scale(poly, xfact=1.0, yfact=scale_x, origin=(minx, miny))                    
-                    
-                    pts = np.array(poly.exterior.coords[:4])  
-                    dst_points = rotate_polygons(  
-                        region.center, pts.reshape(1, -1), -region.angle,  
-                        to_int=False  
-                    ).reshape(-1, 4, 2)  
-                    # 移除边界限制，允许文本超出检测框边界
-                    # dst_points[..., 0] = dst_points[..., 0].clip(0, img.shape[1] - 1)  
-                    # dst_points[..., 1] = dst_points[..., 1].clip(0, img.shape[0] - 1)  
+                    poly = affinity.scale(poly, xfact=1.0, yfact=scale_x, origin=(minx, miny))
+                    pts = np.array(poly.exterior.coords[:4])
+                    dst_points = rotate_polygons(
+                        region.center, pts.reshape(1, -1), -region.angle,
+                        to_int=False,
+                    ).reshape(-1, 4, 2)
                     dst_points = dst_points.astype(np.int64)
-                    # Clip to image bounds — prevent text from overflowing right/bottom edge
                     dst_points[..., 0] = dst_points[..., 0].clip(0, img.shape[1] - 1)
                     dst_points[..., 1] = dst_points[..., 1].clip(0, img.shape[0] - 1)
                     single_axis_expanded = True
-                    # logger.debug(f"Successfully expanded vertical text width: xfact={scale_x:.2f}")  
-                except Exception as e:  
-                    # logger.error(f"Failed to expand vertical text: {e}")  
+                except Exception:
                     pass
 
-        # If single-axis expansion failed, use general scaling
-        if not single_axis_expanded:
-            # Calculate scaling factor based on text length ratio
-            orig_text = getattr(region, "text_raw", region.text)
-            char_count_orig = count_text_length(orig_text)
-            char_count_trans = count_text_length(region.translation.strip())     
-            length_ratio = 1.0
+        # Ensure dst_points is never None — render() will crash if it is
+        if dst_points is None:
+            dst_points = region.min_rect
 
-            if char_count_orig > 0 and char_count_trans > char_count_orig:  
-                increase_percentage = (char_count_trans - char_count_orig) / char_count_orig
-                font_increase_ratio = 1 + (increase_percentage * 0.3)
-                font_increase_ratio = min(1.5, max(1.0, font_increase_ratio))
-                # logger.debug(f"Translation is {increase_percentage:.2%} longer, font increase ratio: {font_increase_ratio:.2f}")
-                target_font_size = int(target_font_size * font_increase_ratio)
-                # logger.debug(f"Adjusted target font size: {target_font_size}")
-                # Need greater bounding box scaling to accommodate larger font size and longer text
-                target_scale = max(1, min(1 + increase_percentage * 0.3, 2))  # Possibly max(1, min(1 + (font_increase_ratio-1), 2))
-                # logger.debug(f"Translation is longer than original and font increased, need larger bounding box scaling. Target scale factor: {target_scale:.2f}")
-            # Short text box expansion is quite aggressive, in many cases short text boxes don't need expansion
-            # elif char_count_orig > 0 and char_count_trans < char_count_orig:
-            #     # Translation is shorter, increase font proportionally
-            #     decrease_percentage = (char_count_orig - char_count_trans) / char_count_orig
-            #     # Font increase ratio equals text reduction ratio
-            #     font_increase_ratio = 1 + decrease_percentage
-            #     # Limit font increase ratio to reasonable range, e.g., between 1.0 and 1.5
-            #     font_increase_ratio = min(1.5, max(1.0, font_increase_ratio))
-            #     logger.debug(f"Translation is {decrease_percentage:.2%} shorter than original, font increase ratio: {font_increase_ratio:.2f}")
-            #     # Update target font size
-            #     target_font_size = int(target_font_size * font_increase_ratio)
-            #     logger.debug(f"Adjusted target font size: {target_font_size}")
-            #     target_scale = 1.0  # No additional bounding box scaling needed
-            #     logger.debug(f"Translation is shorter than original, no bounding box scaling applied, only font increase. Target scale factor: {target_scale:.2f}")            
-            else:  
-                target_scale = 1              
-                # logger.debug(f"No length ratio scaling applied. Target scale factor: {target_scale:.2f}")   
-
-            # Calculate final scaling factor
-            font_size_scale = (((target_font_size - original_region_font_size) / original_region_font_size) * 0.4 + 1) if original_region_font_size > 0 else 1.0  
-            # logger.debug(f"Font size ratio: ({target_font_size} / {original_region_font_size})")  
-            final_scale = max(font_size_scale, target_scale)
-            final_scale = max(1, min(final_scale, 1.1))  
-            
-            # logger.debug(f"Final scaling factor: {final_scale:.2f}")  
-
-            # Scale bounding box if needed
-            if final_scale > 1.001:  
-                # logger.debug(f"Scaling bounding box: text='{region.translation}', scale={final_scale:.2f}")  
-                try:  
-                    poly = Polygon(region.unrotated_min_rect[0])  
-                     # Scale from the center  
-                    poly = affinity.scale(poly, xfact=final_scale, yfact=final_scale, origin='center')  
-                    scaled_unrotated_points = np.array(poly.exterior.coords[:4])  
-
-                    dst_points = rotate_polygons(region.center, scaled_unrotated_points.reshape(1, -1), -region.angle, to_int=False).reshape(-1, 4, 2)  
-                    # 移除边界限制，允许文本超出检测框边界
-                    # dst_points[..., 0] = dst_points[..., 0].clip(0, img.shape[1] - 1)  
-                    # dst_points[..., 1] = dst_points[..., 1].clip(0, img.shape[0] - 1)  
-                    dst_points = dst_points.astype(np.int64)  
-                    dst_points = dst_points.reshape((-1, 4, 2))  
-                    # Clip to image bounds — prevent text from overflowing right/bottom edge
-                    dst_points[..., 0] = dst_points[..., 0].clip(0, img.shape[1] - 1)
-                    dst_points[..., 1] = dst_points[..., 1].clip(0, img.shape[0] - 1)
-                    # logger.debug(f"Finished calculating scaled dst_points.")  
-
-                except Exception as e:  
-                    # logger.error(f"Error during scaling for text '{region.translation}': {e}. Using original min_rect.")  
-                    dst_points = region.min_rect
-            else:
-                dst_points = region.min_rect
-
-        # Store results and update font size
-        dst_points_list.append(dst_points)  
+        dst_points_list.append(dst_points)
         region.font_size = int(target_font_size)
 
     return dst_points_list

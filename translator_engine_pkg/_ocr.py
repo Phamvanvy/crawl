@@ -1,6 +1,7 @@
 """
 _ocr.py — OCR engines, speech bubble detection, deduplication.
 Phụ thuộc: paddleocr (ưu tiên), easyocr (fallback), cv2, numpy (lazy imports).
+Hỗ trợ: Tiếng Trung (zh), tiếng Nhật (ja), mixed.
 """
 
 import re
@@ -8,10 +9,75 @@ import threading
 
 import numpy  # noqa – checked lazily inside functions
 
+from ._common_utils import (
+    ZH_RE,
+    JA_HIRAGANA_RE,
+    JA_KATAKANA_RE,
+    JA_KANJI_RE,
+    JA_RE,
+    EN_WORD_RE,
+    contains_chinese,
+    contains_japanese,
+    contains_cjk,
+)
+
 # ── Constants ─────────────────────────────────────────────────────────────────
 _ML_THREAD_LIMIT = "2"
-_ZH_RE = re.compile(r"[\u4e00-\u9fff\u3400-\u4dbf]")
 _EN_RE = re.compile(r"[a-zA-Z]{2,}")
+
+# Re-export for backward compatibility (used by __init__.py exports)
+_ZH_RE = ZH_RE
+_JA_RE = JA_RE
+
+# ── Language detection ────────────────────────────────────────────────────────
+_JA_PADDLE_LANGS = ["ch"]  # PaddleOCR uses "ch" for Japanese too
+_ZH_PADDLE_LANGS = ["ch"]
+
+
+def detect_language(text: str) -> str:
+    """Auto-detect source language from OCR text.
+    
+    Returns: 'ja' for Japanese, 'zh' for Chinese, 'en' for English.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return "en"
+    
+    ja_chars = JA_RE.findall(text)
+    zh_chars = ZH_RE.findall(text)
+    
+    ja_count = len(ja_chars)
+    zh_count = len(zh_chars)
+    
+    # Hiragana/Katakana = definitely Japanese
+    if JA_HIRAGANA_RE.search(text) or JA_KATAKANA_RE.search(text):
+        return "ja"
+    
+    # Compare ratio
+    total = ja_count + zh_count
+    if total == 0:
+        return "en"
+    
+    # If > 30% is Japanese-specific chars → Japanese
+    if ja_count / total > 0.3:
+        return "ja"
+    
+    return "zh"  # Default to Chinese
+
+
+def get_paddle_lang_for_source(src_lang: str) -> str:
+    """Get the PaddleOCR language code for the source language."""
+    if src_lang == "ja":
+        return "japan"  # PaddleOCR Japanese model language code
+    return "ch"  # Chinese model also handles Japanese reasonably
+
+
+def get_easyocr_langs_for_source(src_lang: str) -> list:
+    """Get EasyOCR language list for the source language."""
+    if src_lang == "ja":
+        return ["ja", "en"]
+    elif src_lang == "zh":
+        return ["ch_sim", "en"]
+    return ["en"]
 
 # ── Global OCR readers (lazy, keyed by lang+gpu) ──────────────────────────────
 _paddle_readers: dict = {}
@@ -44,7 +110,7 @@ def _get_paddle_reader(gpu: bool = True, lang: str = "ch"):
 
 
 def _get_easyocr_reader(gpu: bool = True, src_lang: str = "zh"):
-    langs = ["ch_sim", "en"] if src_lang == "zh" else ["en"]
+    langs = get_easyocr_langs_for_source(src_lang)
     key = (tuple(langs), gpu)
     with _easyocr_lock:
         if key not in _easyocr_readers:
@@ -240,7 +306,7 @@ def _run_ocr_engine(img_array, gpu: bool = True, src_lang: str = "zh") -> list[t
     ✅ Get results from all steps (don't stop early) to catch SFX/art text.
     Returns list of (bbox_4pts, text, confidence).
     """
-    paddle_lang = "ch" if src_lang == "zh" else "en"
+    paddle_lang = get_paddle_lang_for_source(src_lang)
     all_hits: list[tuple] = []
 
     try:
@@ -446,7 +512,11 @@ def _run_ocr(img_array, gpu: bool = True, src_lang: str = "zh") -> list[tuple]:
 
 
 def has_chinese(text: str) -> bool:
-    return bool(_ZH_RE.search(text))
+    return contains_chinese(text)
+
+
+def has_japanese(text: str) -> bool:
+    return contains_japanese(text)
 
 
 def has_english(text: str) -> bool:

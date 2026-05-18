@@ -159,7 +159,8 @@ def render_text(img_pil, bbox, text: str, font_path: str | None,
                 strict_clip: bool = False, font_scale: float = 1.0,
                 bbox_index: int = 0):
     """Vẽ text ngang vào vùng bbox với pixel-accurate word wrap.
-    
+
+    Dùng crop-draw-paste để text không thể tràn ra ngoài bbox (lưu ý 5, 6).
     bbox_index: dùng để chọn font đa dạng giữa các bong bóng (lưu ý 4).
     """
     from PIL import ImageDraw
@@ -174,21 +175,22 @@ def render_text(img_pil, bbox, text: str, font_path: str | None,
     if img_pil.mode != "RGB":
         img_pil = img_pil.convert("RGB")
 
-    draw = ImageDraw.Draw(img_pil)
     x1, y1, x2, y2 = _bbox_xyxy(bbox)
     x1i, y1i, x2i, y2i = int(x1), int(y1), int(x2), int(y2)
     iw, ih = img_pil.size
+    # Clamp bbox vào giới hạn ảnh
+    x1i = max(0, x1i); y1i = max(0, y1i)
+    x2i = min(iw, x2i); y2i = min(ih, y2i)
     bw = max(x2i - x1i, 40)
     bh = max(y2i - y1i, 16)
 
-    arr = np.array(img_pil.convert("RGB"))
-    ry1, ry2 = max(0, y1i), min(ih, y2i)
-    rx1, rx2 = max(0, x1i), min(iw, x2i)
-    if ry2 > ry1 and rx2 > rx1:
-        roi = arr[ry1:ry2, rx1:rx2]
-        bg_rgb = tuple(int(v) for v in np.median(roi.reshape(-1, 3), axis=0))
-    else:
-        bg_rgb = (20, 20, 20)
+    # Crop vùng bbox ra để vẽ — PIL tự clip bất kỳ nét vẽ nào vượt quá kích thước region
+    region = img_pil.crop((x1i, y1i, x1i + bw, y1i + bh))
+    draw   = ImageDraw.Draw(region)
+
+    # Lấy màu nền từ region để chọn màu chữ tương phản
+    arr = np.array(region)
+    bg_rgb = tuple(int(v) for v in np.median(arr.reshape(-1, 3), axis=0))
 
     brightness   = sum(bg_rgb) / 3
     text_color   = (255, 255, 255) if brightness < 140 else (0, 0, 0)
@@ -197,11 +199,21 @@ def render_text(img_pil, bbox, text: str, font_path: str | None,
     pad     = max(4, int(min(bw, bh) * 0.07))
     inner_w = max(bw - pad * 2, 20)
     inner_h = max(bh - pad * 2, 12)
-    max_start = max(min(inner_h // 4, 24), 8)
-    if not strict_clip:
-        max_start = min(max_start, max(8, inner_h // 5))
+
+    # Khi strict_clip=False, bbox đã được expand ~30-40% so với OCR text thực tế.
+    # Dùng 65% inner để tính font/wrap, giữ chữ nằm gọn trong balloon thực tế.
+    if strict_clip:
+        render_w = inner_w
+        render_h = inner_h
+        abs_max_font = 18
+    else:
+        render_w = max(20, int(inner_w * 0.65))
+        render_h = max(12, int(inner_h * 0.65))
+        abs_max_font = 16
+
+    max_start = max(min(render_h // 4, abs_max_font), 6)
     max_start = max(6, int(max_start * font_scale))
-    wrap_w  = inner_w if strict_clip else min(inner_w, 180)
+    wrap_w = render_w
 
     best_font  = None
     best_lines = [text]
@@ -225,7 +237,7 @@ def render_text(img_pil, bbox, text: str, font_path: str | None,
             lines = _wrap_text_px(draw, text, font, current_wrap, allow_hard_split=False)
             if lines is None:
                 continue
-            if (lh + 2) * len(lines) <= inner_h:
+            if (lh + 2) * len(lines) <= render_h:
                 best_font  = font
                 best_lines = lines
                 best_lh    = lh
@@ -236,7 +248,7 @@ def render_text(img_pil, bbox, text: str, font_path: str | None,
 
     if best_font is None:
         best_font  = _load_font(font_path, 6)
-        best_lines = _wrap_text_px(draw, text, best_font, max(10, int(inner_w * 0.55)), allow_hard_split=True)
+        best_lines = _wrap_text_px(draw, text, best_font, max(10, int(render_w * 0.55)), allow_hard_split=True)
         if best_lines is None:
             best_lines = [text]
         try:
@@ -246,32 +258,31 @@ def render_text(img_pil, bbox, text: str, font_path: str | None,
             best_lh = 8
 
     line_spacing = max(2, best_lh // 5)
-    max_lines = max(1, inner_h // (best_lh + line_spacing))
+    max_lines = max(1, render_h // (best_lh + line_spacing))
     if len(best_lines) > max_lines:
         best_lines = best_lines[:max_lines]
         if best_lines:
             tail = best_lines[-1].rstrip()
             best_lines[-1] = (tail + "...") if tail else "..."
 
-    total_h   = len(best_lines) * (best_lh + line_spacing) - line_spacing
-    actual_y2 = min(y2i, y1i + total_h + pad * 2)
+    total_h = len(best_lines) * (best_lh + line_spacing) - line_spacing
 
     # Lưu ý 1: Không bôi trắng — inpainter đã xử lý nền, chỉ vẽ chữ lên.
-    # (Bỏ draw.rectangle fill để tránh tạo hộp màu đặc che mất artwork gốc)
-
-    # Căn giữa dọc (lưu ý 5, 6: xếp dòng ở giữa bong bóng)
-    ty = y1i + max(pad, (bh - total_h) // 2)
+    # Lưu ý 5, 6: Căn giữa dọc + ngang trong bong bóng, dùng tọa độ tương đối so với region
+    ty = max(pad, (bh - total_h) // 2)
     for line in best_lines:
         try:
             lb = draw.textbbox((0, 0), line, font=best_font)
             lw = lb[2] - lb[0]
         except Exception:
             lw = len(line) * best_lh // 2
-        # Căn giữa ngang
-        tx = x1i + max(pad, (bw - lw) // 2)
+        # Căn giữa ngang — tx là tọa độ trong region, không thể vượt quá bw
+        tx = max(pad, (bw - lw) // 2)
         _draw_text_with_shadow(draw, (tx, ty), line, best_font, text_color, shadow_color)
         ty += best_lh + line_spacing
 
+    # Paste region đã vẽ chữ trở lại ảnh gốc — mọi pixel ngoài (bw×bh) tự bị clip
+    img_pil.paste(region, (x1i, y1i))
     return img_pil
 
 
