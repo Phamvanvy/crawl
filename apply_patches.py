@@ -5,21 +5,35 @@ Usage:
     python apply_patches.py
 
 Run this once after:
-    pip install git+https://github.com/zyddnys/manga-image-translator.git
-    (or after re-creating mit_venv)
+    - Cloning tmp_repo (git clone https://github.com/zyddnys/manga-image-translator.git tmp_repo)
+    - pip install -e tmp_repo
+    - Re-creating mit_venv
+    - Modifying any file in patches/
+
+SOURCE OF TRUTH: patches/ directory — do NOT edit files in tmp_repo/ directly.
+After editing a patch file, always run: python apply_patches.py
 
 Patches applied:
   1. manga_translator/rendering/__init__.py
-     - Use target_font_size (after offset) for word-wrap calculation instead of
-       original region.font_size — prevents bbox from expanding sideways into
-       character art when Vietnamese text is longer than Chinese source.
-     - Re-enable boundary clipping so text never overflows past image edges.
+     - fg_bg_compare: force black text + white stroke when OCR-detected bg is dark.
+     - Pixel sampling: sample actual inpainted image pixels at render location;
+       if background brightness < 210 → force black text + white stroke (thick outline
+       visible on dark manga artwork, matching Chinese source style).
+     - Reduce font size instead of expanding bbox when VI text is longer than ZH source
+       (prevents overflow outside speech bubbles).
+     - Debug log [stroke-debug] per region (INFO level).
+
   2. manga_translator/rendering/text_render.py
-     - Guard against empty line_width_list in put_text_horizontal to prevent
-       ValueError: max() arg is an empty sequence when rendering invisible
-       characters like ZWJ (U+200D) used for watermark erasure.
+     - bg_size = 0.4 × font_size (min 4px) instead of default 0.07 — much thicker stroke.
+     - stroke_radius in put_char_vertical / put_char_horizontal now uses border_size
+       (was hardcoded 0.07 × font_size — bug causing stroke to be invisible).
+     - Guard against empty line_width_list in put_text_horizontal (prevents crash
+       on invisible characters like ZWJ U+200D used for watermark erasure).
+
   3. manga_translator/translators/custom_openai.py
      - Custom OpenAI-compatible translator with Vietnamese enforcement.
+     - Uses <|n|> segment markers so multi-line translations are correctly mapped
+       to their source segments (prevents text loss on long translations).
      - Watermark detection → ZWJ fallback for inpainting without rendering.
      - Retry up to 10 times when output is not Vietnamese.
 """

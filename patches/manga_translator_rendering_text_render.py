@@ -450,7 +450,7 @@ def put_char_vertical(font_size: int, cdpt: str, pen_l: Tuple[int, int], canvas_
         
         # 设置描边半径和样式  
         # Set stroke radius and style  
-        stroke_radius = 64 * max(int(0.07 * font_size), 1)  # 基于字体大小的比例值 / Proportional value based on font size  
+        stroke_radius = 64 * border_size  # Dùng border_size từ put_text_vertical (0.4 * font_size)
         stroker.set(stroke_radius, freetype.FT_STROKER_LINEJOIN_ROUND, freetype.FT_STROKER_LINECAP_ROUND, 0)  
         
         # 应用描边效果  
@@ -542,7 +542,7 @@ def put_text_vertical(font_size: int, text: str, h: int, alignment: str, fg: Tup
     text = compact_special_symbols(text)
     if not text :
         return
-    bg_size = int(max(font_size * 0.15, 2)) if bg is not None else 0
+    bg_size = int(max(font_size * 0.4, 4)) if bg is not None else 0
     spacing_x = int(font_size * (line_spacing or 0.2))
 
     # make large canvas
@@ -1006,7 +1006,7 @@ def put_char_horizontal(font_size: int, cdpt: str, pen_l: Tuple[int, int], canva
         
         # Configure stroker 配置描边器
         stroker = freetype.Stroker()
-        stroke_radius = 64 * max(int(0.07 * font_size), 1)  # In 1/64 pixel units 单位: 1/64 像素
+        stroke_radius = 64 * border_size  # Dùng border_size từ put_text_horizontal (0.4 * font_size)
         stroker.set(stroke_radius, 
                    freetype.FT_STROKER_LINEJOIN_ROUND,  # Round joins 圆角连接
                    freetype.FT_STROKER_LINECAP_ROUND,   # Round line caps 圆头线帽
@@ -1121,7 +1121,7 @@ def put_text_horizontal(font_size: int, text: str, width: int, height: int, alig
     text = compact_special_symbols(text)
     if not text :
         return
-    bg_size = int(max(font_size * 0.15, 2)) if bg is not None else 0
+    bg_size = int(max(font_size * 0.4, 4)) if bg is not None else 0
     spacing_y = int(font_size * (line_spacing or 0.01))
 
     # calc

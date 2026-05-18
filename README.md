@@ -128,13 +128,25 @@ py -3.11 -m venv mit_venv ; .\mit_venv\Scripts\python.exe -m pip install --upgra
 
 ## Patches tùy chỉnh (`apply_patches.py`)
 
-`apply_patches.py` copy 3 file patch vào `manga_translator` bên trong `mit_venv`:
+Thư mục `patches/` chứa các bản thay thế hoàn chỉnh cho 3 file trong thư viện `manga-image-translator`.  
+`apply_patches.py` copy chúng vào đúng vị trí trong `tmp_repo` (editable install).
 
-| File patch | Nội dung |
-|---|---|
-| `rendering/__init__.py` | Giảm font size thay vì mở rộng bbox khi text VI dài hơn TQ — ngăn tràn ra ngoài bong bóng |
-| `rendering/text_render.py` | Guard empty `line_width_list` (tránh crash với ký tự ZWJ) |
-| `translators/custom_openai.py` | Custom OpenAI translator, watermark detection → ZWJ fallback, retry 10 lần nếu output không phải Việt |
+> ⚠️ `tmp_repo/` là thư viện ngoài — **không sửa trực tiếp trong đó**.  
+> Mọi thay đổi phải được lưu vào `patches/` rồi chạy `python apply_patches.py`.
+
+| File trong `patches/` | Đích | Nội dung thay đổi |
+|---|---|---|
+| `manga_translator_rendering_init.py` | `manga_translator/rendering/__init__.py` | • Giảm font size thay vì mở rộng bbox (tránh tràn bong bóng)<br>• `fg_bg_compare`: chữ đen + stroke trắng khi nền OCR tối<br>• Pixel sampling thực tế sau inpaint: nếu nền <210 brightness → force chữ đen + stroke trắng<br>• Debug log `[stroke-debug]` per region |
+| `manga_translator_rendering_text_render.py` | `manga_translator/rendering/text_render.py` | • Guard empty `line_width_list` (tránh crash ZWJ)<br>• `bg_size = 0.4 × font_size` (min 4px) — stroke dày hơn mặc định 0.07<br>• `stroke_radius` trong `put_char_*` dùng `border_size` thay vì hardcode 0.07 |
+| `manga_translator_translators_custom_openai.py` | `manga_translator/translators/custom_openai.py` | • Custom OpenAI-compatible translator với segment markers `<\|n\|>`<br>• Watermark detection → ZWJ fallback<br>• Retry tới 10 lần nếu output không phải Việt |
+
+**Workflow chỉnh sửa patch:**
+```powershell
+# 1. Sửa file trong patches/  (KHÔNG sửa trực tiếp trong tmp_repo/)
+# 2. Áp dụng vào tmp_repo:
+python apply_patches.py
+# 3. Chạy lại web app để thấy kết quả
+```
 
 ---
 
@@ -178,10 +190,10 @@ crawl/
 │   ├── _render.py          — Font loading, text rendering
 │   ├── _image_translator.py — ImageTranslator class (Ollama backend)
 │   └── _mit_backend.py     — MITImageTranslator class (MIT backend)
-├── patches/                — Patch files cho manga-image-translator
-│   ├── manga_translator_rendering_init.py     — Fix font sizing VI
-│   ├── manga_translator_rendering_text_render.py — Guard ZWJ crash
-│   └── manga_translator_translators_custom_openai.py — Custom translator
+├── patches/                — **Source of truth** cho các patch MIT (sửa ở đây, không sửa tmp_repo/)
+│   ├── manga_translator_rendering_init.py         — Rendering: contrast/stroke logic, font sizing VI
+│   ├── manga_translator_rendering_text_render.py  — Rendering: stroke radius fix, ZWJ crash guard
+│   └── manga_translator_translators_custom_openai.py — Custom translator với segment markers <|n|>
 ├── apply_patches.py        — Script áp dụng patches vào mit_venv
 ├── gpt_config_vi.yaml      — Config custom_openai translator
 ├── setup_translator.py     — Cài AI dependencies tự động

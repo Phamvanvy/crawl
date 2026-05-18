@@ -33,12 +33,11 @@ def fg_bg_compare(fg, bg):
     if color_difference(fg, bg) < 30:
         bg = (255, 255, 255) if fg_avg <= 127 else (0, 0, 0)
     # Extra: khi bg tối (vùng artwork không có speech bubble) mà fg cũng tối
-    # → chữ đen + stroke TRẮNG: halo trắng nổi bật rõ trên nền tối.
-    # Không trigger với chữ trắng (fg_avg ≥ 160) trên bubble đen như "TOÀN THÂN NÓNG RỰC".
+    # → chữ ĐEN + stroke TRẮNG dày: outline trắng nổi bật trên nền tối (giống bản gốc tiếng Trung).
     bg_avg = np.mean(bg)
     if bg_avg < 100 and np.mean(fg) < 160:
         fg = (0, 0, 0)           # chữ đen
-        bg = (255, 255, 255)     # stroke trắng — halo nổi trên nền tối
+        bg = (255, 255, 255)     # stroke trắng dày bao quanh
     return fg, bg
 
 def count_text_length(text: str) -> float:
@@ -257,6 +256,32 @@ def render(
 
     if disable_font_border :
         bg = None
+
+    # ── Sample ACTUAL image pixels at render location ──────────────────────────
+    # fg_bg_compare chỉ dựa vào màu OCR detect (bị ảnh hưởng bởi halftone manga).
+    # Sample pixel thực tế sau inpaint để biết chính xác nền tối hay sáng.
+    if bg is not None:
+        try:
+            pts = dst_points[0]  # shape (4, 2)
+            minx = int(max(0, pts[:, 0].min()))
+            maxx = int(min(img.shape[1], pts[:, 0].max()))
+            miny = int(max(0, pts[:, 1].min()))
+            maxy = int(min(img.shape[0], pts[:, 1].max()))
+            if maxx > minx and maxy > miny:
+                actual_brightness = float(np.mean(img[miny:maxy, minx:maxx]))
+                fg_brightness = float(np.mean(fg))
+                triggered = actual_brightness < 210 and fg_brightness < 200
+                logger.info(
+                    f'[stroke-debug] text="{region.get_translation_for_rendering()[:30]}" '
+                    f'actual_bg={actual_brightness:.1f} fg_bright={fg_brightness:.1f} '
+                    f'fg_in={fg} bg_in={bg} '
+                    f'-> {"WHITE_STROKE" if triggered else "no_change"}'
+                )
+                if triggered:
+                    fg = (0, 0, 0)           # chữ đen
+                    bg = (255, 255, 255)     # stroke trắng dày (như bản gốc tiếng Trung)
+        except Exception as e:
+            logger.info(f'[stroke-debug] exception: {e}')
 
     middle_pts = (dst_points[:, [1, 2, 3, 0]] + dst_points) / 2
     norm_h = np.linalg.norm(middle_pts[:, 1] - middle_pts[:, 3], axis=1)

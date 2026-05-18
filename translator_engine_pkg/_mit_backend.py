@@ -145,7 +145,7 @@ def _python_imports_ok(python_exe: Path, modules: list[str]) -> tuple[bool, str]
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=15,
+            timeout=60,
         )
         stdout = (r.stdout or "").strip()
         stderr = (r.stderr or "").strip()
