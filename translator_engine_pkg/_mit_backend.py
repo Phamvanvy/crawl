@@ -202,6 +202,7 @@ class MITImageTranslator:
         detection_size: str = "",
         mask_dilation_offset: str = "",
         unclip_ratio: str = "",
+        box_threshold: str = "",
         font_size_offset: str = "",
         font_size_minimum: str = "",
         font_size_fixed: str = "",
@@ -227,6 +228,7 @@ class MITImageTranslator:
         self.detection_size        = detection_size
         self.mask_dilation_offset  = mask_dilation_offset
         self.unclip_ratio          = unclip_ratio
+        self.box_threshold         = box_threshold
         self.font_size_offset      = font_size_offset
         self.font_size_minimum     = font_size_minimum
         self.font_size_fixed       = font_size_fixed
@@ -285,6 +287,8 @@ class MITImageTranslator:
             cfg["mask_dilation_offset"] = int(self.mask_dilation_offset)
         if self.unclip_ratio:
             cfg.setdefault("detector", {})["unclip_ratio"] = float(self.unclip_ratio)
+        if self.box_threshold:
+            cfg.setdefault("detector", {})["box_threshold"] = float(self.box_threshold)
         if self.upscale_ratio:
             cfg["upscale"] = {"upscale_ratio": int(self.upscale_ratio)}
         if self.font_size_offset:

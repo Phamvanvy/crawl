@@ -495,6 +495,7 @@ def api_translate_start():
     mit_det_size      = str(data.get("mit_det_size",     "")).strip()
     mit_mask_dil      = str(data.get("mit_mask_dil",     "")).strip()
     mit_unclip         = str(data.get("mit_unclip",       "")).strip()
+    mit_box_thr       = str(data.get("mit_box_thr",      "")).strip()
     mit_font_ofs      = str(data.get("mit_font_ofs",     "")).strip()
     mit_font_min      = str(data.get("mit_font_min",     "")).strip()
     mit_font_fixed    = str(data.get("mit_font_fixed",   "")).strip()
@@ -572,6 +573,7 @@ def api_translate_start():
                     detection_size=mit_det_size,
                     mask_dilation_offset=mit_mask_dil,
                     unclip_ratio=mit_unclip,
+                    box_threshold=mit_box_thr,
                     font_size_offset=mit_font_ofs,
                     font_size_minimum=mit_font_min,
                     font_size_fixed=mit_font_fixed,

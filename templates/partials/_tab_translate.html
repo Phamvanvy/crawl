@@ -229,12 +229,12 @@
               <div class="grid-3">
                 <div class="field" style="margin-bottom:0">
                   <label><span class="tt-wrap">Detector<span class="tt-icon">?</span><span class="tt-box">Model nhận diện vùng chữ trong ảnh.
-• default — tự chọn tốt nhất
-• ctd — chuyên cho manga Nhật, phát hiện bong bóng hội thoại
+• default — dbconvnext, tốt cho manga thông thường
+• ctd ★ — Comic Text Detector, TỐTHƠN cho SFX/âm thanh nghệ thuật, chữ nằm ngoài bong bóng, chữ chìm trong hình vẽ
 • craft — tổng quát, tốt với scene text
-• paddle — dùng PaddleOCR detector, nhanh hơn
+• paddle — PaddleOCR, tốt với chữ nhỏ/mật độ cao
 
-Với truyện tranh dùng ctd. Với CG/ảnh 3D để default.</span></span></label>
+Chữ SFX / âm thanh chưa detect được → thử ctd + box_thr 0.5.</span></span></label>
                   <select id="tMITDetector" class="field select sm">
                     <option value="">default</option>
                     <option value="ctd">ctd (manga)</option>
@@ -244,12 +244,12 @@ Với truyện tranh dùng ctd. Với CG/ảnh 3D để default.</span></span></
                 </div>
                 <div class="field" style="margin-bottom:0">
                   <label><span class="tt-wrap">Inpainter<span class="tt-icon">?</span><span class="tt-box">Model xoá chữ gốc và tái tạo nền sau inpaint.
-• lama_large ★ — chất lượng cao nhất, dùng deep learning (~800MB VRAM)
-• lama_mpe — nhẹ hơn, chất lượng gần tương đương
-• opencv — nhanh nhất, không cần GPU, chất lượng thấp
-• none — giữ nguyên nền, chỉ render chữ mới đè lên
+• lama_large — chất lượng cao, nhưng có thể làm nhòe halftone/chấm bi manga
+• lama_mpe ★ manga — nhẹ hơn, giữ texture tốt hơn với halftone, ít blur hơn
+• original — GIỮ NGUYÊN ảnh gốc, chỉ đặt chữ mới lên (chữ gốc vẫn thấy bên dưới)
+• none — không xoá chữ gốc, không inpaint, render chữ mới đè thẳng lên
 
-Khuyến nghị: lama_large nếu có GPU.</span></span></label>
+⚠ Manga đen trắng bị nhòe nền → thử lama_mpe thay lama_large.</span></span></label>
                   <select id="tMITInpainter" class="field select sm">
                     <option value="">default</option>
                     <option value="lama_large" selected>lama_large ✦</option>
@@ -314,6 +314,19 @@ Mặc định: 2.3
 
 ⚠ Quá lớn có thể gộp lẫn các vùng chữ khác nhau và shift vị trí render.</span></span></label>
                   <input type="number" id="tMITUnclip" placeholder="2.3" min="1" max="8" step="0.1" value=""
+                    style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-family:inherit;font-size:.82rem;outline:none;width:100%" />
+                </div>
+                <div class="field" style="margin-bottom:0">
+                  <label><span class="tt-wrap">Box thr. <span style="opacity:.55;font-size:.75rem">(SFX: 0.5)</span><span class="tt-icon">?</span><span class="tt-box">Ngưỡng tin cậy để giữ lại một bounding box text.
+Mặc định: 0.7
+
+• Để trống — dùng mặc định 0.7
+• 0.5–0.6 — detect thêm chữ SFX nghệ thuật, sound effect, chữ nhỏ ở góc
+• 0.3–0.4 — detect rất nhiều vùng, có thể gây false positive (ảnh bị nhận nhầm là chữ)
+• 0.7 — mặc định gốc manga, bỏ sót SFX/âm thanh nhỏ
+
+⚠ Giảm quá thấp có thể dịch nhầm ảnh nền thành text.</span></span></label>
+                  <input type="number" id="tMITBoxThr" placeholder="0.7" min="0.1" max="0.9" step="0.05" value=""
                     style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-family:inherit;font-size:.82rem;outline:none;width:100%" />
                 </div>
                 <div class="field" style="margin-bottom:0">

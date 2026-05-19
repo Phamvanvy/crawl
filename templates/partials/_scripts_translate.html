@@ -163,6 +163,7 @@ async function tStart() {
   const mit_det_size     = getVal('tMITDetSize');
   const mit_mask_dil     = $('tMITMaskDil').value;
   const mit_unclip       = $('tMITUnclip').value;
+  const mit_box_thr      = $('tMITBoxThr') ? $('tMITBoxThr').value : '';
   const mit_font_ofs     = $('tMITFontOfs').value;
   const mit_font_min     = $('tMITFontMin').value;
   const mit_font_fixed   = $('tMITFontFixed').value;
@@ -203,7 +204,7 @@ async function tStart() {
         llm_api_type, llm_base_url,
         mit_translator, mit_target_lang,
         mit_detector, mit_inpainter, mit_upscale, mit_det_size,
-        mit_mask_dil, mit_unclip, mit_font_ofs, mit_font_min, mit_font_fixed, mit_font_color,
+        mit_mask_dil, mit_unclip, mit_box_thr, mit_font_ofs, mit_font_min, mit_font_fixed, mit_font_color,
         mit_custom_api_base, mit_custom_api_key,
         mit_verbose, mit_skip_no_text, mit_overwrite,
         inpainter, overwrite, font_scale, cpu_priority,
