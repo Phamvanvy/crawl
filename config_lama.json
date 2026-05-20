@@ -1,0 +1,33 @@
+{
+  "detector": {
+    "detector": "ctd",
+    "detection_size": 2560,
+    "box_threshold": 0.25,
+    "unclip_ratio": 2.6,
+    "det_invert": false,
+    "det_gamma_correct": false,
+    "det_rotate": false,
+    "det_auto_rotate": false
+  },
+  "ocr": {
+    "ocr": "48px",
+    "min_text_length": 0,
+    "ignore_bubble": 0,
+    "use_mocr_merge": true
+  },
+  "inpainter": {
+    "inpainter": "lama_large",
+    "inpainting_size": 2048,
+    "inpainting_precision": "bf16"
+  },
+  "mask_dilation_offset": 4,
+  "render": {
+    "renderer": "default",
+    "alignment": "auto",
+    "direction": "auto",
+    "font_size_offset": 0,
+    "font_size_minimum": 14,
+    "disable_font_border": false,
+    "no_hyphenation": false
+  }
+}

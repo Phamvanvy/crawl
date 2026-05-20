@@ -30,10 +30,9 @@
       </div>
     </div>
 
-    <!-- Settings -->
+    <!-- Settings (compact — backend selector + ⚙ button) -->
     <div class="card" style="margin-bottom:12px">
-      <div class="card-header" data-i18n="t.settings.header">Cài đặt dịch</div>
-      <div class="card-body">
+      <div class="card-body" style="padding:14px">
 
         <!-- ── Backend selector ───────────────────────────────────────── -->
         <div class="field">
@@ -55,10 +54,37 @@
                 <span class="bc-sub" data-i18n="t.backend.mit.sub">Chất lượng cao · nhiều model</span>
               </div>
             </label>
+            <label class="backend-option">
+              <input type="radio" name="tBackend" id="tBackendHybrid" value="hybrid" onchange="onBackendChange()" />
+              <div class="backend-card">
+                <span class="bc-icon">🔀</span>
+                <span class="bc-label">Hybrid MIT</span>
+                <span class="bc-sub">lama + SD ControlNet · 2-pass</span>
+              </div>
+            </label>
           </div>
         </div>
 
-        <hr class="divider" />
+        <!-- Settings summary + drawer button -->
+        <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
+          <div id="tSettingsSummary" style="flex:1;display:flex;flex-wrap:wrap;gap:4px"></div>
+          <button class="btn btn-ghost" onclick="openSettingsDrawer()"
+                  style="font-size:.8rem;padding:5px 14px;flex-shrink:0">⚙ Cài đặt…</button>
+        </div>
+
+      </div><!-- card-body compact settings -->
+    </div><!-- compact settings card -->
+
+    <!-- ══ Settings Drawer (position:fixed) ═════════════════════════════ -->
+    <div id="settingsDrawer" class="settings-drawer">
+      <div class="drawer-overlay" onclick="closeSettingsDrawer()"></div>
+      <div class="drawer-panel">
+        <div class="drawer-header">
+          <span>⚙ Cài đặt dịch</span>
+          <button class="btn btn-ghost" onclick="closeSettingsDrawer()"
+                  style="padding:4px 10px;font-size:.85rem">✕ Đóng</button>
+        </div>
+        <div class="drawer-body">
 
         <!-- ── OCR + Ollama options ───────────────────────────────────── -->
         <div id="tOllamaOptions">
@@ -203,6 +229,24 @@
             </select>
           </div>
 
+          <!-- MIT Translation Style -->
+          <div class="field" style="margin-bottom:0">
+            <label><span class="tt-wrap">Phong cách dịch<span class="tt-icon">?</span><span class="tt-box">Chỉ áp dụng khi dùng translator có hỗ trợ prompt (openai, deepseek, gemini, groq, custom_openai).
+Các translator offline (m2m100, nllb, sugoi…) không dùng prompt nên cài này không có tác dụng.
+
+• Hiện đại — anh/em/tôi, ngôn ngữ đời thường
+• Cổ trang / Kiếm hiệp — ta/ngươi/bổn tọa, từ cổ phong
+• Học đường / Romance — em/cô/thầy/bạn, nhẹ nhàng
+• Light Novel / Manga Nhật — mình/tớ/tao/senpai/kun/chan, giữ honorific</span></span></label>
+            <select id="tMITTranslationStyle" class="field select">
+              <option value="modern" selected>🏙️ Hiện đại / Slice-of-life</option>
+              <option value="wuxia">⚔️ Cổ trang / Kiếm hiệp</option>
+              <option value="school">🏫 Học đường / Romance</option>
+              <option value="lightnovel">📚 Light Novel / Manga Nhật</option>
+            </select>
+            <div class="field-hint">Hiện đại: anh/em · Cổ trang: ta/ngươi · Học đường: em/cô · LN: mình/senpai</div>
+          </div>
+
           <!-- Advanced collapsible -->
           <details>
             <summary class="adv-toggle">
@@ -217,6 +261,9 @@
                 <button type="button" onclick="mitPreset('manga')"
                   style="flex:1;padding:5px 8px;font-size:.75rem;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer"
                   title="Manga/truyện tranh: chữ trong bong bóng, bbox nhỏ">📖 Manga</button>
+                <button type="button" onclick="mitPreset('sfx')"
+                  style="flex:1;padding:5px 8px;font-size:.75rem;border-radius:6px;border:1px solid #e8a800;background:var(--surface2);color:#e8a800;cursor:pointer;font-weight:600"
+                  title="SFX/Âm thanh nghệ thuật: dùng YoloManga detector bắt SFX ngoài bong bóng + SD ControlNet inpainter giữ lineart — cần CUDA 16GB VRAM">🔊 SFX ★</button>
                 <button type="button" onclick="mitPreset('cg')"
                   style="flex:1;padding:5px 8px;font-size:.75rem;border-radius:6px;border:1px solid var(--accent,#7c6af7);background:var(--surface2);color:var(--accent,#7c6af7);cursor:pointer;font-weight:600"
                   title="CG/Visual novel: subtitle dài ở dưới ảnh, text nhỏ trắng nền đen">🎮 CG/VN ★</button>
@@ -233,14 +280,19 @@
 • ctd ★ — Comic Text Detector, TỐTHƠN cho SFX/âm thanh nghệ thuật, chữ nằm ngoài bong bóng, chữ chìm trong hình vẽ
 • craft — tổng quát, tốt với scene text
 • paddle — PaddleOCR, tốt với chữ nhỏ/mật độ cao
+• ⭐ yolomanga — YOLOv8m fine-tune manga, BẮT SFX/chữ nghệ thuật, chữ trong vùng tối, viền răng cưa — cần CUDA
 
-Chữ SFX / âm thanh chưa detect được → thử ctd + box_thr 0.5.</span></span></label>
+Chữ SFX / âm thanh chưa detect được → thử yolomanga + box_thr 0.35.</span></span></label>
                   <select id="tMITDetector" class="field select sm">
                     <option value="">default</option>
                     <option value="ctd">ctd (manga)</option>
                     <option value="craft">craft</option>
                     <option value="paddle">paddle</option>
+                    <option value="yolomanga">⭐ yolomanga (SFX)</option>
                   </select>
+                  <div id="detYolomangaNote" class="field-hint" style="display:none;color:#e8a800">
+                    ⚡ YOLOv8m — bắt SFX/chữ nghệ thuật tốt hơn. Lần đầu tự download ~50MB. Cần CUDA để chạy nhanh.
+                  </div>
                 </div>
                 <div class="field" style="margin-bottom:0">
                   <label><span class="tt-wrap">Inpainter<span class="tt-icon">?</span><span class="tt-box">Model xoá chữ gốc và tái tạo nền sau inpaint.
@@ -248,15 +300,22 @@ Chữ SFX / âm thanh chưa detect được → thử ctd + box_thr 0.5.</span><
 • lama_mpe ★ manga — nhẹ hơn, giữ texture tốt hơn với halftone, ít blur hơn
 • original — GIỮ NGUYÊN ảnh gốc, chỉ đặt chữ mới lên (chữ gốc vẫn thấy bên dưới)
 • none — không xoá chữ gốc, không inpaint, render chữ mới đè thẳng lên
+• ⭐ manga_sd_cn — SD1.5 MeinaMix + ControlNet-Inpaint + ControlNet-Lineart: GIỮ LINEART/screentone/hatching, không blur — cần 16GB VRAM + download ~7GB lần đầu
 
-⚠ Manga đen trắng bị nhòe nền → thử lama_mpe thay lama_large.</span></span></label>
-                  <select id="tMITInpainter" class="field select sm">
+⚠ Manga đen trắng bị nhòe nền → thử lama_mpe thay lama_large.
+⚠ Lineart bị blur hoàn toàn → dùng manga_sd_cn (cần GPU mạnh).</span></span></label>
+                  <select id="tMITInpainter" class="field select sm" onchange="onMITInpainterChange()">
                     <option value="">default</option>
                     <option value="lama_large" selected>lama_large ✦</option>
                     <option value="lama_mpe">lama_mpe</option>
                     <option value="original">original (giữ nền)</option>
                     <option value="none">none (không inpaint)</option>
+                    <option value="manga_sd_cn">⭐ manga_sd_cn (lineart)</option>
                   </select>
+                  <div id="inpSdCnNote" class="field-hint" style="display:none;color:#e8a800">
+                    ⚡ SD1.5 + ControlNet-Lineart — giữ screentone/hatching, không blur lineart.<br/>
+                    ⚠ Lần đầu download ~7GB model từ HuggingFace. Cần 16GB VRAM (fp16). Chậm hơn lama ~10× mỗi ảnh.
+                  </div>
                 </div>
                 <div class="field" style="margin-bottom:0">
                   <label><span class="tt-wrap">Upscale ×<span class="tt-icon">?</span><span class="tt-box">Phóng to ảnh trước khi dịch bằng AI upscaler.
@@ -428,17 +487,87 @@ CG/subtitle: dùng FFFFFF:000000 để đảm bảo đọc được trên mọi 
           <input type="checkbox" id="tUseGpu" checked />
           <span data-i18n="t.gpu">⚡ Dùng GPU (nhanh hơn ~5×)</span>
         </label>
+        <div id="gpuNoteBox" style="margin-top:8px;padding:8px 10px;border-radius:6px;background:var(--surface2);border:1px solid var(--border);font-size:.78rem;line-height:1.6;display:none">
+          <strong>⚠ Lưu ý GPU cho các module mới:</strong><br/>
+          <span style="color:#e8a800">yolomanga detector</span> — cần CUDA, tự download ~50MB weight lần đầu<br/>
+          <span style="color:#e8a800">manga_sd_cn inpainter</span> — cần 16GB VRAM (fp16), download ~7GB model từ HuggingFace lần đầu. Chậm hơn lama ~10× nhưng giữ lineart hoàn hảo.<br/>
+          <span style="opacity:.75">Nếu bỏ tick GPU, 2 module trên sẽ chạy CPU rất chậm (không khuyến nghị).</span>
+        </div>
+
+        <hr class="divider" id="hybridDivider" style="display:none" />
+
+        <!-- ══ Hybrid MIT extra options (sau MIT settings) ══════════════════════════ -->
+        <div id="tHybridExtra" class="card" style="display:none;border:2px solid var(--accent);margin-bottom:0">
+      <div class="card-header" style="background:rgba(88,166,255,.12)">
+        🔀 Hybrid: lama → manga_sd_cn
+        <span style="font-size:.72rem;font-weight:400;opacity:.8;margin-left:6px">— điều chỉnh ảnh nào dùng SD</span>
+      </div>
+      <div class="card-body" style="display:flex;flex-direction:column;gap:10px">
+
+        <!-- Force SD + Auto-detect -->
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          <label class="cb-item" style="background:rgba(88,166,255,.08);border:1px solid rgba(88,166,255,.3);border-radius:8px;padding:8px 12px"
+                 title="Bỏ qua pass 1 (lama), dịch toàn bộ bằng manga_sd_cn. Rất chậm nhưng chất lượng cao nhất.">
+            <input type="checkbox" id="tHybridForceSd" onchange="onHybridForceSdChange()" />
+            ⚡ <strong>Force SD tất cả</strong>
+          </label>
+          <label class="cb-item" title="Sau pass 1, tự động phát hiện ảnh bị lama nhòe và thêm vào pass 2.">
+            <input type="checkbox" id="tHybridAutoBleed" />
+            🔍 Auto-detect lama bleed
+          </label>
+        </div>
+
+        <!-- Complex pages textarea -->
+        <div class="field" style="margin-bottom:0">
+          <label>
+            Ảnh phức tạp (pass 2 — manga_sd_cn)
+            <span style="font-size:.7rem;opacity:.7;font-weight:400"> — mỗi dòng hoặc phân cách bởi dấu phẩy</span>
+          </label>
+          <textarea id="tHybridComplexPages" rows="3"
+            placeholder="003.jpg&#10;007.jpg&#10;012.jpg&#10;&#10;Hoặc: 003.jpg, 007.jpg, 012.jpg"
+            style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;
+                   color:var(--text);padding:8px 10px;font-family:inherit;font-size:.82rem;resize:vertical;
+                   outline:none;box-sizing:border-box"></textarea>
+          <div class="field-hint">Để trống + bật "Force SD tất cả" để dịch toàn bộ bằng manga_sd_cn (chậm nhưng đẹp nhất).</div>
+        </div>
+
+        <!-- SD Checkpoint -->
+        <div class="field" style="margin-bottom:0">
+          <label>
+            Checkpoint SD1.5 (tùy chọn)
+            <span style="font-size:.7rem;opacity:.7;font-weight:400"> — để trống = dùng <code>Meina/MeinaMix_V11</code></span>
+          </label>
+          <input type="text" id="tHybridCheckpoint"
+            placeholder="Meina/MeinaMix_V11  hoặc  D:/models/Model.safetensors"
+            style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;
+                   color:var(--text);padding:8px 10px;font-family:inherit;font-size:.82rem;outline:none" />
+          <div class="field-hint">
+            Mặc định: <code>Meina/MeinaMix_V11</code> (SD 1.5, manga B&amp;W).<br/>
+            Civitai: tìm <strong>MangaLike</strong> hoặc <strong>Counterfeit</strong>, lọc SD 1.5, tải .safetensors.
+          </div>
+        </div>
+
+        <!-- Info (collapsed) -->
+        <details style="font-size:.78rem">
+          <summary style="cursor:pointer;opacity:.7">ℹ Thông tin thêm về Hybrid pipeline</summary>
+          <div style="margin-top:6px;padding:8px 10px;border-radius:6px;background:var(--surface2);border:1px solid var(--border);line-height:1.7">
+            <strong>Pass 1</strong> — lama_large: dịch <em>toàn bộ ảnh</em>, nhanh, sạch với bubble trắng.<br/>
+            <strong>Pass 2</strong> — manga_sd_cn: dịch lại <em>ảnh phức tạp</em> (được chỉ định hoặc Force SD).<br/>
+            <span style="opacity:.75">Cần 16GB VRAM + download ~7GB HuggingFace models lần đầu.</span><br/>
+            <span style="color:var(--accent)">ℹ Detector/Inpainter trong MIT settings bị bỏ qua — Hybrid dùng cố định <code>ctd</code> + <code>box_thr=0.15</code>.</span>
+          </div>
+        </details>
 
       </div>
     </div>
 
     <!-- Dependency check -->
-    <div class="card" style="margin-bottom:12px">
-      <div class="card-header">
-        <span data-i18n="t.sys.header">Kiểm tra hệ thống</span>
-        <button class="btn btn-ghost" style="padding:3px 10px;font-size:.75rem" onclick="runCheck()"
-                data-i18n="btn.check">🔍 Kiểm tra</button>
-      </div>
+    <details id="sysCheckDetails" style="margin-bottom:12px">
+      <summary style="list-style:none;display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:8px 12px;border-radius:8px;background:var(--surface2);border:1px solid var(--border);font-size:.82rem;font-weight:600">
+        <span data-i18n="t.sys.header">🔍 Kiểm tra hệ thống</span>
+        <button class="btn btn-ghost" style="padding:2px 10px;font-size:.72rem" onclick="event.preventDefault();runCheck()" data-i18n="btn.check">🔍 Kiểm tra</button>
+      </summary>
+      <div class="card" style="margin-top:6px;border-radius:0 0 8px 8px">
       <div class="card-body" id="checkPanel">
         <div class="check-grid" id="checkGrid">
           <div class="check-item" id="ck-torch">     <div class="ci-dot"></div><span class="ci-label">PyTorch</span>   <span class="ci-val">—</span></div>
@@ -452,11 +581,19 @@ CG/subtitle: dùng FFFFFF:000000 để đảm bảo đọc được trên mọi 
           Chưa cài? Chạy: <code style="background:var(--surface2);padding:1px 5px;border-radius:3px">python setup_translator.py</code><br/>
           <span style="font-size:.7rem">MIT backend: cần <code style="background:var(--surface2);padding:1px 4px;border-radius:3px">py -3.11 -m venv mit_venv</code> + cài MIT vào đó. Xem README.</span>
         </div>
-      </div>
-    </div>
+      </div><!-- card-body checkPanel -->
+      </div><!-- card syscheck -->
+    </details>
 
-    <!-- Actions + Progress -->
-    <div class="card">
+        </div><!-- drawer-body -->
+        <div class="drawer-footer">
+          <button class="btn btn-primary" onclick="closeSettingsDrawer()"
+                  style="width:100%;font-size:.9rem">✓ Áp dụng &amp; Đóng</button>
+        </div>
+      </div><!-- drawer-panel -->
+    </div><!-- settingsDrawer -->
+
+    <div class="card" style="position:sticky;bottom:0;z-index:50;box-shadow:0 -4px 16px rgba(0,0,0,.4);border-top:1px solid var(--border)">
       <div class="card-body">
         <div class="action-row">
           <button class="btn btn-primary" id="tStartBtn" onclick="tStart()" data-i18n="btn.start_translate">▶ Bắt đầu dịch</button>

@@ -105,7 +105,22 @@ function onMITTranslatorChange() {
 function mitPreset(mode) {
   const set = (id, v) => { const el = $(id); if (el) el.value = v; };
   const setSel = (id, v) => { const el = $(id); if (el) el.value = v; };
-  if (mode === 'cg') {
+  if (mode === 'sfx') {
+    // SFX/Âm thanh nghệ thuật: YoloManga + SD ControlNet
+    setSel('tMITDetector', 'yolomanga');
+    setSel('tMITInpainter','manga_sd_cn');
+    setSel('tMITDetSize',  '1536');
+    set('tMITBoxThr',   '0.35');
+    set('tMITUnclip',   '2.3');
+    set('tMITMaskDil',  '8');
+    set('tMITFontOfs',  '-4');
+    document.getElementById('tMITFontOfsVal') && (document.getElementById('tMITFontOfsVal').textContent = '-4');
+    set('tMITFontMin',  '');
+    set('tMITFontFixed','');
+    set('tMITFontColor','');
+    onMITDetectorChange();
+    onMITInpainterChange();
+  } else if (mode === 'cg') {
     // CG / Visual Novel: dùng default detector (craft không phát hiện được subtitle CG)
     setSel('tMITDetector', '');          // default detector
     setSel('tMITDetSize',  '');          // default
@@ -116,6 +131,8 @@ function mitPreset(mode) {
     set('tMITFontMin',  '10');           // tối thiểu 10px — đủ đọc
     set('tMITFontFixed','');             // để trống — MIT tự scale theo bbox (clipping sẽ ngăn tràn)
     set('tMITFontColor','FFFFFF:000000');// trắng nền đen
+    onMITDetectorChange();
+    onMITInpainterChange();
   } else if (mode === 'manga') {
     // Manga: chữ trong bong bóng, không cần override màu
     setSel('tMITDetector', '');
@@ -127,6 +144,8 @@ function mitPreset(mode) {
     set('tMITFontMin',  '');
     set('tMITFontFixed','');
     set('tMITFontColor','');
+    onMITDetectorChange();
+    onMITInpainterChange();
   } else {
     // Reset về trống (dùng MIT defaults)
     set('tMITMaskDil',  '');
@@ -135,13 +154,94 @@ function mitPreset(mode) {
     set('tMITFontMin',  '');
     set('tMITFontFixed','');
     set('tMITFontColor','');
+    onMITDetectorChange();
+    onMITInpainterChange();
   }
 }
 
+function onMITDetectorChange() {
+  const v = getVal('tMITDetector');
+  const note = $('detYolomangaNote');
+  const gpuBox = $('gpuNoteBox');
+  if (note) note.style.display = (v === 'yolomanga') ? '' : 'none';
+  _updateGpuNoteBox();
+}
+
+function onMITInpainterChange() {
+  const v = getVal('tMITInpainter');
+  const note = $('inpSdCnNote');
+  if (note) note.style.display = (v === 'manga_sd_cn') ? '' : 'none';
+  _updateGpuNoteBox();
+}
+
+function _updateGpuNoteBox() {
+  const det = getVal('tMITDetector');
+  const inp = getVal('tMITInpainter');
+  const box = $('gpuNoteBox');
+  if (box) box.style.display = (det === 'yolomanga' || inp === 'manga_sd_cn') ? '' : 'none';
+}
+
 function onBackendChange() {
-  const isMIT = document.querySelector('input[name="tBackend"]:checked').value === 'mit';
-  $('tMITOptions').style.display    = isMIT ? '' : 'none';
-  $('tOllamaOptions').style.display = isMIT ? 'none' : '';
+  const val = document.querySelector('input[name="tBackend"]:checked').value;
+  const isMIT    = val === 'mit';
+  const isHybrid = val === 'hybrid';
+  $('tMITOptions').style.display    = (isMIT || isHybrid) ? '' : 'none';
+  $('tOllamaOptions').style.display = (isMIT || isHybrid) ? 'none' : '';
+  $('tHybridExtra').style.display   = isHybrid ? '' : 'none';
+  const div = $('hybridDivider');
+  if (div) div.style.display = isHybrid ? '' : 'none';
+  _updateSettingsSummary();
+}
+
+// ── Settings Drawer ───────────────────────────────────────────────────────────
+function openSettingsDrawer() {
+  $('settingsDrawer').classList.add('open');
+  document.body.style.overflow = 'hidden';
+  // Nếu hybrid: scroll xuống đến tHybridExtra sau khi drawer hiện ra
+  const val = document.querySelector('input[name="tBackend"]:checked')?.value;
+  if (val === 'hybrid') {
+    requestAnimationFrame(() => {
+      const el = $('tHybridExtra');
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+}
+function closeSettingsDrawer() {
+  $('settingsDrawer').classList.remove('open');
+  document.body.style.overflow = '';
+  _updateSettingsSummary();
+}
+function _updateSettingsSummary() {
+  const el = $('tSettingsSummary');
+  if (!el) return;
+  const val = document.querySelector('input[name="tBackend"]:checked')?.value || 'default';
+  let chips = [];
+  if (val === 'default') {
+    const lang  = getVal('tSrcLang') === 'en' ? 'EN→VI' : 'ZH→VI';
+    const style = getVal('tTranslationStyle') || 'modern';
+    const model = (getVal('tModel') || 'qwen3:8b').split(':')[0];
+    chips = [`🔧 OCR`, lang, style, model];
+  } else if (val === 'mit') {
+    const tr   = getVal('tMITTranslator') || 'm2m100_big';
+    const lang = getVal('tMITTargetLang') || 'VIN';
+    const inp  = getVal('tMITInpainter')  || 'lama_large';
+    chips = [`🎌 MIT`, tr, lang, inp];
+  } else {
+    const lang = getVal('tMITTargetLang') || 'VIN';
+    const cp   = getVal('tMITSdCheckpoint') ? (getVal('tMITSdCheckpoint').split('/').pop() || 'MeinaMix') : 'MeinaMix';
+    chips = [`🔀 Hybrid`, 'lama→SD', lang, cp];
+  }
+  el.innerHTML = chips.map(c =>
+    `<span class="ss-chip" onclick="openSettingsDrawer()">${c}</span>`
+  ).join('');
+}
+
+function onHybridForceSdChange() {
+  // Khi Force SD bật: disable complex pages textarea (không cần nữa)
+  const forced = $('tHybridForceSd').checked;
+  $('tHybridComplexPages').disabled = forced;
+  $('tHybridAutoBleed').disabled    = forced;
+  $('tHybridComplexPages').style.opacity = forced ? '0.4' : '';
 }
 
 // ── Start / Stop translate ────────────────────────────────────────────────────
@@ -159,6 +259,7 @@ async function tStart() {
   const mit_target_lang  = getVal('tMITTargetLang');
   const mit_detector     = getVal('tMITDetector');
   const mit_inpainter    = getVal('tMITInpainter');
+  const mit_translation_style = getVal('tMITTranslationStyle') || 'modern';
   const mit_upscale      = getVal('tMITUpscale');
   const mit_det_size     = getVal('tMITDetSize');
   const mit_mask_dil     = $('tMITMaskDil').value;
@@ -181,6 +282,12 @@ async function tStart() {
                            ? _mitOllamaModel
                            : (getVal('tModel').trim() || 'qwen3:8b');
 
+  // Hybrid-specific params
+  const hybrid_complex_pages = $('tHybridComplexPages') ? $('tHybridComplexPages').value : '';
+  const hybrid_force_sd      = $('tHybridForceSd')      ? $('tHybridForceSd').checked   : false;
+  const hybrid_auto_bleed    = $('tHybridAutoBleed')     ? $('tHybridAutoBleed').checked  : false;
+  const hybrid_checkpoint    = $('tHybridCheckpoint')    ? $('tHybridCheckpoint').value.trim() : '';
+
   if (!input_dir) { tAddLog(tr('alert.no_input_dir'), 'warn'); return; }
 
   _tCursor    = 0;
@@ -202,12 +309,13 @@ async function tStart() {
       body:    JSON.stringify({
         input_dir, output_dir, model, use_gpu, src_lang, backend, translation_style,
         llm_api_type, llm_base_url,
-        mit_translator, mit_target_lang,
+        mit_translator, mit_target_lang, mit_translation_style,
         mit_detector, mit_inpainter, mit_upscale, mit_det_size,
         mit_mask_dil, mit_unclip, mit_box_thr, mit_font_ofs, mit_font_min, mit_font_fixed, mit_font_color,
         mit_custom_api_base, mit_custom_api_key,
         mit_verbose, mit_skip_no_text, mit_overwrite,
         inpainter, overwrite, font_scale, cpu_priority,
+        hybrid_complex_pages, hybrid_force_sd, hybrid_auto_bleed, hybrid_checkpoint,
       }),
     });
     json = await res.json();

@@ -36,6 +36,12 @@ Patches applied:
        to their source segments (prevents text loss on long translations).
      - Watermark detection → ZWJ fallback for inpainting without rendering.
      - Retry up to 10 times when output is not Vietnamese.
+
+  4. manga_translator/inpainting/inpainting_sd_cn.py
+     - BASE_MODEL_ID đọc từ env MIT_SD_CHECKPOINT → hỗ trợ checkpoint monochrome.
+     - Prompt tăng cường 'grayscale, black and white' cho manga B&W.
+     - Low-VRAM path: VRAM < 6GB → sequential_cpu_offload thay vì model_cpu_offload.
+     - Hỗ trợ load local .safetensors qua from_single_file().
 """
 
 import json
@@ -115,6 +121,10 @@ def apply():
         (
             PATCHES_DIR / "manga_translator_translators_custom_openai.py",
             sp / "manga_translator" / "translators" / "custom_openai.py",
+        ),
+        (
+            PATCHES_DIR / "manga_translator_inpainting_sd_cn.py",
+            sp / "manga_translator" / "inpainting" / "inpainting_sd_cn.py",
         ),
     ]
 

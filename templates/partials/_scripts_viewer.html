@@ -291,6 +291,7 @@ async function vDeleteCurrent() {
 loadTheme();
 loadConfig();
 loadLang();
+if (typeof _updateSettingsSummary === 'function') _updateSettingsSummary();
 
 // ── Floating tooltip ──────────────────────────────────────────────────────────
 (function () {

@@ -79,6 +79,7 @@ from ._mit_backend import (
     _find_mit_python,
     check_mit,
     MITImageTranslator,
+    HybridMITTranslator,
 )
 
 __all__ = [
@@ -99,5 +100,5 @@ __all__ = [
     "_load_font", "render_text", "_group_nearby_regions",
     # main classes
     "ImageTranslator", "IMAGE_EXTS",
-    "MITImageTranslator", "check_mit", "_MIT_INSTALL_HINT",
+    "MITImageTranslator", "HybridMITTranslator", "check_mit", "_MIT_INSTALL_HINT",
 ]

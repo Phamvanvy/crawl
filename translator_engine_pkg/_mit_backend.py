@@ -506,3 +506,262 @@ class MITImageTranslator:
         self.on_progress(ok, total)
         self._log(f"  [OK] Kết quả: {ok} ảnh trong {out}")
         return ok, fail, []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HybridMITTranslator
+# ─────────────────────────────────────────────────────────────────────────────
+
+class HybridMITTranslator:
+    """
+    Hybrid pipeline: 2 pass dùng manga-image-translator.
+
+    Pass 1 — lama_large (toàn bộ ảnh, nhanh):
+        detector=ctd, det_size=2560, box_thr=0.25, unclip=2.6, mask_dil=4
+
+    Pass 2 — manga_sd_cn (chỉ ảnh phức tạp: shading, chân, tóc):
+        cùng detector settings, mask_dil=18, inpainting_size=768
+        Chỉ chạy trên ảnh trong complex_pages hoặc khi force_sd=True.
+        SD checkpoint đọc từ sd_checkpoint param → env MIT_SD_CHECKPOINT.
+
+    Cách xác định "ảnh phức tạp":
+        1. Tên file nằm trong complex_pages (set).
+        2. force_sd=True → toàn bộ ảnh.
+        3. auto_detect_bleed=True → heuristic pixel so sánh lama output vs gốc.
+    """
+
+    # Detector settings dùng chung cả 2 pass
+    _DET_CFG = {
+        "detector":       "ctd",
+        "detection_size": 2560,
+        "box_threshold":  0.25,
+        "unclip_ratio":   2.6,
+    }
+
+    def __init__(
+        self,
+        # MIT common params (forwarded to both passes)
+        translator: str            = "m2m100_big",
+        target_lang: str           = "VIN",
+        use_gpu: bool              = True,
+        python_path: str | None    = None,
+        ollama_model: str          = "",
+        custom_openai_api_base: str = "",
+        custom_openai_api_key: str  = "",
+        upscale_ratio: str         = "",
+        font_size_offset: str      = "",
+        font_size_minimum: str     = "",
+        font_size_fixed: str       = "",
+        font_color: str            = "",
+        verbose: bool              = False,
+        skip_no_text: bool         = False,
+        cpu_priority: str          = "below_normal",
+        gpt_style: str             = "",
+        # Hybrid-specific params
+        complex_pages: set | None  = None,
+        force_sd: bool             = False,
+        auto_detect_bleed: bool    = False,
+        sd_checkpoint: str         = "",
+        # Callbacks
+        on_log=None,
+        on_progress=None,
+    ):
+        self.python_path = python_path or _find_mit_python()
+        self.use_gpu     = use_gpu
+        self.verbose     = verbose
+        self.on_log      = on_log or print
+        self.on_progress = on_progress or (lambda d, t: None)
+
+        # Hybrid-specific
+        self.complex_pages      = complex_pages or set()
+        self.force_sd           = force_sd
+        self.auto_detect_bleed  = auto_detect_bleed
+        self.sd_checkpoint      = sd_checkpoint.strip()
+
+        # Common kwargs forwarded to both MITImageTranslator instances
+        _common = dict(
+            translator=translator,
+            target_lang=target_lang,
+            use_gpu=use_gpu,
+            python_path=self.python_path,
+            ollama_model=ollama_model,
+            custom_openai_api_base=custom_openai_api_base,
+            custom_openai_api_key=custom_openai_api_key,
+            upscale_ratio=upscale_ratio,
+            font_size_offset=font_size_offset,
+            font_size_minimum=font_size_minimum,
+            font_size_fixed=font_size_fixed,
+            font_color=font_color,
+            verbose=verbose,
+            skip_no_text=skip_no_text,
+            cpu_priority=cpu_priority,
+            gpt_style=gpt_style,
+            on_log=on_log,
+            on_progress=on_progress,
+        )
+
+        # Pass 1: lama_large, mask_dil=4
+        self._pass1 = MITImageTranslator(
+            detector="ctd",
+            detection_size="2560",
+            box_threshold="0.15",
+            unclip_ratio="2.6",
+            inpainter="lama_large",
+            mask_dilation_offset="4",
+            overwrite=False,        # pass1: chỉ dịch ảnh chưa có output
+            **_common,
+        )
+
+        # Pass 2: manga_sd_cn, mask_dil=8 (nhỏ hơn → không phủ ngoài chữ → SD không xoá nền)
+        self._pass2 = MITImageTranslator(
+            detector="ctd",
+            detection_size="2560",
+            box_threshold="0.15",
+            unclip_ratio="2.6",
+            inpainter="manga_sd_cn",
+            mask_dilation_offset="8",
+            overwrite=True,         # pass2: luôn ghi đè kết quả pass1
+            **_common,
+        )
+
+    def _log(self, msg: str):
+        self.on_log(msg)
+
+    # ── Heuristic phát hiện lama bleed ───────────────────────────────────────
+
+    def _check_lama_bleed(self, orig_path: Path, out_path: Path) -> bool:
+        """
+        So sánh pixel vùng trắng giữa ảnh gốc và ảnh lama output.
+        Nếu > 1.5% pixel trong vùng trắng bị tối hơn 40 giá trị → flag pass2.
+        """
+        if not out_path.exists():
+            return False
+        try:
+            from PIL import Image
+            import numpy as np
+            orig = np.array(Image.open(orig_path).convert("L"), dtype=np.float32)
+            out  = np.array(Image.open(out_path).convert("L"),  dtype=np.float32)
+            if orig.shape != out.shape:
+                out = np.array(
+                    Image.open(out_path).convert("L").resize(
+                        (orig.shape[1], orig.shape[0])
+                    ),
+                    dtype=np.float32,
+                )
+            white_mask = orig > 235
+            if white_mask.sum() < 1000:
+                return False
+            bleed_ratio = ((white_mask) & ((orig - out) > 40)).sum() / white_mask.sum()
+            return float(bleed_ratio) > 0.015
+        except Exception:
+            return False
+
+    # ── process_folder ────────────────────────────────────────────────────────
+
+    def process_folder(
+        self,
+        input_dir: str,
+        output_dir: str,
+        stop_event: threading.Event | None = None,
+    ) -> tuple[int, int, list[str]]:
+        from ._image_translator import IMAGE_EXTS
+
+        if not self.python_path:
+            self._log("  [FAIL] Không tìm thấy Python có manga_translator.")
+            return 0, 0, []
+
+        inp = Path(input_dir)
+        out = Path(output_dir)
+        out.mkdir(parents=True, exist_ok=True)
+
+        all_images = sorted(
+            f for f in inp.iterdir() if f.suffix.lower() in IMAGE_EXTS
+        )
+        if not all_images:
+            self._log("Không tìm thấy ảnh trong thư mục.")
+            return 0, 0, []
+
+        total = len(all_images)
+
+        # ── Pass 1: lama_large ────────────────────────────────────────────────
+        if not self.force_sd:
+            self._log("=" * 56)
+            self._log(f"PASS 1 — lama_large ({total} ảnh)")
+            self._log("=" * 56)
+            self._pass1.on_progress = self.on_progress
+            self._pass1.on_log      = self.on_log
+            self._pass1.process_folder(input_dir, output_dir, stop_event=stop_event)
+            if stop_event and stop_event.is_set():
+                return 0, 0, []
+        else:
+            self._log("force_sd=True → bỏ qua pass 1.")
+
+        # ── Xác định ảnh cần pass 2 ──────────────────────────────────────────
+        if self.force_sd:
+            pass2_images = [f for f in all_images]
+        else:
+            pass2_images = [
+                f for f in all_images if f.name in self.complex_pages
+            ]
+
+        # Auto-detect lama bleed
+        if self.auto_detect_bleed and not self.force_sd:
+            for img in all_images:
+                if img.name in {f.name for f in pass2_images}:
+                    continue  # đã có trong danh sách
+                out_img = out / img.name
+                if self._check_lama_bleed(img, out_img):
+                    pass2_images.append(img)
+                    self._log(f"  [bleed] Auto flag: {img.name}")
+
+        if not pass2_images:
+            self._log("Không có ảnh nào cần pass 2 (manga_sd_cn).")
+            self._log("Gợi ý: nhập tên file vào ô 'Ảnh phức tạp' hoặc bật 'Force SD'.")
+            ok = sum(1 for f in out.rglob("*") if f.is_file() and f.suffix.lower() in IMAGE_EXTS)
+            return ok, max(0, total - ok), []
+
+        # ── Pass 2: manga_sd_cn trong temp dir ───────────────────────────────
+        self._log("=" * 56)
+        self._log(f"PASS 2 — manga_sd_cn ({len(pass2_images)} ảnh)")
+        if self.sd_checkpoint:
+            self._log(f"  Checkpoint SD: {self.sd_checkpoint}")
+        self._log("=" * 56)
+
+        tmp_dir = Path(tempfile.mkdtemp(prefix="hybrid_pass2_"))
+        try:
+            import shutil
+            for img in pass2_images:
+                shutil.copy2(img, tmp_dir / img.name)
+
+            # Pass 2 env: set MIT_SD_CHECKPOINT nếu có
+            orig_env = os.environ.copy()
+            if self.sd_checkpoint:
+                os.environ["MIT_SD_CHECKPOINT"] = self.sd_checkpoint
+
+            try:
+                self._pass2.on_progress = lambda d, t: self.on_progress(
+                    (total - len(pass2_images)) + d, total
+                )
+                self._pass2.on_log = self.on_log
+                self._pass2.process_folder(str(tmp_dir), output_dir, stop_event=stop_event)
+            finally:
+                # Khôi phục env
+                if self.sd_checkpoint:
+                    if "MIT_SD_CHECKPOINT" in orig_env:
+                        os.environ["MIT_SD_CHECKPOINT"] = orig_env["MIT_SD_CHECKPOINT"]
+                    else:
+                        os.environ.pop("MIT_SD_CHECKPOINT", None)
+        finally:
+            try:
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+            except Exception:
+                pass
+
+        ok = sum(
+            1 for f in out.rglob("*")
+            if f.is_file() and f.suffix.lower() in IMAGE_EXTS
+        )
+        fail = max(0, total - ok)
+        self.on_progress(ok, total)
+        self._log(f"  [HYBRID] Xong. Pass1(lama): {total - len(pass2_images)} | Pass2(SD): {len(pass2_images)} | output: {out}")
+        return ok, fail, []

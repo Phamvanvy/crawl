@@ -1,0 +1,162 @@
+================================================================================
+  SETUP GUIDE — manga-image-translator + YoloManga Detector + SD ControlNet
+  Environment: Windows 11 | Python 3.12.10 | RTX 5060 Ti | CUDA 13.2
+  Đã cài thành công ngày: 2026-05-19
+================================================================================
+
+──────────────────────────────────────────────────────────────────────────────
+BƯỚC 1 — Kích hoạt venv
+──────────────────────────────────────────────────────────────────────────────
+
+  (Mở PowerShell, cd về thư mục project)
+
+  Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
+  & e:\repos\crawl\.venv\Scripts\Activate.ps1
+
+──────────────────────────────────────────────────────────────────────────────
+BƯỚC 2 — Cài lần đầu (chỉ cần làm 1 lần)
+──────────────────────────────────────────────────────────────────────────────
+
+  cd e:\repos\crawl\tmp_repo
+
+  # 2a. Cài tất cả MIT dependencies
+  pip install -r requirements.txt
+
+  # 2b. Cài MIT dạng editable (sửa code có hiệu lực ngay)
+  pip install -e .
+
+  # 2c. Cài các module mới (detector + inpainter)
+  pip install ultralytics "diffusers>=0.27.0" xformers
+
+  # 2d. Cài torch CUDA (thay thế bản CPU-only)
+  pip install --force-reinstall --no-deps "torch==2.11.0+cu128" "torchvision==0.26.0+cu128" ^
+      --index-url https://download.pytorch.org/whl/cu128
+
+  # 2e. Reinstall xformers khớp với torch 2.11+cu128
+  pip install --force-reinstall xformers --index-url https://download.pytorch.org/whl/cu128
+
+  # 2f. Restore numpy về version MIT yêu cầu (xformers sẽ nâng lên 2.x)
+  pip install --force-reinstall "numpy==1.26.4"
+
+──────────────────────────────────────────────────────────────────────────────
+BƯỚC 3 — Kiểm tra cài đặt
+──────────────────────────────────────────────────────────────────────────────
+
+  python -c "
+  import torch
+  print('torch:', torch.__version__)
+  print('CUDA:', torch.cuda.is_available())
+  print('GPU:', torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'N/A')
+  from manga_translator.detection import DETECTORS
+  from manga_translator.inpainting import INPAINTERS
+  print('Detectors:', [k.value for k in DETECTORS])
+  print('Inpainters:', [k.value for k in INPAINTERS])
+  "
+
+  Kết quả mong đợi:
+    torch: 2.11.0+cu128
+    CUDA: True
+    GPU: NVIDIA GeForce RTX 5060 Ti
+    Detectors: [..., 'yolomanga']
+    Inpainters: [..., 'manga_sd_cn']
+
+──────────────────────────────────────────────────────────────────────────────
+BƯỚC 4 — Chạy dịch manga
+──────────────────────────────────────────────────────────────────────────────
+
+  cd e:\repos\crawl\tmp_repo
+
+  # Dịch 1 ảnh
+  python -m manga_translator ^
+      --detector yolomanga ^
+      --inpainter manga_sd_cn ^
+      --inpainting-size 768 ^
+      --detect-size 1536 ^
+      --device cuda ^
+      --mode local ^
+      -i "path\to\input.jpg" -o "path\to\output\"
+
+  # Dịch cả thư mục
+  python -m manga_translator ^
+      --detector yolomanga ^
+      --inpainter manga_sd_cn ^
+      --inpainting-size 768 ^
+      --detect-size 1536 ^
+      --device cuda ^
+      --mode local ^
+      -i ".\input_folder\" -o ".\output_folder\"
+
+  # Dùng detector mặc định + inpainter mới (an toàn hơn khi test)
+  python -m manga_translator ^
+      --detector default ^
+      --inpainter manga_sd_cn ^
+      --device cuda ^
+      --mode local ^
+      -i "input.jpg" -o "output\"
+
+──────────────────────────────────────────────────────────────────────────────
+LƯU Ý — Lần đầu chạy SD ControlNet
+──────────────────────────────────────────────────────────────────────────────
+
+  Khi chạy lần đầu với --inpainter manga_sd_cn, diffusers sẽ tự động
+  download các model từ HuggingFace (~7GB tổng):
+
+    - Meina/MeinaMix_V11          (SD1.5 manga checkpoint, ~2GB)
+    - lllyasviel/control_v11p_sd15_inpaint  (ControlNet, ~1.5GB)
+    - lllyasviel/control_v11p_sd15_lineart  (ControlNet, ~1.5GB)
+    - stabilityai/sd-vae-ft-mse             (VAE, ~0.3GB)
+
+  Nếu muốn đổi thư mục cache (mặc định C:\Users\...\huggingface\hub):
+    $env:HF_HOME = "D:\hf_cache"   (thêm trước khi chạy)
+
+  YOLO weight (~50MB) sẽ download vào:
+    e:\repos\crawl\tmp_repo\models\detection\yolov8m_manga.pt
+
+──────────────────────────────────────────────────────────────────────────────
+THAY ĐỔI ĐÃ LÀM VỚI TMP_REPO
+──────────────────────────────────────────────────────────────────────────────
+
+  File đã sửa:
+    manga_translator/config.py
+      → Thêm Detector.yolomanga và Inpainter.manga_sd_cn vào enum
+
+    manga_translator/detection/__init__.py
+      → Đăng ký YoloMangaDetector vào DETECTORS dict
+
+    manga_translator/inpainting/__init__.py
+      → Đăng ký MangaSDControlNetInpainter vào INPAINTERS dict
+
+    pyproject.toml
+      → Sửa requires-python từ "<3.12" thành "<3.14" (để dùng được Python 3.12)
+
+  File mới tạo:
+    manga_translator/detection/yolo_manga.py
+      → YOLOv8m detector + SFX heuristic filter
+
+    manga_translator/inpainting/inpainting_sd_cn.py
+      → SD1.5 + dual ControlNet (inpaint + lineart)
+
+──────────────────────────────────────────────────────────────────────────────
+XỬ LÝ LỖI THƯỜNG GẶP
+──────────────────────────────────────────────────────────────────────────────
+
+  LỖI: "triton not found"
+  → Bình thường trên Windows. Không ảnh hưởng chức năng.
+
+  LỖI: "CUDA out of memory"
+  → Giảm --inpainting-size xuống 512
+  → Hoặc thêm vào inpainting_sd_cn.py: self.pipe.enable_sequential_cpu_offload()
+
+  LỖI: "KeyError: 'yolomanga'" hoặc "KeyError: 'manga_sd_cn'"
+  → Chạy lại: pip install -e . trong thư mục tmp_repo
+
+  LỖI: "No module named 'dotenv'"
+  → pip install python-dotenv
+
+  LỖI: "No module named 'ultralytics'"
+  → pip install ultralytics
+
+  LỖI: numpy version conflict
+  → pip install --force-reinstall "numpy==1.26.4"
+
+================================================================================

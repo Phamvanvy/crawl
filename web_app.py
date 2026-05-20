@@ -502,6 +502,7 @@ def api_translate_start():
     mit_font_color    = str(data.get("mit_font_color",   "")).strip()
     mit_custom_api_base = str(data.get("mit_custom_api_base", "")).strip()
     mit_custom_api_key  = str(data.get("mit_custom_api_key",  "")).strip()
+    mit_translation_style = str(data.get("mit_translation_style", "modern")).strip().lower()
     mit_verbose       = bool(data.get("mit_verbose",     False))
     mit_skip_no_text  = bool(data.get("mit_skip_no_text",False))
     mit_overwrite     = bool(data.get("mit_overwrite",   False))
@@ -514,6 +515,8 @@ def api_translate_start():
         cpu_priority = "below_normal"
     if translation_style not in ("modern", "wuxia", "school", "lightnovel"):
         translation_style = "modern"
+    if mit_translation_style not in ("modern", "wuxia", "school", "lightnovel"):
+        mit_translation_style = "modern"
     if llm_api_type not in ("ollama", "openai_compat"):
         llm_api_type = "ollama"
     inpainter         = str(data.get("inpainter",        "opencv")).strip()
@@ -526,7 +529,12 @@ def api_translate_start():
         inpainter = "opencv"
     if src_lang not in ("zh", "en", "ja"):
         src_lang = "zh"
-    if backend not in ("default", "mit"):
+    # Hybrid-specific params
+    hybrid_complex_pages = str(data.get("hybrid_complex_pages", "")).strip()
+    hybrid_force_sd      = bool(data.get("hybrid_force_sd", False))
+    hybrid_auto_bleed    = bool(data.get("hybrid_auto_bleed", False))
+    hybrid_checkpoint    = str(data.get("hybrid_checkpoint", "")).strip()
+    if backend not in ("default", "mit", "hybrid"):
         backend = "default"
 
     if not input_dir:
@@ -552,7 +560,45 @@ def api_translate_start():
             _t_push({"type": "log", "msg": "─" * 60})
             _t_push({"type": "log", "msg": f"Nguồn : {input_dir}"})
             _t_push({"type": "log", "msg": f"Xuất  : {output_dir}"})
-            if backend == "mit":
+            if backend == "hybrid":
+                _t_push({"type": "log", "msg": f"Backend: Hybrid MIT  Pass1=lama  Pass2=manga_sd_cn  GPU={use_gpu}"})
+                mit_check = te.check_mit()
+                if not mit_check.get("ok"):
+                    _t_push({"type": "log", "msg": f"  [FAIL] {mit_check.get('error')}"})
+                    return
+                # Parse complex_pages từ textarea (newline hoặc comma)
+                _cp_raw = hybrid_complex_pages.replace(",", "\n")
+                complex_pages_set = {
+                    Path(ln.strip()).name
+                    for ln in _cp_raw.splitlines() if ln.strip()
+                }
+                if complex_pages_set:
+                    _t_push({"type": "log", "msg": f"  Complex pages: {len(complex_pages_set)} ảnh"})
+                translator = te.HybridMITTranslator(
+                    translator=mit_translator,
+                    target_lang=mit_target_lang,
+                    use_gpu=use_gpu,
+                    python_path=mit_check.get("python"),
+                    ollama_model=model,
+                    custom_openai_api_base=mit_custom_api_base,
+                    custom_openai_api_key=mit_custom_api_key,
+                    upscale_ratio=mit_upscale,
+                    font_size_offset=mit_font_ofs,
+                    font_size_minimum=mit_font_min,
+                    font_size_fixed=mit_font_fixed,
+                    font_color=mit_font_color,
+                    verbose=mit_verbose,
+                    skip_no_text=mit_skip_no_text,
+                    cpu_priority=cpu_priority,
+                    gpt_style=mit_translation_style,
+                    complex_pages=complex_pages_set,
+                    force_sd=hybrid_force_sd,
+                    auto_detect_bleed=hybrid_auto_bleed,
+                    sd_checkpoint=hybrid_checkpoint,
+                    on_log=on_log,
+                    on_progress=on_progress,
+                )
+            elif backend == "mit":
                 _t_push({"type": "log", "msg": f"Backend: manga-image-translator  translator={mit_translator}  →{mit_target_lang}  GPU={use_gpu}"})
                 mit_check = te.check_mit()
                 if not mit_check.get("ok"):
@@ -582,7 +628,7 @@ def api_translate_start():
                     skip_no_text=mit_skip_no_text,
                     overwrite=mit_overwrite,
                     cpu_priority=cpu_priority,
-                    gpt_style=translation_style,
+                    gpt_style=mit_translation_style,
                     on_log=on_log,
                     on_progress=on_progress,
                 )
