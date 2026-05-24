@@ -1,0 +1,48 @@
+# Virtual environments
+mit_venv/
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Models and weights
+models/
+*.ckpt
+*.pt
+*.onnx
+*.bin
+
+# Fonts
+fonts/
+*.ttf
+*.ttc
+*.otf
+
+# Images
+images/
+
+# Wheels and eggs
+*.whl
+*.egg-info/
+
+# Patches
+patches/
+
+# DLLs and binary libraries
+*.dll
+*.pyd
+*.so
+*.dylib
+*.lib
+
+# Dictionaries
+*.dic
+
+# Temporary and build artifacts
+tmp_repo/
+translator_engine_pkg/
+
+# GitHub workflows
+.github/
