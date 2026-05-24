@@ -41,8 +41,6 @@ patches/
 *.dic
 
 # Temporary and build artifacts
-tmp_repo/
-translator_engine_pkg/
 
 # GitHub workflows
 .github/
