@@ -36,6 +36,11 @@ Patches applied:
        to their source segments (prevents text loss on long translations).
      - Watermark detection → ZWJ fallback for inpainting without rendering.
      - Retry up to 10 times when output is not Vietnamese.
+
+  4. manga_translator/detection/ctd.py
+     - Honor UI detection_size/text_threshold/box_threshold/unclip_ratio for CTD.
+     - Higher CTD detect size improves tiny/SFX text detection.
+     - Lower box/text thresholds are no longer ignored by CTD's hard-coded defaults.
 """
 
 import json
@@ -115,6 +120,10 @@ def apply():
         (
             PATCHES_DIR / "manga_translator_translators_custom_openai.py",
             sp / "manga_translator" / "translators" / "custom_openai.py",
+        ),
+        (
+            PATCHES_DIR / "manga_translator_detection_ctd.py",
+            sp / "manga_translator" / "detection" / "ctd.py",
         ),
     ]
 

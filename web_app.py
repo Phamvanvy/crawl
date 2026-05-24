@@ -391,7 +391,6 @@ def _find_font() -> str | None:
     # Ưu tiên MTO Astro City cho dịch tiếng Việt, sau đến các font khác
     candidates = [
         Path(__file__).parent / "fonts" / "MTO Astro City.ttf",
-        Path(__file__).parent / "fonts" / "BeVietnamPro-Regular.ttf",
         Path(r"C:\Windows\Fonts\arial.ttf"),
         Path(r"C:\Windows\Fonts\segoeui.ttf"),
         Path(__file__).parent / "fonts" / "NotoSans-Regular.ttf",
@@ -490,12 +489,16 @@ def api_translate_start():
     mit_translator = str(data.get("mit_translator", "m2m100")).strip() or "m2m100"
     mit_target_lang   = str(data.get("mit_target_lang",  "VIN")).strip() or "VIN"
     mit_detector      = str(data.get("mit_detector",     "")).strip()
-    mit_inpainter     = str(data.get("mit_inpainter",    "lama_large")).strip()
+    mit_inpainter     = str(data.get("mit_inpainter",    "lama_mpe")).strip()
     mit_upscale       = str(data.get("mit_upscale",      "")).strip()
     mit_det_size      = str(data.get("mit_det_size",     "")).strip()
     mit_mask_dil      = str(data.get("mit_mask_dil",     "")).strip()
     mit_unclip         = str(data.get("mit_unclip",       "")).strip()
     mit_box_thr       = str(data.get("mit_box_thr",      "")).strip()
+    mit_text_thr      = str(data.get("mit_text_thr",     "")).strip()
+    mit_det_invert    = bool(data.get("mit_det_invert",  False))
+    mit_det_gamma     = bool(data.get("mit_det_gamma",   False))
+    mit_det_rotate    = bool(data.get("mit_det_rotate",  False))
     mit_font_ofs      = str(data.get("mit_font_ofs",     "")).strip()
     mit_font_min      = str(data.get("mit_font_min",     "")).strip()
     mit_font_fixed    = str(data.get("mit_font_fixed",   "")).strip()
@@ -574,6 +577,10 @@ def api_translate_start():
                     mask_dilation_offset=mit_mask_dil,
                     unclip_ratio=mit_unclip,
                     box_threshold=mit_box_thr,
+                    text_threshold=mit_text_thr,
+                    det_invert=mit_det_invert,
+                    det_gamma_correct=mit_det_gamma,
+                    det_rotate=mit_det_rotate,
                     font_size_offset=mit_font_ofs,
                     font_size_minimum=mit_font_min,
                     font_size_fixed=mit_font_fixed,

@@ -1,549 +1,402 @@
 <!-- ── Translate tab ───────────────────────────────────────────────────── -->
 <div id="tab-translate" class="layout" style="display:none">
 
-  <!-- ── Left: Translate config ─────────────────────────────────────────── -->
+  <!-- ── Main Control Card ─────────────────────────────────────────────── -->
   <div class="left-col">
-
-    <!-- Folders -->
-    <div class="card" style="margin-bottom:12px">
-      <div class="card-header" data-i18n="t.folders.header">Thư mục ảnh</div>
+    <div class="card">
       <div class="card-body">
-        <div class="field">
-          <label data-i18n="t.src_dir.label">Thư mục nguồn (ảnh cần dịch)</label>
-          <div class="folder-row">
-            <input type="text" id="tInputDir" placeholder="D:\ảnh\chapters"
-                   data-i18n-ph="t.src_dir.ph" />
-            <button class="btn btn-ghost btn-browse" onclick="openFolderBrowser('tInputDir')"
-                    data-i18n="btn.browse">📁 Chọn…</button>
+        <div class="action-row" style="margin-bottom:16px">
+          <button class="btn btn-primary" id="tStartBtn" onclick="tStart()" data-i18n="btn.start_translate">▶ Bắt đầu dịch</button>
+          <button class="btn btn-danger" id="tStopBtn" onclick="tStop()" disabled data-i18n="btn.stop">■ Dừng</button>
+        </div>
+
+        <div class="status-row" style="margin-bottom:16px">
+          <div class="status-dot" id="tStatusDot"></div>
+          <span class="status-text" id="tStatusText" data-i18n="status.ready">Sẵn sàng</span>
+        </div>
+
+        <div style="margin-top:16px; padding-top:16px; border-top:1px solid var(--border)">
+          <div style="margin-bottom:12px">
+            <label class="cb-item" title="Tự động retry ảnh dịch lỗi sau khi hoàn thành">
+              <input type="checkbox" id="tAutoRetryChk" onchange="onTAutoRetryChkChange()" />
+              ↺ Tự động retry ảnh lỗi
+            </label>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px; margin-bottom:16px">
+            <span style="font-size:.78rem;color:var(--text-muted)">Số lần:</span>
+            <input type="number" id="tAutoRetryTimes" min="1" max="10" value="2"
+              style="width:52px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:4px 6px;font-size:.82rem"
+              disabled />
           </div>
         </div>
-        <div class="field">
-          <label data-i18n="t.out_dir.label">Thư mục xuất (ảnh đã dịch)</label>
-          <div class="folder-row">
-            <input type="text" id="tOutputDir" placeholder="Để trống → tự tạo thư mục _vi"
-                   data-i18n-ph="t.out_dir.ph" />
-            <button class="btn btn-ghost btn-browse" onclick="openFolderBrowser('tOutputDir')"
-                    data-i18n="btn.browse">📁 Chọn…</button>
-          </div>
-          <div class="field-hint" data-i18n="t.out_dir.hint">Nếu để trống, kết quả lưu vào &lt;nguồn&gt;_vi/</div>
+
+        <div class="action-row">
+          <button class="btn btn-ghost" onclick="openSettingsModal()">
+            <span style="font-size:1.1rem">⚙</span> Cài đặt dịch
+          </button>
         </div>
       </div>
     </div>
+  </div>
 
-    <!-- Settings -->
-    <div class="card" style="margin-bottom:12px">
-      <div class="card-header" data-i18n="t.settings.header">Cài đặt dịch</div>
-      <div class="card-body">
+  <!-- ── Settings Modal (Tabbed) ──────────────────────────────────────────── -->
+  <div class="fb-overlay" id="settingsOverlay" style="display:none" onclick="closeSettingsModal()">
+    <div class="fb-dialog" onclick="event.stopPropagation()"
+      style="width: 90vw; max-width: 720px; max-height: 85vh; display: flex; flex-direction: column;">
+      <div class="fb-header">
+        <span class="fb-title">⚙ Cài đặt dịch</span>
+        <button class="fb-close" onclick="closeSettingsModal()">✕</button>
+      </div>
 
-        <!-- ── Backend selector ───────────────────────────────────────── -->
-        <div class="field">
-          <label data-i18n="t.backend.label">Backend dịch</label>
-          <div class="backend-selector">
-            <label class="backend-option">
-              <input type="radio" name="tBackend" id="tBackendDefault" value="default" checked onchange="onBackendChange()" />
-              <div class="backend-card">
-                <span class="bc-icon">🔧</span>
-                <span class="bc-label">OCR + Ollama</span>
-                <span class="bc-sub" data-i18n="t.backend.auto.sub">Tự động · offline</span>
+      <!-- Tab bar -->
+      <div class="modal-tab-bar">
+        <button class="modal-tab-btn active" data-tab="st-general" onclick="switchSettingsTab('st-general')">Chung</button>
+        <button class="modal-tab-btn" data-tab="st-backend" onclick="switchSettingsTab('st-backend')">Backend</button>
+      </div>
+
+      <div class="fb-body" style="flex:1;overflow-y:auto;padding:15px;">
+
+        <!-- ════ TAB: Chung ════ -->
+        <div id="st-general" class="settings-tab-pane active">
+          <!-- Folders -->
+          <div class="card" style="margin-bottom:12px">
+            <div class="card-header" data-i18n="t.folders.header">Thư mục ảnh</div>
+            <div class="card-body">
+              <div class="field">
+                <label data-i18n="t.src_dir.label">Thư mục nguồn (ảnh cần dịch)</label>
+                <div class="folder-row">
+                  <input type="text" id="tInputDir" placeholder="D:\ảnh\chapters" data-i18n-ph="t.src_dir.ph" />
+                  <button class="btn btn-ghost btn-browse" onclick="openFolderBrowser('tInputDir')"
+                    data-i18n="btn.browse">📁 Chọn…</button>
+                </div>
               </div>
-            </label>
-            <label class="backend-option">
-              <input type="radio" name="tBackend" id="tBackendMIT" value="mit" onchange="onBackendChange()" />
-              <div class="backend-card">
-                <span class="bc-icon">🎌</span>
-                <span class="bc-label">manga-image-translator</span>
-                <span class="bc-sub" data-i18n="t.backend.mit.sub">Chất lượng cao · nhiều model</span>
+              <div class="field">
+                <label data-i18n="t.out_dir.label">Thư mục xuất (ảnh đã dịch)</label>
+                <div class="folder-row">
+                  <input type="text" id="tOutputDir" placeholder="Để trống → tự tạo thư mục _vi"
+                    data-i18n-ph="t.out_dir.ph" />
+                  <button class="btn btn-ghost btn-browse" onclick="openFolderBrowser('tOutputDir')"
+                    data-i18n="btn.browse">📁 Chọn…</button>
+                </div>
+                <div class="field-hint" data-i18n="t.out_dir.hint">Nếu để trống, kết quả lưu vào _vi/</div>
               </div>
-            </label>
-          </div>
-        </div>
-
-        <hr class="divider" />
-
-        <!-- ── OCR + Ollama options ───────────────────────────────────── -->
-        <div id="tOllamaOptions">
-          <div class="field">
-            <label data-i18n="t.src_lang.label">Ngôn ngữ nguồn</label>
-            <select id="tSrcLang" class="field select">
-              <option value="zh">🇨🇳 Tiếng Trung → Tiếng Việt (ZH→VI)</option>
-              <option value="en">🇺🇸 Tiếng Anh → Tiếng Việt (EN→VI)</option>
-            </select>
-          </div>
-          <div class="field">
-            <label>Phong cách dịch</label>
-            <select id="tTranslationStyle" class="field select">
-              <option value="modern" selected>🏙️ Hiện đại / Slice-of-life</option>
-              <option value="wuxia">⚔️ Cổ trang / Kiếm hiệp</option>
-              <option value="school">🏫 Học đường / Romance</option>
-              <option value="lightnovel">📚 Light Novel / Manga Nhật</option>
-            </select>
-            <div class="field-hint">
-              Hiện đại: anh/em/tôi · Cổ trang: ta/ngươi · Học đường: em/cô/thầy · LN: mình/tớ/tao/senpai
             </div>
           </div>
-          <div class="field">
-            <label>LLM Backend</label>
-            <select id="tLlmApiType" class="field select" onchange="onLlmApiTypeChange()">
-              <option value="ollama" selected>🦙 Ollama  (localhost:11434)</option>
-              <option value="openai_compat">⚡ OpenAI-compatible  (llama.cpp / LM Studio)</option>
-            </select>
-          </div>
-          <div class="field" id="tLlmBaseUrlField" style="display:none">
-            <label>LLM Server URL</label>
-            <input type="text" id="tLlmBaseUrl" placeholder="http://localhost:8080  (llama.cpp)  hoặc  http://localhost:1234  (LM Studio)" />
-            <div class="field-hint">llama.cpp: :8080 · LM Studio: :1234 · vLLM: :8000</div>
-          </div>
-          <div class="field">
-            <label>Model name</label>
-            <input type="text" id="tModel" value="" placeholder="Nhập qwen2.5-vl-7b-instruct" 
-              style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-family:inherit;font-size:.9rem;outline:none;margin-bottom:6px" />
-            <select id="tModelSelect"
-              style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-family:inherit;font-size:.9rem;cursor:pointer"
-              onchange="if(this.value)setVal('tModel',this.value)">
-              <option value="">— models —</option>
-            </select>
-            <div class="field-hint" data-i18n="t.model.hint">Ollama: qwen3:8b · llama.cpp/LM Studio: điền tên model đã load</div>
-          </div>
-          <div class="field">
-            <label>Inpainter (xóa chữ)</label>
-            <select id="tInpainter" class="field select">
-              <option value="opencv" selected>OpenCV TELEA — nhanh, tốt cho nền đơn giản</option>
-              <option value="lama">LAMA (neural) — chất lượng cao, cần cài thêm ~200MB</option>
-            </select>
-            <div id="lamaHint" class="field-hint" style="display:none;color:var(--warn)">
-              ⚠ Chưa cài: <code>pip install simple-lama-inpainting</code>
+
+          <!-- System Check -->
+          <div class="card" style="margin-bottom:12px">
+            <div class="card-header">
+              <span data-i18n="t.sys.header">Kiểm tra hệ thống</span>
+              <button class="btn btn-ghost" style="padding:3px 10px;font-size:.75rem" onclick="runCheck()"
+                data-i18n="btn.check">🔍 Kiểm tra</button>
+            </div>
+            <div class="card-body" id="checkPanel">
+              <div class="check-grid" id="checkGrid">
+                <div class="check-item" id="ck-torch"><div class="ci-dot"></div><span class="ci-label">PyTorch</span><span class="ci-val">—</span></div>
+                <div class="check-item" id="ck-cuda"><div class="ci-dot"></div><span class="ci-label">CUDA</span><span class="ci-val">—</span></div>
+                <div class="check-item" id="ck-paddleocr"><div class="ci-dot"></div><span class="ci-label">PaddleOCR</span><span class="ci-val">—</span></div>
+                <div class="check-item" id="ck-easyocr"><div class="ci-dot"></div><span class="ci-label">EasyOCR</span><span class="ci-val">—</span></div>
+                <div class="check-item" id="ck-ollama"><div class="ci-dot"></div><span class="ci-label">Ollama</span><span class="ci-val">—</span></div>
+                <div class="check-item" id="ck-mit"><div class="ci-dot"></div><span class="ci-label">MIT</span><span class="ci-val">—</span></div>
+              </div>
+              <div class="field-hint" style="margin-top:8px">
+                Chưa cài? Chạy: <code style="background:var(--surface2);padding:1px 5px;border-radius:3px">python setup_translator.py</code><br />
+                <span style="font-size:.7rem">MIT backend: cần <code style="background:var(--surface2);padding:1px 4px;border-radius:3px">py -3.11 -m venv mit_venv</code> + cài MIT vào đó. Xem README.</span>
+              </div>
             </div>
           </div>
+
+          <!-- Performance -->
           <div class="field">
-            <label>Cỡ chữ (scale) <span style="font-size:.7rem;opacity:.7">— 0.5 = nhỏ hơn, 1.0 = mặc định gốc</span></label>
-            <input type="range" id="tFontScale" min="0.3" max="1.5" step="0.05" value="0.60"
-              style="width:100%;accent-color:var(--accent,#7c6af7)" oninput="document.getElementById('tFontScaleVal').textContent=parseFloat(this.value).toFixed(2)" />
-            <div style="text-align:right;font-size:.8rem;opacity:.8">x<span id="tFontScaleVal">0.60</span></div>
+            <label style="display:flex;align-items:center;gap:6px">
+              🖥 Ưu tiên CPU
+              <span style="font-size:.7rem;opacity:.6">(để làm việc khác trong lúc dịch)</span>
+            </label>
+            <select id="tCpuPriority" class="field select" style="margin-top:4px">
+              <option value="normal">Bình thường — dịch nhanh nhất</option>
+              <option value="below_normal" selected>Ưu tiên thấp — CPU ~50-60% (khuyến nghị)</option>
+              <option value="idle">Nền — CPU ~20-30%, dịch chậm hơn nhiều</option>
+            </select>
           </div>
-          <label class="cb-item" style="margin-top:6px" title="Dịch lại những ảnh đã có trong thư mục output. Bỏ tick = chỉ dịch ảnh chưa có file đầu ra (xóa ảnh xấu rồi chạy lại sẽ tự dịch lại)">
-            <input type="checkbox" id="tOverwrite" />
-            ♻ Ghi đè ảnh đã dịch
+
+          <label class="cb-item" style="margin-top:8px">
+            <input type="checkbox" id="tUseGpu" checked />
+            <span data-i18n="t.gpu">⚡ Dùng GPU (nhanh hơn ~5×</span>
           </label>
         </div>
 
-        <!-- ── MIT options ────────────────────────────────────────────── -->
-        <div id="tMITOptions" class="mit-section" style="display:none">
-
-          <!-- Translator model -->
-          <div class="field" style="margin-bottom:0">
-            <label data-i18n="t.mit.translator.label">Model dịch</label>
-            <select id="tMITTranslator" class="field select" onchange="onMITTranslatorChange()">
-              <optgroup label="─── Offline (không cần internet) ───">
-                <option value="m2m100">M2M-100 — đa ngôn ngữ (~1.2GB)</option>
-                <option value="m2m100_big" selected>M2M-100 Large — chất lượng cao ❖ (~2.5GB)</option>
-                <option value="nllb">NLLB-200 — đa ngôn ngữ</option>
-                <option value="nllb_big">NLLB-200 Large</option>
-                <option value="qwen2">Qwen2 — model Alibaba offline (~4.5GB)</option>
-                <option value="qwen2_big">Qwen2 Large</option>
-                <option value="mbart50">mBART-50 — đa ngôn ngữ</option>
-                <option value="sugoi">Sugoi — chỉ JPN→ENG</option>
-                <option value="offline">Auto offline — tự chọn model tốt nhất</option>
-                <option value="original">Giữ nguyên text gốc (không dịch)</option>
-                <option value="none">Xóa chữ (chỉ inpaint, không dịch)</option>
-              </optgroup>
-              <optgroup label="─── Online (cần API key) ───">
-                <option value="deepl">DeepL — cần DEEPL_AUTH_KEY</option>
-                <option value="openai">OpenAI (GPT-4o) — cần OPENAI_API_KEY</option>
-                <option value="deepseek">DeepSeek — cần DEEPSEEK_API_KEY</option>
-                <option value="gemini">Gemini — cần GEMINI_API_KEY</option>
-                <option value="youdao">Youdao — cần YOUDAO_APP_KEY</option>
-                <option value="baidu">Baidu — cần BAIDU_APP_ID</option>
-                <option value="caiyun">Caiyun — cần CAIYUN_TOKEN</option>
-                <option value="groq">Groq — cần GROQ_API_KEY</option>
-                <option value="sakura">Sakura (Ollama-compatible) — cần SAKURA_API_BASE</option>
-                <option value="custom_openai">Custom OpenAI / Ollama (qwen3:14b…) ★ — cần CUSTOM_OPENAI_API_BASE</option>
-              </optgroup>
-            </select>
+        <!-- ════ TAB: Backend ════ -->
+        <div id="st-backend" class="settings-tab-pane">
+          <!-- Backend selector -->
+          <div class="field" style="margin-bottom:12px">
+            <label data-i18n="t.backend.label">Backend dịch</label>
+            <div class="backend-selector">
+              <label class="backend-option">
+                <input type="radio" name="tBackend" id="tBackendDefault" value="default" checked onchange="onBackendChange()" />
+                <div class="backend-card">
+                  <span class="bc-icon">🔧</span>
+                  <span class="bc-label">OCR + Ollama</span>
+                  <span class="bc-sub" data-i18n="t.backend.auto.sub">Tự động · offline</span>
+                </div>
+              </label>
+              <label class="backend-option">
+                <input type="radio" name="tBackend" id="tBackendMIT" value="mit" onchange="onBackendChange()" />
+                <div class="backend-card">
+                  <span class="bc-icon">🎌</span>
+                  <span class="bc-label">manga-image-translator</span>
+                  <span class="bc-sub" data-i18n="t.backend.mit.sub">Chất lượng cao · nhiều model</span>
+                </div>
+              </label>
+            </div>
           </div>
 
-          <!-- API key hint banner -->
-          <div id="mitApiKeyHint" class="api-key-alert"></div>
+          <hr class="divider" />
 
-          <!-- Ollama model (only for custom_openai) -->
-          <div id="mitOllamaModelField" class="field" style="display:none;margin-bottom:0">
-            <label>Ollama / LM Studio Model <span style="font-size:.7rem;opacity:.7">(custom_openai)</span></label>
-            <input type="text" id="tMITOllamaModel" value="" placeholder="Nhập qwen2.5-vl-7b-instruct" 
-              style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-family:inherit;font-size:.9rem;outline:none;margin-bottom:6px" />
-            <select id="tMITModelSelect"
-              style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-family:inherit;font-size:.9rem;cursor:pointer"
-              onchange="if(this.value)setVal('tMITOllamaModel',this.value)">
-              <option value="">— models —</option>
-            </select>
-            <div class="field-hint">Gõ model trực tiếp hoặc chọn nếu có list. Ví dụ: qwen2.5-vl-7b-instruct.</div>
-          </div>
-          <div id="mitCustomOpenAiBaseField" class="field" style="display:none;margin-bottom:0">
-            <label>Custom API Base <span style="font-size:.7rem;opacity:.7">(LM Studio / OpenAI-compatible)</span></label>
-            <input type="text" id="tMITCustomOpenAiApiBase" value="" placeholder="http://127.0.0.1:8080/v1" 
-              style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-family:inherit;font-size:.82rem;outline:none;width:100%" />
-            <div class="field-hint">Chỉ cần khi dùng LM Studio / OpenAI-compatible API.</div>
-          </div>
-          <div id="mitCustomOpenAiKeyField" class="field" style="display:none;margin-bottom:0">
-            <label>Custom API Key <span style="font-size:.7rem;opacity:.7">(nếu cần)</span></label>
-            <input type="text" id="tMITCustomOpenAiApiKey" value="" placeholder="api_key_here" 
-              style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-family:inherit;font-size:.82rem;outline:none;width:100%" />
-          </div>
-
-          <!-- Target language -->
-          <div class="field" style="margin-bottom:0">
-            <label data-i18n="t.mit.target.label">Ngôn ngữ đích</label>
-            <select id="tMITTargetLang" class="field select">
-              <option value="VIN" selected>🇻🇳 Tiếng Việt (VIN)</option>
-              <option value="ENG">🇺🇸 Tiếng Anh (ENG)</option>
-              <option value="CHS">🇨🇳 Tiếng Trung giản thể (CHS)</option>
-              <option value="CHT">🇹🇼 Tiếng Trung phồn thể (CHT)</option>
-              <option value="JPN">🇯🇵 Tiếng Nhật (JPN)</option>
-              <option value="KOR">🇰🇷 Tiếng Hàn (KOR)</option>
-              <option value="FRA">🇫🇷 Tiếng Pháp (FRA)</option>
-              <option value="DEU">🇩🇪 Tiếng Đức (DEU)</option>
-            </select>
-          </div>
-
-          <!-- Advanced collapsible -->
-          <details>
-            <summary class="adv-toggle">
-              <span class="adv-arrow">▶</span>
-              <span data-i18n="t.mit.adv">⚙ Cài đặt nâng cao</span>
-              <span style="margin-left:auto;font-size:.68rem;font-weight:400;opacity:.7" data-i18n="t.mit.adv.sub">Detector · Inpainter · Upscale…</span>
-            </summary>
-            <div style="margin-top:10px;display:flex;flex-direction:column;gap:10px">
-
-              <!-- Preset buttons -->
-              <div style="display:flex;gap:6px;flex-wrap:wrap">
-                <button type="button" onclick="mitPreset('manga')"
-                  style="flex:1;padding:5px 8px;font-size:.75rem;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer"
-                  title="Manga/truyện tranh: chữ trong bong bóng, bbox nhỏ">📖 Manga</button>
-                <button type="button" onclick="mitPreset('cg')"
-                  style="flex:1;padding:5px 8px;font-size:.75rem;border-radius:6px;border:1px solid var(--accent,#7c6af7);background:var(--surface2);color:var(--accent,#7c6af7);cursor:pointer;font-weight:600"
-                  title="CG/Visual novel: subtitle dài ở dưới ảnh, text nhỏ trắng nền đen">🎮 CG/VN ★</button>
-                <button type="button" onclick="mitPreset('reset')"
-                  style="flex:1;padding:5px 8px;font-size:.75rem;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer"
-                  title="Xóa về mặc định">↺ Reset</button>
+          <!-- OCR + Ollama options -->
+          <div id="tOllamaOptions">
+            <div class="field">
+              <label data-i18n="t.src_lang.label">Ngôn ngữ nguồn</label>
+              <select id="tSrcLang" class="field select">
+                <option value="zh">🇨🇳 Tiếng Trung → Tiếng Việt (ZH→VI)</option>
+                <option value="en">🇺🇸 Tiếng Anh → Tiếng Việt (EN→VI)</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Phong cách dịch</label>
+              <select id="tTranslationStyle" class="field select">
+                <option value="modern" selected>🏙️ Hiện đại / Slice-of-life</option>
+                <option value="wuxia">⚔️ Cổ trang / Kiếm hiệp</option>
+                <option value="school">🏫 Học đường / Romance</option>
+                <option value="lightnovel">📚 Light Novel / Manga Nhật</option>
+              </select>
+              <div class="field-hint">
+                Hiện đại: anh/em/tôi · Cổ trang: ta/ngươi · Học đường: em/cô/thầy · LN: mình/tớ/tao/senpai
               </div>
+            </div>
+            <div class="field">
+              <label>LLM Backend</label>
+              <select id="tLlmApiType" class="field select" onchange="onLlmApiTypeChange()">
+                <option value="ollama" selected>🦙 Ollama  (localhost:11434)</option>
+                <option value="openai_compat">⚡ OpenAI-compatible  (llama.cpp / LM Studio)</option>
+              </select>
+            </div>
+            <div class="field" id="tLlmBaseUrlField" style="display:none">
+              <label>LLM Server URL</label>
+              <input type="text" id="tLlmBaseUrl" placeholder="http://localhost:8080 (llama.cpp) hoặc http://localhost:1234 (LM Studio)" />
+              <div class="field-hint">llama.cpp: :8080 · LM Studio: :1234 · vLLM: :8000</div>
+            </div>
+            <div class="field">
+              <label>Model name</label>
+              <input type="text" id="tModel" value="" placeholder="Nhập qwen2.5-vl-7b-instruct"
+                style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-family:inherit;font-size:.9rem;outline:none;margin-bottom:6px" />
+              <select id="tModelSelect"
+                style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-family:inherit;font-size:.9rem;cursor:pointer"
+                onchange="if(this.value)setVal('tModel',this.value)">
+                <option value="">— models —</option>
+              </select>
+              <div class="field-hint" data-i18n="t.model.hint">Ollama: qwen3:8b · llama.cpp/LM Studio: điền tên model đã load</div>
+            </div>
+            <div class="field">
+              <label>Inpainter (xóa chữ)</label>
+              <select id="tInpainter" class="field select">
+                <option value="opencv" selected>OpenCV TELEA — nhanh, tốt cho nền đơn giản</option>
+                <option value="lama">LAMA (neural) — chất lượng cao, cần cài thêm ~200MB</option>
+              </select>
+              <div id="lamaHint" class="field-hint" style="display:none;color:var(--warn)">
+                ⚠ Chưa cài: <code class="code">pip install simple-lama-inpainting</code>
+              </div>
+            </div>
+            <div class="field">
+              <label>Cỡ chữ (scale) <span style="font-size:.7rem;opacity:.7">— 0.5 = nhỏ hơn, 1.0 = mặc định gốc</span></label>
+              <input type="range" id="tFontScale" min="0.3" max="1.5" step="0.05" value="0.60"
+                style="width:100%;accent-color:var(--accent,#7c6af7)"
+                oninput="document.getElementById('tFontScaleVal').textContent=parseFloat(this.value).toFixed(2)" />
+              <div style="text-align:right;font-size:.8rem;opacity:.8">x<span id="tFontScaleVal">0.60</span></div>
+            </div>
+            <label class="cb-item" style="margin-top:6px" title="Dịch lại những ảnh đã có trong thư mục output. Bỏ tick = chỉ dịch ảnh chưa có file đầu ra (xóa ảnh xấu rồi chạy lại sẽ tự dịch lại)">
+              <input type="checkbox" id="tOverwrite" />
+              ♻ Ghi đè ảnh đã dịch
+            </label>
+          </div>
 
-              <!-- Row 1: Detector / Inpainter / Upscale -->
-              <div class="grid-3">
-                <div class="field" style="margin-bottom:0">
-                  <label><span class="tt-wrap">Detector<span class="tt-icon">?</span><span class="tt-box">Model nhận diện vùng chữ trong ảnh.
+          <!-- ── MIT options ────────────────────────────────────────────── -->
+          <div id="tMITOptions" class="mit-section" style="display:none">
+
+            <!-- Translator model -->
+            <div class="field" style="margin-bottom:0">
+              <label data-i18n="t.mit.translator.label">Model dịch</label>
+              <select id="tMITTranslator" class="field select" onchange="onMITTranslatorChange()">
+                <optgroup label="─── Offline (không cần internet) ───">
+                  <option value="m2m100">M2M-100 — đa ngôn ngữ (~1.2GB)</option>
+                  <option value="m2m100_big" selected>M2M-100 Large — chất lượng cao ❖ (~2.5GB)</option>
+                  <option value="nllb">NLLB-200 — đa ngôn ngữ</option>
+                  <option value="nllb_big">NLLB-200 Large</option>
+                  <option value="qwen2">Qwen2 — model Alibaba offline (~4.5GB)</option>
+                  <option value="qwen2_big">Qwen2 Large</option>
+                  <option value="mbart50">mBART-50 — đa ngôn ngữ</option>
+                  <option value="sugoi">Sugoi — chỉ JPN→ENG</option>
+                  <option value="offline">Auto offline — tự chọn model tốt nhất</option>
+                  <option value="original">Giữ nguyên text gốc (không dịch)</option>
+                  <option value="none">Xóa chữ (chỉ inpaint, không dịch)</option>
+                </optgroup>
+                <optgroup label="─── Online (cần API key) ───">
+                  <option value="deepl">DeepL — cần DEEPL_AUTH_KEY</option>
+                  <option value="openai">OpenAI (GPT-4o) — cần OPENAI_API_KEY</option>
+                  <option value="deepseek">DeepSeek — cần DEEPSEEK_API_KEY</option>
+                  <option value="gemini">Gemini — cần GEMINI_API_KEY</option>
+                  <option value="youdao">Youdao — cần YOUDAO_APP_KEY</option>
+                  <option value="baidu">Baidu — cần BAIDU_APP_ID</option>
+                  <option value="caiyun">Caiyun — cần CAIYUN_TOKEN</option>
+                  <option value="groq">Groq — cần GROQ_API_KEY</option>
+                  <option value="sakura">Sakura (Ollama-compatible) — cần SAKURA_API_BASE</option>
+                  <option value="custom_openai">Custom OpenAI / Ollama (qwen3:14b…) ★ — cần CUSTOM_OPENAI_API_BASE</option>
+                </optgroup>
+              </select>
+            </div>
+
+            <!-- API key hint banner -->
+            <div id="mitApiKeyHint" class="api-key-alert"></div>
+
+            <!-- Ollama model (only for custom_openai) -->
+            <div id="mitOllamaModelField" class="field" style="display:none;margin-bottom:0">
+              <label>Ollama / LM Studio Model <span style="font-size:.7rem;opacity:.7">(custom_openai)</span></label>
+              <input type="text" id="tMITOllamaModel" value="" placeholder="Nhập qwen2.5-vl-7b-instruct"
+                style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-family:inherit;font-size:.9rem;outline:none;margin-bottom:6px" />
+              <select id="tMITModelSelect"
+                style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-family:inherit;font-size:.9rem;cursor:pointer"
+                onchange="if(this.value)setVal('tMITOllamaModel',this.value)">
+                <option value="">— models —</option>
+              </select>
+              <div class="field-hint">Gõ model trực tiếp hoặc chọn nếu có list. Ví dụ: qwen2.5-vl-7b-instruct.</div>
+            </div>
+            <div id="mitCustomOpenAiBaseField" class="field" style="display:none;margin-bottom:0">
+              <label>Custom API Base <span style="font-size:.7rem;opacity:.7">(LM Studio / OpenAI-compatible)</span></label>
+              <input type="text" id="tMITCustomOpenAiApiBase" value="" placeholder="http://127.0.0.1:8080/v1"
+                style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-size:.82rem;outline:none;width:100%" />
+              <div class="field-hint">Chỉ cần khi dùng LM Studio / OpenAI-compatible API.</div>
+            </div>
+            <div id="mitCustomOpenAiKeyField" class="field" style="display:none;margin-bottom:0">
+              <label>Custom API Key <span style="font-size:.7rem;opacity:.7">(nếu cần)</span></label>
+              <input type="text" id="tMITCustomOpenAiApiKey" value="" placeholder="api_key_here"
+                style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-family:inherit;font-size:.82rem;outline:none;width:100%" />
+            </div>
+
+            <!-- Target language -->
+            <div class="field" style="margin-bottom:0">
+              <label data-i18n="t.mit.target.label">Ngôn ngữ đích</label>
+              <select id="tMITTargetLang" class="field select">
+                <option value="VIN" selected>🇻🇳 Tiếng Việt (VIN)</option>
+                <option value="ENG">🇺🇸 Tiếng Anh (ENG)</option>
+                <option value="CHS">🇨🇳 Tiếng Trung giản thể (CHS)</option>
+                <option value="CHT">🇹🇼 Tiếng Trung phồn thể (CHT)</option>
+                <option value="JPN">🇯🇵 Tiếng Nhật (JPN)</option>
+                <option value="KOR">🇰🇷 Tiếng Hàn (KOR)</option>
+                <option value="FRA">🇫🇷 Tiếng Pháp (FRA)</option>
+                <option value="DEU">🇩🇪 Tiếng Đức (DEU)</option>
+              </select>
+            </div>
+
+            <!-- Advanced collapsible -->
+            <details>
+              <summary class="adv-toggle">
+                <span class="adv-arrow">▶</span>
+                <span data-i18n="t.mit.adv">⚙ Cài đặt nâng cao</span>
+                <span style="margin-left:auto;font-size:.68rem;font-weight:400;opacity:.7" data-i18n="t.mit.adv.sub">Detector · Inpainter · Upscale…</span>
+              </summary>
+              <div style="margin-top:10px;display:flex;flex-direction:column;gap:10px">
+
+                <!-- Preset buttons -->
+                <div style="display:flex;gap:6px;flex-wrap:wrap">
+                  <button type="button" onclick="mitPreset('manga')"
+                    style="flex:1;padding:5px 8px;font-size:.75rem;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer"
+                    title="Manga/truyện tranh: chữ trong bong bóng, bbox nhỏ">📖 Manga</button>
+                  <button type="button" onclick="mitPreset('manga_sfx')"
+                    style="flex:1;padding:5px 8px;font-size:.75rem;border-radius:6px;border:1px solid var(--accent,#7c6af7);background:var(--surface2);color:var(--accent,#7c6af7);cursor:pointer;font-weight:600"
+                    title="Manga bị nhòe/bỏ sót chữ: ctd + lama_mpe + box_thr thấp + gamma detect">✨ Manga nét/SFX</button>
+                  <button type="button" onclick="mitPreset('cg')"
+                    style="flex:1;padding:5px 8px;font-size:.75rem;border-radius:6px;border:1px solid var(--accent,#7c6af7);background:var(--surface2);color:var(--accent,#7c6af7);cursor:pointer;font-weight:600"
+                    title="CG/Visual novel: subtitle dài ở dưới ảnh, text nhỏ trắng nền đen">🎮 CG/VN ★</button>
+                  <button type="button" onclick="mitPreset('reset')"
+                    style="flex:1;padding:5px 8px;font-size:.75rem;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);cursor:pointer"
+                    title="Xóa về mặc định">↺ Reset</button>
+                </div>
+
+                <!-- Row 1: Detector / Inpainter / Upscale -->
+                <div class="grid-3">
+                  <div class="field" style="margin-bottom:0">
+                    <label><span class="tt-wrap">Detector<span class="tt-icon">?</span><span class="tt-box">Model nhận diện vùng chữ trong ảnh.
 • default — dbconvnext, tốt cho manga thông thường
 • ctd ★ — Comic Text Detector, TỐTHƠN cho SFX/âm thanh nghệ thuật, chữ nằm ngoài bong bóng, chữ chìm trong hình vẽ
 • craft — tổng quát, tốt với scene text
 • paddle — PaddleOCR, tốt với chữ nhỏ/mật độ cao
 
 Chữ SFX / âm thanh chưa detect được → thử ctd + box_thr 0.5.</span></span></label>
-                  <select id="tMITDetector" class="field select sm">
-                    <option value="">default</option>
-                    <option value="ctd">ctd (manga)</option>
-                    <option value="craft">craft</option>
-                    <option value="paddle">paddle</option>
-                  </select>
-                </div>
-                <div class="field" style="margin-bottom:0">
-                  <label><span class="tt-wrap">Inpainter<span class="tt-icon">?</span><span class="tt-box">Model xoá chữ gốc và tái tạo nền sau inpaint.
+                    <select id="tMITDetector" class="field select sm">
+                      <option value="">default</option>
+                      <option value="ctd">ctd (manga)</option>
+                      <option value="craft">craft</option>
+                      <option value="paddle">paddle</option>
+                    </select>
+                  </div>
+                  <div class="field" style="margin-bottom:0">
+                    <label><span class="tt-wrap">Inpainter<span class="tt-icon">?</span><span class="tt-box">Model xoá chữ gốc và tái tạo nền sau inpaint.
 • lama_large — chất lượng cao, nhưng có thể làm nhòe halftone/chấm bi manga
 • lama_mpe ★ manga — nhẹ hơn, giữ texture tốt hơn với halftone, ít blur hơn
 • original — GIỮ NGUYÊN ảnh gốc, chỉ đặt chữ mới lên (chữ gốc vẫn thấy bên dưới)
 • none — không xoá chữ gốc, không inpaint, render chữ mới đè thẳng lên
 
 ⚠ Manga đen trắng bị nhòe nền → thử lama_mpe thay lama_large.</span></span></label>
-                  <select id="tMITInpainter" class="field select sm">
-                    <option value="">default</option>
-                    <option value="lama_large" selected>lama_large ✦</option>
-                    <option value="lama_mpe">lama_mpe</option>
-                    <option value="original">original (giữ nền)</option>
-                    <option value="none">none (không inpaint)</option>
-                  </select>
-                </div>
-                <div class="field" style="margin-bottom:0">
-                  <label><span class="tt-wrap">Upscale ×<span class="tt-icon">?</span><span class="tt-box">Phóng to ảnh trước khi dịch bằng AI upscaler.
+                    <select id="tMITInpainter" class="field select sm">
+                      <option value="">default</option>
+                      <option value="lama_large">lama_large ✦</option>
+                      <option value="lama_mpe" selected>lama_mpe ★ manga nét</option>
+                      <option value="original">original (giữ nền)</option>
+                      <option value="none">none (không inpaint)</option>
+                    </select>
+                  </div>
+                  <div class="field" style="margin-bottom:0">
+                    <label><span class="tt-wrap">Upscale ×<span class="tt-icon">?</span><span class="tt-box">Phóng to ảnh trước khi dịch bằng AI upscaler.
 • Tắt — không upscale (nhanh nhất)
 • ×2 / ×3 / ×4 — phóng to lên 2-4 lần trước khi xử lý
 
 Upscale giúp OCR nhận diện chữ nhỏ chính xác hơn nhưng tốn thêm VRAM và thời gian. Với ảnh 1080p trở lên thường không cần.</span></span></label>
-                  <select id="tMITUpscale" class="field select sm">
-                    <option value="" data-i18n="t.mit.upscale.off">Tắt</option>
-                    <option value="1">×1</option>
-                    <option value="2">×2</option>
-                    <option value="3">×3</option>
-                    <option value="4">×4</option>
-                  </select>
+                    <select id="tMITUpscale" class="field select sm">
+                      <option value="" data-i18n="t.mit.upscale.off">Tắt</option>
+                      <option value="1">×1</option>
+                      <option value="2">×2</option>
+                      <option value="3">×3</option>
+                      <option value="4">×4</option>
+                    </select>
+                  </div>
                 </div>
-              </div>
 
-              <!-- Row 2: Detection size / Mask dilation / Unclip ratio / Font options -->
-              <div class="grid-3">
-                <div class="field" style="margin-bottom:0">
-                  <label><span class="tt-wrap">Det. size<span class="tt-icon">?</span><span class="tt-box">Độ phân giải ảnh khi chạy text detection.
+                <!-- Row 2: Detection size / Mask dilation / Unclip / Font options -->
+                <div class="grid-3">
+                  <div class="field" style="margin-bottom:0">
+                    <label><span class="tt-wrap">Det. size<span class="tt-icon">?</span><span class="tt-box">Độ phân giải ảnh khi chạy text detection.
 • default — MIT tự chọn (thường 2048)
 • 1024 — nhanh rất nhiều, bỏ sót chữ nhỏ
 • 2048 — cân bằng tốc độ / chất lượng ★
 • 2560 — tìm được chữ rất nhỏ, chậm và tốn VRAM
 
 Với ảnh 1080p dùng 2048. Với ảnh 4K dùng 2560.</span></span></label>
-                  <select id="tMITDetSize" class="field select sm">
-                    <option value="">default</option>
-                    <option value="1024">1024</option>
-                    <option value="1536">1536</option>
-                    <option value="2048">2048</option>
-                    <option value="2560">2560</option>
-                  </select>
-                </div>
-                <div class="field" style="margin-bottom:0">
-                  <label><span class="tt-wrap">Mask dilation<span class="tt-icon">?</span><span class="tt-box">Mở rộng vùng mask xoá chữ ra xung quanh (tính theo pixel).
+                    <select id="tMITDetSize" class="field select sm">
+                      <option value="">default</option>
+                      <option value="1024">1024</option>
+                      <option value="1536">1536</option>
+                      <option value="2048">2048</option>
+                      <option value="2560">2560</option>
+                    </select>
+                  </div>
+                  <div class="field" style="margin-bottom:0">
+                    <label><span class="tt-wrap">Mask dilation<span class="tt-icon">?</span><span class="tt-box">Mở rộng vùng mask xoá chữ ra xung quanh (tính theo pixel).
 • 0 — chỉ xoá vùng chữ khít
 • 10–20 — xoá thêm viền xung quanh, sạch hơn
 • 30–50 — xoá rộng, hữu ích khi chữ có viền/đổ bóng lớn
 
 CG/subtitle: dùng 15–25 để xoá sạch shadow và outline.</span></span></label>
-                  <input type="number" id="tMITMaskDil" placeholder="0" min="0" max="50" value=""
-                    style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-family:inherit;font-size:.82rem;outline:none;width:100%" />
-                </div>
-                <div class="field" style="margin-bottom:0">
-                  <label><span class="tt-wrap">Unclip <span style="opacity:.55;font-size:.75rem">(CG: 3.5)</span><span class="tt-icon">?</span><span class="tt-box">Hệ số mở rộng bounding box sau khi detect text.
-Mặc định: 2.3
-
-• Để trống — tự động 3.5 khi dịch sang Tiếng Việt (KHUYẾN NGHỊ)
-• 2.3 — mặc định gốc manga, bbox vừa khít chữ → dễ tràn text VI
-• 1.0–1.9 — QUÁ NHỎ: bbox không đủ rộng cho Latin, text VI tràn ra ngoài
-• 3.5–4.5 — CG/VN tốt nhất: đủ chỗ cho text VI mà không shift vị trí
-• 5.0–6.0 — TRÁNH: bbox deform thành dải ngang full-width, text đè lên nhân vật
-
-⚠ Quá lớn có thể gộp lẫn các vùng chữ khác nhau và shift vị trí render.</span></span></label>
-                  <input type="number" id="tMITUnclip" placeholder="2.3" min="1" max="8" step="0.1" value=""
-                    style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-family:inherit;font-size:.82rem;outline:none;width:100%" />
-                </div>
-                <div class="field" style="margin-bottom:0">
-                  <label><span class="tt-wrap">Box thr. <span style="opacity:.55;font-size:.75rem">(SFX: 0.5)</span><span class="tt-icon">?</span><span class="tt-box">Ngưỡng tin cậy để giữ lại một bounding box text.
-Mặc định: 0.7
-
-• Để trống — dùng mặc định 0.7
-• 0.5–0.6 — detect thêm chữ SFX nghệ thuật, sound effect, chữ nhỏ ở góc
-• 0.3–0.4 — detect rất nhiều vùng, có thể gây false positive (ảnh bị nhận nhầm là chữ)
-• 0.7 — mặc định gốc manga, bỏ sót SFX/âm thanh nhỏ
-
-⚠ Giảm quá thấp có thể dịch nhầm ảnh nền thành text.</span></span></label>
-                  <input type="number" id="tMITBoxThr" placeholder="0.7" min="0.1" max="0.9" step="0.05" value=""
-                    style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-family:inherit;font-size:.82rem;outline:none;width:100%" />
-                </div>
-                <div class="field" style="margin-bottom:0">
-                  <label><span class="tt-wrap">Font offset<span class="tt-icon">?</span><span class="tt-box">Điều chỉnh cỡ font so với giá trị MIT tự tính (đơn vị: pixel).
-• 0 — giữ nguyên auto-calculated size
-• -5 đến -15 — thu nhỏ font → ít tràn ra ngoài bbox hơn
-• +5 đến +10 — phóng to font
-
-CG/VN: dùng -18 đến -25 nếu text bị tràn.
-Khác với Font fixed: offset này cộng/trừ vào kích cỡ đã tính, không ghi đè hoàn toàn.
-Nếu text vẫn tràn dù offset thấp nhất → dùng Font fixed để cap cứng (VD: 14).</span></span></label>
-                  <div style="display:flex;align-items:center;gap:6px">
-                    <input type="range" id="tMITFontOfs" min="-35" max="10" step="1" value="-4"
-                      style="flex:1;accent-color:var(--accent,#7c6af7)"
-                      oninput="document.getElementById('tMITFontOfsVal').textContent=this.value" />
-                    <span id="tMITFontOfsVal" style="min-width:28px;text-align:right;font-size:.82rem">-4</span>
+                    <input type="number" id="tMITMaskDil" placeholder="0" min="0" max="50" value=""
+                      style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-family:inherit;font-size:.82rem;outline:none;width:100%" />
                   </div>
-                </div>
-                <div class="field" style="margin-bottom:0">
-                  <label><span class="tt-wrap">Font min <span style="opacity:.55;font-size:.75rem">(CG: 8)</span><span class="tt-icon">?</span><span class="tt-box">Cỡ font nhỏ nhất được phép render (pixel).
-Mặc định: image_perimeter / 200 (thường ~10–14px)
-
-• Để trống — dùng giá trị auto của MIT
-• 8 — buộc render dù text rất dài so với bbox
-• 6 — nhỏ nhất có thể đọc được
-
-Quan trọng cho CG/subtitle: nếu không set, MIT sẽ BỎ QUA vùng chữ khi text dịch quá dài không vừa bbox — gây mất dòng dịch.
-Đặt 8 để giữ lại tất cả text dù chữ nhỏ.</span></span></label>
-                  <input type="number" id="tMITFontMin" placeholder="auto" min="6" max="30" value=""
-                    style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-family:inherit;font-size:.82rem;outline:none;width:100%" />
-                </div>
-                <div class="field" style="margin-bottom:0">
-                  <label><span class="tt-wrap">Font fixed <span style="opacity:.55;font-size:.75rem">(CG: 16)</span><span class="tt-icon">?</span><span class="tt-box">Cố định kích cỡ font (pixel) — bỏ qua hoàn toàn auto-sizing của MIT.
-• Để trống — MIT tự tính (khuyến nghị cho manga)
-• 14–18 — phù hợp subtitle CG 1080p
-• 20–28 — phù hợp manga / text to rõ
-
-Khi đặt giá trị này, Font offset và Font min không có tác dụng nữa.
-Dùng khi muốn toàn bộ ảnh có font size đồng nhất.</span></span></label>
-                  <input type="number" id="tMITFontFixed" placeholder="auto" min="8" max="60" value=""
-                    style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-family:inherit;font-size:.82rem;outline:none;width:100%" />
-                </div>
-                <div class="field" style="margin-bottom:0">
-                  <label><span class="tt-wrap">Font color <span style="opacity:.55;font-size:.75rem">(VD: FFFFFF:000000)</span><span class="tt-icon">?</span><span class="tt-box">Override màu chữ và màu nền chữ. Dùng hex không có #.
-Format: FG hoặc FG:BG
-
-Ví dụ:
-• FFFFFF — chữ trắng, nền auto
-• FFFFFF:000000 — chữ trắng, nền đen ★ (CG)
-• 000000:FFFFFF — chữ đen, nền trắng (manga sáng)
-• FF3300 — chữ đỏ, không nền
-
-Để trống = MIT tự detect màu từ ảnh gốc.
-CG/subtitle: dùng FFFFFF:000000 để đảm bảo đọc được trên mọi background.</span></span></label>
-                  <input type="text" id="tMITFontColor" placeholder="auto" maxlength="15" value=""
-                    style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-family:monospace;font-size:.82rem;outline:none;width:100%" />
-                </div>
-              </div>
-
-              <!-- Row 3: Checkboxes -->
-              <div class="cb-grid">
-                <label class="cb-item" title="In toàn bộ log chi tiết của MIT ra panel Nhật ký — hữu ích để debug khi ảnh bị bỏ qua hoặc dịch sai">
-                  <input type="checkbox" id="tMITVerbose" />
-                  📋 Verbose log
-                </label>
-                <label class="cb-item" title="Bỏ qua ảnh không phát hiện được chữ — tăng tốc khi folder có nhiều ảnh không có text">
-                  <input type="checkbox" id="tMITSkipNoText" />
-                  <span data-i18n="t.mit.skip">⏭ Bỏ qua ảnh trống</span>
-                </label>
-                <label class="cb-item span2" title="Dịch lại những ảnh đã có trong thư mục output. Bỏ tick = chỉ dịch ảnh chưa có file đầu ra (tiết kiệm thời gian khi dịch lại từ giữa chừng)">
-                  <input type="checkbox" id="tMITOverwrite" />
-                  <span data-i18n="t.mit.overwrite">♻ Ghi đè ảnh đã dịch</span>
-                </label>
-              </div>
-
-
-            </div>
-          </details>
-
-        </div><!-- end tMITOptions -->
-
-        <hr class="divider" />
-
-        <!-- CPU priority -->
-        <div class="field" style="margin-bottom:8px">
-          <label style="display:flex;align-items:center;gap:6px">
-            🖥 Ưu tiên CPU
-            <span style="font-size:.7rem;opacity:.6">(để làm việc khác trong lúc dịch)</span>
-          </label>
-          <select id="tCpuPriority" class="field select" style="margin-top:4px">
-            <option value="normal">Bình thường — dịch nhanh nhất</option>
-            <option value="below_normal" selected>Ưu tiên thấp — CPU ~50-60% (khuyến nghị)</option>
-            <option value="idle">Nền — CPU ~20-30%, dịch chậm hơn nhiều</option>
-          </select>
-        </div>
-
-        <!-- GPU toggle -->
-        <label class="cb-item">
-          <input type="checkbox" id="tUseGpu" checked />
-          <span data-i18n="t.gpu">⚡ Dùng GPU (nhanh hơn ~5×)</span>
-        </label>
-
-      </div>
-    </div>
-
-    <!-- Dependency check -->
-    <div class="card" style="margin-bottom:12px">
-      <div class="card-header">
-        <span data-i18n="t.sys.header">Kiểm tra hệ thống</span>
-        <button class="btn btn-ghost" style="padding:3px 10px;font-size:.75rem" onclick="runCheck()"
-                data-i18n="btn.check">🔍 Kiểm tra</button>
-      </div>
-      <div class="card-body" id="checkPanel">
-        <div class="check-grid" id="checkGrid">
-          <div class="check-item" id="ck-torch">     <div class="ci-dot"></div><span class="ci-label">PyTorch</span>   <span class="ci-val">—</span></div>
-          <div class="check-item" id="ck-cuda">      <div class="ci-dot"></div><span class="ci-label">CUDA</span>      <span class="ci-val">—</span></div>
-          <div class="check-item" id="ck-paddleocr"><div class="ci-dot"></div><span class="ci-label">PaddleOCR</span> <span class="ci-val">—</span></div>
-          <div class="check-item" id="ck-easyocr">  <div class="ci-dot"></div><span class="ci-label">EasyOCR</span>   <span class="ci-val">—</span></div>
-          <div class="check-item" id="ck-ollama">   <div class="ci-dot"></div><span class="ci-label">Ollama</span>    <span class="ci-val">—</span></div>
-          <div class="check-item" id="ck-mit">      <div class="ci-dot"></div><span class="ci-label">MIT</span>       <span class="ci-val">—</span></div>
-        </div>
-        <div class="field-hint" style="margin-top:8px">
-          Chưa cài? Chạy: <code style="background:var(--surface2);padding:1px 5px;border-radius:3px">python setup_translator.py</code><br/>
-          <span style="font-size:.7rem">MIT backend: cần <code style="background:var(--surface2);padding:1px 4px;border-radius:3px">py -3.11 -m venv mit_venv</code> + cài MIT vào đó. Xem README.</span>
-        </div>
-      </div>
-    </div>
-
-    <!-- Actions + Progress -->
-    <div class="card">
-      <div class="card-body">
-        <div class="action-row">
-          <button class="btn btn-primary" id="tStartBtn" onclick="tStart()" data-i18n="btn.start_translate">▶ Bắt đầu dịch</button>
-          <button class="btn btn-danger"  id="tStopBtn"  onclick="tStop()" disabled data-i18n="btn.stop">■ Dừng</button>
-        </div>
-
-        <!-- Auto-retry -->
-        <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <label class="cb-item" title="Tự động retry ảnh dịch lỗi sau khi hoàn thành">
-            <input type="checkbox" id="tAutoRetryChk" onchange="onTAutoRetryChkChange()" />
-            ↺ Tự động retry ảnh lỗi
-          </label>
-          <div style="display:flex;align-items:center;gap:4px">
-            <input type="number" id="tAutoRetryTimes" min="1" max="10" value="2"
-              style="width:52px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:4px 6px;font-size:.82rem"
-              disabled />
-            <span style="font-size:.78rem;color:var(--text-muted)">lần</span>
-          </div>
-        </div>
-
-        <!-- Failed images panel -->
-        <div id="tFailedPanel" style="display:none;margin-top:10px">
-          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-            <span class="stat-pill stat-red" id="tFailedBadge">0 ảnh lỗi</span>
-            <button class="btn btn-ghost" style="padding:3px 10px;font-size:.75rem" onclick="tRetryFailed()">↺ Retry ảnh lỗi</button>
-          </div>
-        </div>
-
-        <div class="progress-wrap" id="tProgressWrap" style="display:none">
-          <hr class="divider" />
-          <div class="prog-header">
-            <span class="prog-label" id="tProgLabel">Đang dịch…</span>
-            <span class="prog-pct"   id="tProgPct">0%</span>
-          </div>
-          <div class="prog-track"><div class="prog-fill" id="tProgFill"></div></div>
-          <div class="stats-row">
-            <span class="stat-pill stat-blue"  id="tStatTotal">Tổng: 0</span>
-            <span class="stat-pill stat-green" id="tStatOk">✓ 0</span>
-            <span class="stat-pill stat-red"   id="tStatFail">✗ 0</span>
-          </div>
-        </div>
-
-        <div class="status-row">
-          <div class="status-dot" id="tStatusDot"></div>
-          <span class="status-text" id="tStatusText" data-i18n="status.ready">Sẵn sàng</span>
-        </div>
-      </div>
-    </div>
-
-  </div><!-- end translate left -->
-
-  <!-- ── Right: Log + Preview ───────────────────────────────────────────── -->
-  <div class="right-col" style="display:flex;flex-direction:column;gap:12px">
-
-    <!-- Log -->
-    <div class="card" style="flex:0 0 auto">
-      <div class="card-header">
-        <span data-i18n="t.log.header">Nhật ký</span>
-        <button class="btn btn-ghost" style="padding:3px 10px;font-size:.75rem" onclick="tClearLog()"
-                data-i18n="btn.clear_log">🗑 Xóa</button>
-      </div>
-      <div class="log-body" id="tLogBox" style="min-height:200px;max-height:35vh">
-        <div class="log-empty"><span>▋</span><span data-i18n="t.log.empty">Nhật ký dịch ảnh</span></div>
-      </div>
-    </div>
-
-    <!-- Preview -->
-    <div class="card" style="flex:1">
-      <div class="card-header">
-        <span data-i18n="t.preview.header">Ảnh đã dịch</span>
-        <span style="font-size:.7rem;color:var(--text-muted);margin-right:auto" title="Di chuột lên ảnh rồi nhấn Delete để xóa">Del = xóa</span>
-        <button class="btn btn-ghost" style="padding:3px 10px;font-size:.75rem;color:var(--danger,#e05252)" onclick="tDeleteAllPreviewImages()" title="Xóa toàn bộ ảnh đã dịch trong thư mục output">🗑 Xóa tất cả</button>
-        <button class="btn btn-ghost" style="padding:3px 10px;font-size:.75rem" onclick="tRefreshPreview()"
-                data-i18n="btn.refresh">↺ Làm mới</button>
-      </div>
-      <div id="tPreviewGrid" class="preview-grid">
-        <div class="log-empty" style="height:120px;grid-column:1/-1"><span>🖼</span><span data-i18n="t.preview.empty">Ảnh kết quả sẽ hiện ở đây</span></div>
-      </div>
-      <!-- Pagination -->
-      <div id="tPreviewPager" style="display:none;align-items:center;justify-content:center;gap:8px;padding:8px 12px;border-top:1px solid var(--border);flex-wrap:wrap">
-        <button class="btn btn-ghost" id="tPreviewPrevBtn" onclick="tPreviewPrevPage()" style="padding:3px 12px;font-size:.78rem" disabled>← Trước</button>
-        <span id="tPreviewPageInfo" style="font-size:.82rem;color:var(--text-muted);min-width:60px;text-align:center">1 / 1</span>
-        <button class="btn btn-ghost" id="tPreviewNextBtn" onclick="tPreviewNextPage()" style="padding:3px 12px;font-size:.78rem" disabled>Sau →</button>
-        <span id="tPreviewTotalInfo" style="font-size:.75rem;color:var(--text-muted)"></span>
-      </div>
-    </div>
-
-  </div><!-- end translate right -->
-
-</div><!-- end translate tab -->
+                  <div class="field" style="margin-bottom:0">
+                    <label><span class="tt-wrap">Unclip <span

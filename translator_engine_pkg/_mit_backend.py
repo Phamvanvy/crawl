@@ -194,7 +194,7 @@ class MITImageTranslator:
         use_gpu: bool = True,
         python_path: str | None = None,
         detector: str = "",
-        inpainter: str = "lama_large",
+        inpainter: str = "lama_mpe",
         ollama_model: str = "",
         custom_openai_api_base: str = "",
         custom_openai_api_key: str = "",
@@ -203,6 +203,10 @@ class MITImageTranslator:
         mask_dilation_offset: str = "",
         unclip_ratio: str = "",
         box_threshold: str = "",
+        text_threshold: str = "",
+        det_invert: bool = False,
+        det_gamma_correct: bool = False,
+        det_rotate: bool = False,
         font_size_offset: str = "",
         font_size_minimum: str = "",
         font_size_fixed: str = "",
@@ -229,6 +233,10 @@ class MITImageTranslator:
         self.mask_dilation_offset  = mask_dilation_offset
         self.unclip_ratio          = unclip_ratio
         self.box_threshold         = box_threshold
+        self.text_threshold        = text_threshold
+        self.det_invert            = bool(det_invert)
+        self.det_gamma_correct     = bool(det_gamma_correct)
+        self.det_rotate            = bool(det_rotate)
         self.font_size_offset      = font_size_offset
         self.font_size_minimum     = font_size_minimum
         self.font_size_fixed       = font_size_fixed
@@ -289,6 +297,14 @@ class MITImageTranslator:
             cfg.setdefault("detector", {})["unclip_ratio"] = float(self.unclip_ratio)
         if self.box_threshold:
             cfg.setdefault("detector", {})["box_threshold"] = float(self.box_threshold)
+        if self.text_threshold:
+            cfg.setdefault("detector", {})["text_threshold"] = float(self.text_threshold)
+        if self.det_invert:
+            cfg.setdefault("detector", {})["det_invert"] = True
+        if self.det_gamma_correct:
+            cfg.setdefault("detector", {})["det_gamma_correct"] = True
+        if self.det_rotate:
+            cfg.setdefault("detector", {})["det_rotate"] = True
         if self.upscale_ratio:
             cfg["upscale"] = {"upscale_ratio": int(self.upscale_ratio)}
         if self.font_size_offset:

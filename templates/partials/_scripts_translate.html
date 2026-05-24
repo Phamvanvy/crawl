@@ -105,23 +105,56 @@ function onMITTranslatorChange() {
 function mitPreset(mode) {
   const set = (id, v) => { const el = $(id); if (el) el.value = v; };
   const setSel = (id, v) => { const el = $(id); if (el) el.value = v; };
+  const chk = (id, v) => { const el = $(id); if (el) el.checked = !!v; };
   if (mode === 'cg') {
     // CG / Visual Novel: dùng default detector (craft không phát hiện được subtitle CG)
     setSel('tMITDetector', '');          // default detector
+    setSel('tMITInpainter', 'lama_large');
+    setSel('tMITUpscale',   '');
     setSel('tMITDetSize',  '');          // default
     set('tMITMaskDil',  '20');
     set('tMITUnclip',   '4.5');          // mở rộng bbox → đủ cho text VN dài hơn TQ; >5 dễ gây shift bbox vào vùng có người
+    set('tMITBoxThr',   '');
+    set('tMITTextThr',  '');
+    chk('tMITDetGamma', false);
+    chk('tMITDetInvert', false);
+    chk('tMITDetRotate', false);
     set('tMITFontOfs',  '-8');           // giảm nhẹ — clipping đã ngăn tràn, không cần offset cực đoan
     document.getElementById('tMITFontOfsVal') && (document.getElementById('tMITFontOfsVal').textContent = '-8');
     set('tMITFontMin',  '10');           // tối thiểu 10px — đủ đọc
     set('tMITFontFixed','');             // để trống — MIT tự scale theo bbox (clipping sẽ ngăn tràn)
     set('tMITFontColor','FFFFFF:000000');// trắng nền đen
+  } else if (mode === 'manga_sfx') {
+    // Manga nét / SFX: ưu tiên giữ texture, detect thêm chữ nhỏ/chữ nghệ thuật.
+    setSel('tMITDetector', 'ctd');
+    setSel('tMITInpainter', 'lama_mpe');
+    setSel('tMITUpscale',   '');
+    setSel('tMITDetSize',  '2048');
+    set('tMITMaskDil',  '4');
+    set('tMITUnclip',   '2.8');
+    set('tMITBoxThr',   '0.5');
+    set('tMITTextThr',  '0.45');
+    chk('tMITDetGamma', true);
+    chk('tMITDetInvert', false);
+    chk('tMITDetRotate', false);
+    set('tMITFontOfs',  '-4');
+    document.getElementById('tMITFontOfsVal') && (document.getElementById('tMITFontOfsVal').textContent = '-4');
+    set('tMITFontMin',  '');
+    set('tMITFontFixed','');
+    set('tMITFontColor','');
   } else if (mode === 'manga') {
     // Manga: chữ trong bong bóng, không cần override màu
     setSel('tMITDetector', '');
+    setSel('tMITInpainter', 'lama_mpe');
+    setSel('tMITUpscale',   '');
     setSel('tMITDetSize',  '');
     set('tMITMaskDil',  '0');
     set('tMITUnclip',   '2.3');
+    set('tMITBoxThr',   '');
+    set('tMITTextThr',  '');
+    chk('tMITDetGamma', false);
+    chk('tMITDetInvert', false);
+    chk('tMITDetRotate', false);
     set('tMITFontOfs',  '-4');
     document.getElementById('tMITFontOfsVal') && (document.getElementById('tMITFontOfsVal').textContent = '-4');
     set('tMITFontMin',  '');
@@ -129,8 +162,17 @@ function mitPreset(mode) {
     set('tMITFontColor','');
   } else {
     // Reset về trống (dùng MIT defaults)
+    setSel('tMITDetector', '');
+    setSel('tMITInpainter', '');
+    setSel('tMITUpscale', '');
+    setSel('tMITDetSize', '');
     set('tMITMaskDil',  '');
     set('tMITUnclip',   '');
+    set('tMITBoxThr',   '');
+    set('tMITTextThr',  '');
+    chk('tMITDetGamma', false);
+    chk('tMITDetInvert', false);
+    chk('tMITDetRotate', false);
     set('tMITFontOfs',  '');
     set('tMITFontMin',  '');
     set('tMITFontFixed','');
@@ -142,6 +184,33 @@ function onBackendChange() {
   const isMIT = document.querySelector('input[name="tBackend"]:checked').value === 'mit';
   $('tMITOptions').style.display    = isMIT ? '' : 'none';
   $('tOllamaOptions').style.display = isMIT ? 'none' : '';
+}
+
+function openSettingsModal() {
+  $('settingsOverlay').style.display = 'flex';
+}
+
+function closeSettingsModal() {
+  $('settingsOverlay').style.display = 'none';
+}
+
+function switchSettingsTab(tabId) {
+  document.querySelectorAll('.settings-tab-pane').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.modal-tab-btn').forEach(b => b.classList.remove('active'));
+  const pane = $(tabId);
+  if (pane) pane.classList.add('active');
+  const btn = document.querySelector(`.modal-tab-btn[data-tab="${tabId}"]`);
+  if (btn) btn.classList.add('active');
+}
+
+function openDashboard() {
+  const el = $('dashboardOverlay');
+  if (el) el.style.display = 'flex';
+}
+
+function closeDashboard() {
+  const el = $('dashboardOverlay');
+  if (el) el.style.display = 'none';
 }
 
 // ── Start / Stop translate ────────────────────────────────────────────────────
@@ -164,6 +233,10 @@ async function tStart() {
   const mit_mask_dil     = $('tMITMaskDil').value;
   const mit_unclip       = $('tMITUnclip').value;
   const mit_box_thr      = $('tMITBoxThr') ? $('tMITBoxThr').value : '';
+  const mit_text_thr     = $('tMITTextThr') ? $('tMITTextThr').value : '';
+  const mit_det_gamma    = $('tMITDetGamma') ? $('tMITDetGamma').checked : false;
+  const mit_det_invert   = $('tMITDetInvert') ? $('tMITDetInvert').checked : false;
+  const mit_det_rotate   = $('tMITDetRotate') ? $('tMITDetRotate').checked : false;
   const mit_font_ofs     = $('tMITFontOfs').value;
   const mit_font_min     = $('tMITFontMin').value;
   const mit_font_fixed   = $('tMITFontFixed').value;
@@ -187,7 +260,8 @@ async function tStart() {
   _tRunning   = true;
   _tOutputDir = output_dir;
   tClearLog();
-  $('tProgressWrap').style.display = '';
+  if ($('dashboardOverlay')) openDashboard();
+  else if ($('tProgressWrap')) $('tProgressWrap').style.display = '';
   tShowProgress(0, 0);
   tShowStats(0, 0);
   tSetStatus(tr('status.t.running'), 'running');
@@ -204,7 +278,9 @@ async function tStart() {
         llm_api_type, llm_base_url,
         mit_translator, mit_target_lang,
         mit_detector, mit_inpainter, mit_upscale, mit_det_size,
-        mit_mask_dil, mit_unclip, mit_box_thr, mit_font_ofs, mit_font_min, mit_font_fixed, mit_font_color,
+        mit_mask_dil, mit_unclip, mit_box_thr, mit_text_thr,
+        mit_det_gamma, mit_det_invert, mit_det_rotate,
+        mit_font_ofs, mit_font_min, mit_font_fixed, mit_font_color,
         mit_custom_api_base, mit_custom_api_key,
         mit_verbose, mit_skip_no_text, mit_overwrite,
         inpainter, overwrite, font_scale, cpu_priority,
@@ -268,7 +344,8 @@ async function tRetryFailed() {
   _tCursor  = 0;
   _tRunning = true;
   tClearLog();
-  $('tProgressWrap').style.display = '';
+  if ($('dashboardOverlay')) openDashboard();
+  else if ($('tProgressWrap')) $('tProgressWrap').style.display = '';
   tShowProgress(0, 0);
   tShowStats(0, 0);
   tSetStatus(tr('status.t.running'), 'running');
