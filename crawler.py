@@ -428,18 +428,19 @@ def retry_failed_downloads(
 
 # ── wnacg multi-page search crawler ───────────────────────────────────────────
 
-_WNACG_NETLOCS = {"wnacg.com", "wnacg.ru", "wnacg01.link"}
+_WNACG_DOMAINS = {"wnacg.com", "wnacg.ru", "wnacg01.link"}
 
 
 def _is_wnacg_url(url: str) -> bool:
-    """True nếu URL thuộc domain wnacg."""
-    return urlparse(url).netloc in _WNACG_NETLOCS
+    """True nếu URL thuộc domain wnacg (bao gồm cả www. subdomain)."""
+    netloc = urlparse(url).netloc.lower()
+    return any(netloc == d or netloc.endswith("." + d) for d in _WNACG_DOMAINS)
 
 
 def _is_wnacg_search(url: str) -> bool:
     """True nếu URL là trang tìm kiếm/danh sách của wnacg."""
     p = urlparse(url)
-    if p.netloc not in _WNACG_NETLOCS:
+    if not _is_wnacg_url(url):
         return False
     # Khớp cả /search/ và /search/index.php
     return p.path.rstrip("/") in ("/search", "/search/index.php") or \
