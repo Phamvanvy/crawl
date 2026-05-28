@@ -40,9 +40,8 @@
   </div>
 
   <!-- ── Settings Modal (Tabbed) ──────────────────────────────────────────── -->
-  <div class="fb-overlay" id="settingsOverlay" style="display:none" onclick="closeSettingsModal()">
-    <div class="fb-dialog" onclick="event.stopPropagation()"
-      style="width: 90vw; max-width: 720px; max-height: 85vh; display: flex; flex-direction: column;">
+  <div class="settings-overlay" id="settingsOverlay" onclick="closeSettingsModal()">
+    <div class="settings-dialog" onclick="event.stopPropagation()">
       <div class="fb-header">
         <span class="fb-title">⚙ Cài đặt dịch</span>
         <button class="fb-close" onclick="closeSettingsModal()">✕</button>
@@ -526,15 +525,15 @@ Nếu còn chữ mà không detect nổi, thử 0.45 kèm Detector=ctd và Gamma
         </div><!-- end tMITOptions -->
 
         </div><!-- end st-backend tab pane -->
-      </div><!-- end fb-body -->
-    </div><!-- end fb-dialog -->
-  </div><!-- end settingsOverlay -->
+      </div><!-- end settings-body -->
+    </div><!-- end settings-dialog -->
+  </div><!-- end settings-overlay -->
 
   <!-- ── Right: Log + Preview ──────────────────────────────────────────────── -->
   <div class="right-col" style="display:flex;flex-direction:column;gap:12px">
 
     <!-- Progress + Failed -->
-    <div class="card" style="flex:0 0 auto">
+    <div class="card" id="tProgressCard" style="flex:0 0 auto;display:none">
       <div class="card-body" style="padding:12px 16px">
         <div id="tFailedPanel" style="display:none;margin-bottom:8px">
           <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">

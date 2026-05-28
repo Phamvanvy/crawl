@@ -187,11 +187,11 @@ function onBackendChange() {
 }
 
 function openSettingsModal() {
-  $('settingsOverlay').style.display = 'flex';
+  $('settingsOverlay').classList.add('open');
 }
 
 function closeSettingsModal() {
-  $('settingsOverlay').style.display = 'none';
+  $('settingsOverlay').classList.remove('open');
 }
 
 function switchSettingsTab(tabId) {
@@ -261,7 +261,7 @@ async function tStart() {
   _tOutputDir = output_dir;
   tClearLog();
   if ($('dashboardOverlay')) openDashboard();
-  else if ($('tProgressWrap')) $('tProgressWrap').style.display = '';
+  else if ($('tProgressWrap')) { if ($('tProgressCard')) $('tProgressCard').style.display = ''; $('tProgressWrap').style.display = ''; }
   tShowProgress(0, 0);
   tShowStats(0, 0);
   tSetStatus(tr('status.t.running'), 'running');
@@ -322,8 +322,9 @@ async function tLoadFailed(roundsLeft = 0) {
   const imgs = data.images || [];
   const panel = $('tFailedPanel');
   const badge = $('tFailedBadge');
-  if (!imgs.length) { panel.style.display = 'none'; return; }
+  if (!imgs.length) { panel.style.display = 'none'; if ($('tProgressCard') && $('tProgressWrap') && $('tProgressWrap').style.display === 'none') $('tProgressCard').style.display = 'none'; return; }
   badge.textContent = `${imgs.length} ảnh lỗi`;
+  if ($('tProgressCard')) $('tProgressCard').style.display = '';
   panel.style.display = '';
   if (roundsLeft > 0) {
     tAddLog(`↺  Auto-retry dịch (còn ${roundsLeft} lần)…`, 'info');
@@ -345,7 +346,7 @@ async function tRetryFailed() {
   _tRunning = true;
   tClearLog();
   if ($('dashboardOverlay')) openDashboard();
-  else if ($('tProgressWrap')) $('tProgressWrap').style.display = '';
+  else if ($('tProgressWrap')) { if ($('tProgressCard')) $('tProgressCard').style.display = ''; $('tProgressWrap').style.display = ''; }
   tShowProgress(0, 0);
   tShowStats(0, 0);
   tSetStatus(tr('status.t.running'), 'running');

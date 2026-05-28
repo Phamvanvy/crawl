@@ -103,6 +103,7 @@
       flex-direction: column;
       box-shadow: 0 24px 64px rgba(0,0,0,.5);
       overflow: hidden;
+      z-index: 1001;
     }
     .fb-header {
       padding: 14px 16px;
@@ -517,11 +518,12 @@
     .viewer-mode-btn.active small { color: var(--accent); opacity: .75; }
 
     /* ── Modal Tabs (Settings) ──────────────────────────────────────────── */
+    /* z-index hierarchy: settings(900) < folder-browser(1000) < lightbox(2000) < tooltip(99999) */
     .settings-overlay {
       display: none;
       position: fixed; inset: 0;
       background: rgba(0,0,0,.55);
-      z-index: 1000;
+      z-index: 900;
       align-items: center; justify-content: center;
       backdrop-filter: blur(2px);
     }

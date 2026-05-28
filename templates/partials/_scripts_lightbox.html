@@ -72,7 +72,10 @@ document.addEventListener('keydown', e => {
     if (e.key === '0')           { e.preventDefault(); lbZoomReset(); return; }
     return;
   }
-  if (e.key === 'Escape') { closeFolderBrowser(); }
+  if (e.key === 'Escape') {
+    closeFolderBrowser();
+    if (typeof closeSettingsModal === 'function') closeSettingsModal();
+  }
   // Viewer page mode keyboard nav
   if ($('tab-viewer') && $('tab-viewer').style.display !== 'none' && _vMode === 'page') {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
