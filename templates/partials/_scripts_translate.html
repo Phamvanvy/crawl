@@ -143,15 +143,15 @@ function mitPreset(mode) {
     set('tMITFontFixed','');
     set('tMITFontColor','');
   } else if (mode === 'manga') {
-    // Manga: chữ trong bong bóng, không cần override màu
+    // Manga: chữ trong bong bóng, inpaint lama_large, detect size 2560
     setSel('tMITDetector', '');
-    setSel('tMITInpainter', 'lama_mpe');
+    setSel('tMITInpainter', 'lama_large');
     setSel('tMITUpscale',   '');
-    setSel('tMITDetSize',  '');
+    setSel('tMITDetSize',  '2560');
     set('tMITMaskDil',  '0');
     set('tMITUnclip',   '2.3');
-    set('tMITBoxThr',   '');
-    set('tMITTextThr',  '');
+    set('tMITBoxThr',   '0.7');
+    set('tMITTextThr',  '0.5');
     chk('tMITDetGamma', false);
     chk('tMITDetInvert', false);
     chk('tMITDetRotate', false);

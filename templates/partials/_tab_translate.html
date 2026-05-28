@@ -345,13 +345,13 @@ Chữ SFX / âm thanh chưa detect được → thử ctd + box_thr 0.5.</span><
 • none — không xoá chữ gốc, không inpaint, render chữ mới đè thẳng lên
 
 ⚠ Manga đen trắng bị nhòe nền → thử lama_mpe thay lama_large.</span></span></label>
-                    <select id="tMITInpainter" class="field select sm">
-                      <option value="">default</option>
-                      <option value="lama_large">lama_large ✦</option>
-                      <option value="lama_mpe" selected>lama_mpe ★ manga nét</option>
-                      <option value="original">original (giữ nền)</option>
-                      <option value="none">none (không inpaint)</option>
-                    </select>
+                     <select id="tMITInpainter" class="field select sm">
+                       <option value="">default</option>
+                       <option value="lama_large" selected>lama_large ✦</option>
+                       <option value="lama_mpe">lama_mpe ★ manga nét</option>
+                       <option value="original">original (giữ nền)</option>
+                       <option value="none">none (không inpaint)</option>
+                     </select>
                   </div>
                   <div class="field" style="margin-bottom:0">
                     <label><span class="tt-wrap">Upscale ×<span class="tt-icon">?</span><span class="tt-box">Phóng to ảnh trước khi dịch bằng AI upscaler.
@@ -359,13 +359,13 @@ Chữ SFX / âm thanh chưa detect được → thử ctd + box_thr 0.5.</span><
 • ×2 / ×3 / ×4 — phóng to lên 2-4 lần trước khi xử lý
 
 Upscale giúp OCR nhận diện chữ nhỏ chính xác hơn nhưng tốn thêm VRAM và thời gian. Với ảnh 1080p trở lên thường không cần.</span></span></label>
-                    <select id="tMITUpscale" class="field select sm">
-                      <option value="" data-i18n="t.mit.upscale.off">Tắt</option>
-                      <option value="1">×1</option>
-                      <option value="2">×2</option>
-                      <option value="3">×3</option>
-                      <option value="4">×4</option>
-                    </select>
+                     <select id="tMITUpscale" class="field select sm">
+                       <option value="" data-i18n="t.mit.upscale.off">Tắt</option>
+                       <option value="1">×1</option>
+                       <option value="2">×2</option>
+                       <option value="3">×3</option>
+                       <option value="4">×4</option>
+                     </select>
                   </div>
                 </div>
 
@@ -379,13 +379,13 @@ Upscale giúp OCR nhận diện chữ nhỏ chính xác hơn nhưng tốn thêm 
   • 2560 — tìm được chữ rất nhỏ, chậm và tốn VRAM
 
   Với ảnh 1080p dùng 2048. Với ảnh 4K dùng 2560.</span></span></label>
-                    <select id="tMITDetSize" class="field select sm">
-                      <option value="">default</option>
-                      <option value="1024">1024</option>
-                      <option value="1536">1536</option>
-                      <option value="2048">2048</option>
-                      <option value="2560">2560</option>
-                    </select>
+                     <select id="tMITDetSize" class="field select sm">
+                       <option value="">default</option>
+                       <option value="1024">1024</option>
+                       <option value="1536">1536</option>
+                       <option value="2048">2048</option>
+                       <option value="2560" selected>2560</option>
+                     </select>
                   </div>
                   <div class="field" style="margin-bottom:0">
                     <label><span class="tt-wrap">Mask dilation<span class="tt-icon">?</span><span class="tt-box">Mở rộng vùng mask xoá chữ ra xung quanh (tính theo pixel).
@@ -394,7 +394,7 @@ Upscale giúp OCR nhận diện chữ nhỏ chính xác hơn nhưng tốn thêm 
   • 30–50 — xoá rộng, hữu ích khi chữ có viền/đổ bóng lớn
 
   CG/subtitle: dùng 15–25 để xoá sạch shadow và outline.</span></span></label>
-                    <input type="number" id="tMITMaskDil" placeholder="0" min="0" max="50" value=""
+                     <input type="number" id="tMITMaskDil" placeholder="0" min="0" max="50" value="0"
                       style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-family:inherit;font-size:.82rem;outline:none;width:100%" />
                   </div>
                   <div class="field" style="margin-bottom:0">
@@ -408,7 +408,7 @@ Upscale giúp OCR nhận diện chữ nhỏ chính xác hơn nhưng tốn thêm 
   • 5.0–6.0 — TRÁNH: bbox deform thành dải ngang full-width, text đè lên nhân vật
 
   ⚠ Quá lớn có thể gộp lẫn các vùng chữ khác nhau và shift vị trí render.</span></span></label>
-                    <input type="number" id="tMITUnclip" placeholder="2.3" min="1" max="8" step="0.1" value=""
+                     <input type="number" id="tMITUnclip" placeholder="2.3" min="1" max="8" step="0.1" value="2.3"
                       style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-family:inherit;font-size:.82rem;outline:none;width:100%" />
                   </div>
                   <div class="field" style="margin-bottom:0">
@@ -421,7 +421,7 @@ Upscale giúp OCR nhận diện chữ nhỏ chính xác hơn nhưng tốn thêm 
   • 0.7 — mặc định gốc manga, bỏ sót SFX/âm thanh nhỏ
 
   ⚠ Giảm quá thấp có thể dịch nhầm ảnh nền thành text.</span></span></label>
-                    <input type="number" id="tMITBoxThr" placeholder="0.7" min="0.1" max="0.9" step="0.05" value=""
+                     <input type="number" id="tMITBoxThr" placeholder="0.7" min="0.1" max="0.9" step="0.05" value="0.7"
                       style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-family:inherit;font-size:.82rem;outline:none;width:100%" />
                   </div>
                   <div class="field" style="margin-bottom:0">
@@ -433,7 +433,7 @@ Mặc định: 0.5
 • 0.5 — mặc định cân bằng
 
 Nếu còn chữ mà không detect nổi, thử 0.45 kèm Detector=ctd và Gamma detect.</span></span></label>
-                    <input type="number" id="tMITTextThr" placeholder="0.5" min="0.1" max="0.9" step="0.05" value=""
+                     <input type="number" id="tMITTextThr" placeholder="0.5" min="0.1" max="0.9" step="0.05" value="0.5"
                       style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-family:inherit;font-size:.82rem;outline:none;width:100%" />
                   </div>
                   <div class="field" style="margin-bottom:0">
@@ -515,10 +515,10 @@ Nếu còn chữ mà không detect nổi, thử 0.45 kèm Detector=ctd và Gamma
                     <input type="checkbox" id="tMITSkipNoText" />
                     <span data-i18n="t.mit.skip">⏭ Bỏ qua ảnh trống</span>
                   </label>
-                  <label class="cb-item span2" title="Dịch lại những ảnh đã có trong thư mục output. Bỏ tick = chỉ dịch ảnh chưa có file đầu ra (tiết kiệm thời gian khi dịch lại từ giữa chừng)">
-                    <input type="checkbox" id="tMITOverwrite" />
-                    <span data-i18n="t.mit.overwrite">♻ Ghi đè ảnh đã dịch</span>
-                  </label>
+                 <label class="cb-item span2" title="Dịch lại những ảnh đã có trong thư mục output. Bỏ tick = chỉ dịch ảnh chưa có file đầu ra (tiết kiệm thời gian khi dịch lại từ giữa chừng)">
+                     <input type="checkbox" id="tMITOverwrite" checked />
+                     <span data-i18n="t.mit.overwrite">♻ Ghi đè ảnh đã dịch</span>
+                   </label>
                 </div>
           </details>
 
