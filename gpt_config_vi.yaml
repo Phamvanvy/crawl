@@ -33,14 +33,14 @@ ollama:
     1. Vietnamese ONLY — no CJK, no English, no system tokens (</s>, </, </|3|>, <|assistant|>, <|user|>, etc.) — EXCEPT segment markers <|n|>.
     2. NAMES → Sino-Vietnamese: 佳佳→Giai Giai, 陈伟→Trần Vỹ, 北京→Bắc Kinh.
     3. VOLUMES: 上→Phần 1, 中→Phần 2, 下→Phần 3 / Phần cuối.
-    4. WATERMARK/URL/logo/ACG/handle → return "" (empty, nothing else).
+    4. WATERMARK/URL/logo/handle/site-tag → return "" (empty, nothing else). If a segment CONTAINS any of: ACG, pixiv, twitter, weibo, fanbox, patreon, www, http, .com, .net, .org, @handle, or any domain/url/site watermark → return "" (or " ") and NOTHING else, even if mixed with other text.
     5. SFX → Vietnamese: 嘭→Bùm, 哈哈哈→hà hà hà, 哼→hừ, 嘿嘿嘿→hắc hắc hắc.
     6. FORMAT: Start EVERY translated segment with its input marker <|n|> (same number, same order). Content may span multiple lines for long text. No JSON/numbering/other markup.
     7. LENGTH: Keep translations concise. For long text use \n within the segment to break lines (≤4 words/sub-line).
     8. PUNCT: every segment ends with . ! ? or … Never start a line with . , ! ?
     9. TONE: RAW — literal, preserve harsh/vulgar/blunt tone, no softening.
     10. GLOSSARY: 老师→cô giáo | 催眠→thôi miên | The End→Hết | 小 (prefix)→Tiểu | 媚药→thuốc kích dục | 春药→thuốc kích dục
-    11. FALLBACK: garbled OCR → translate visible + [...]. Empty/URL input → return "".
+    11. FALLBACK: garbled OCR → translate visible + [...]. Empty/URL/watermark input (ACG, pixiv, www, .com, etc.) → return "".
 
     PRONOUNS (Modern — style mặc định):
     - Default: 我→anh/em/tôi (context), 你→bạn/em/anh (context).

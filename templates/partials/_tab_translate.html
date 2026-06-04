@@ -151,6 +151,20 @@
 
           <hr class="divider" />
 
+          <!-- Phong cách dịch — dùng cho cả Ollama VÀ MIT (custom_openai) → để ở vùng chung -->
+          <div class="field" id="tTranslationStyleField">
+            <label>Phong cách dịch</label>
+            <select id="tTranslationStyle" class="field select">
+              <option value="modern" selected>🏙️ Hiện đại / Slice-of-life</option>
+              <option value="wuxia">⚔️ Cổ trang / Kiếm hiệp</option>
+              <option value="school">🏫 Học đường / Romance</option>
+              <option value="lightnovel">📚 Light Novel / Manga Nhật</option>
+            </select>
+            <div class="field-hint">
+              Hiện đại: anh/em/tôi · Cổ trang: ta/ngươi · Học đường: em/cô/thầy · LN: mình/tớ/tao/senpai
+            </div>
+          </div>
+
           <!-- OCR + Ollama options -->
           <div id="tOllamaOptions">
             <div class="field">
@@ -159,18 +173,6 @@
                 <option value="zh">🇨🇳 Tiếng Trung → Tiếng Việt (ZH→VI)</option>
                 <option value="en">🇺🇸 Tiếng Anh → Tiếng Việt (EN→VI)</option>
               </select>
-            </div>
-            <div class="field">
-              <label>Phong cách dịch</label>
-              <select id="tTranslationStyle" class="field select">
-                <option value="modern" selected>🏙️ Hiện đại / Slice-of-life</option>
-                <option value="wuxia">⚔️ Cổ trang / Kiếm hiệp</option>
-                <option value="school">🏫 Học đường / Romance</option>
-                <option value="lightnovel">📚 Light Novel / Manga Nhật</option>
-              </select>
-              <div class="field-hint">
-                Hiện đại: anh/em/tôi · Cổ trang: ta/ngươi · Học đường: em/cô/thầy · LN: mình/tớ/tao/senpai
-              </div>
             </div>
             <div class="field">
               <label>LLM Backend</label>
@@ -311,7 +313,7 @@
                     title="Manga/truyện tranh: chữ trong bong bóng, bbox nhỏ">📖 Manga</button>
                   <button type="button" onclick="mitPreset('manga_sfx')"
                     style="flex:1;padding:5px 8px;font-size:.75rem;border-radius:6px;border:1px solid var(--accent,#7c6af7);background:var(--surface2);color:var(--accent,#7c6af7);cursor:pointer;font-weight:600"
-                    title="Manga bị nhòe/bỏ sót chữ: ctd + lama_mpe + box_thr thấp + gamma detect">✨ Manga nét/SFX</button>
+                    title="Bắt cả SFX vẽ tay (vd 哈啊): default + Upscale ×2 (waifu2x) + box/text 0.3 + gamma. Chậm hơn (~1.5 phút/ảnh) & tốn VRAM nhưng detect sạch nhất.">✨ Manga nét/SFX</button>
                   <button type="button" onclick="mitPreset('cg')"
                     style="flex:1;padding:5px 8px;font-size:.75rem;border-radius:6px;border:1px solid var(--accent,#7c6af7);background:var(--surface2);color:var(--accent,#7c6af7);cursor:pointer;font-weight:600"
                     title="CG/Visual novel: subtitle dài ở dưới ảnh, text nhỏ trắng nền đen">🎮 CG/VN ★</button>
@@ -333,6 +335,7 @@ Chữ SFX / âm thanh chưa detect được → thử ctd + box_thr 0.5.</span><
                     <select id="tMITDetector" class="field select sm">
                       <option value="">default</option>
                       <option value="ctd">ctd (manga)</option>
+                      <option value="yolomanga">yolomanga (SFX ★)</option>
                       <option value="craft">craft</option>
                       <option value="paddle">paddle</option>
                     </select>
@@ -367,6 +370,71 @@ Upscale giúp OCR nhận diện chữ nhỏ chính xác hơn nhưng tốn thêm 
                        <option value="4">×4</option>
                      </select>
                   </div>
+                </div>
+
+                <!-- Row 1b: Inpaint size / Inpaint precision -->
+                <div class="grid-3">
+                  <div class="field" style="margin-bottom:0">
+                    <label><span class="tt-wrap">Inpaint size<span class="tt-icon">?</span><span class="tt-box">Độ phân giải tối đa khi LaMa tái tạo nền (pixel). Mặc định MIT: 2048.
+• default — dùng 2048 của MIT
+• 2560 / 3072 — nét hơn, ít nhòe halftone
+
+⚠ CHỈ có tác dụng khi ảnh nguồn LỚN hơn giá trị này (hoặc đã bật Upscale). Ảnh nhỏ (<2048px) sẽ không đổi gì.
+⚠ Càng lớn càng tốn VRAM, dễ OOM.</span></span></label>
+                     <select id="tMITInpaintSize" class="field select sm">
+                       <option value="">default</option>
+                       <option value="1024">1024</option>
+                       <option value="2048">2048</option>
+                       <option value="2560">2560</option>
+                       <option value="3072">3072</option>
+                     </select>
+                  </div>
+                  <div class="field" style="margin-bottom:0">
+                    <label><span class="tt-wrap">Inpaint precision<span class="tt-icon">?</span><span class="tt-box">Độ chính xác số học của LaMa.
+• bf16 ★ — cân bằng tốt nhất, khuyến nghị
+• fp32 — chậm nhất, chất lượng cao nhất
+• fp16 — nhanh, có thể giảm chất lượng nhẹ</span></span></label>
+                     <select id="tMITInpaintPrec" class="field select sm">
+                       <option value="">default (bf16)</option>
+                       <option value="bf16">bf16 ★</option>
+                       <option value="fp32">fp32</option>
+                       <option value="fp16">fp16</option>
+                     </select>
+                  </div>
+                  <div class="field" style="margin-bottom:0">
+                    <label><span class="tt-wrap">Upscaler<span class="tt-icon">?</span><span class="tt-box">Model AI dùng khi Upscale × bật. Ảnh được phóng to → detect/inpaint ở res cao → tự thu nhỏ về gốc (nét hơn, đúng cỡ chữ).
+• waifu2x ★ — chuyên line-art/manga, GIỮ halftone, ít nhòe
+• esrgan — train cho ảnh chụp, BÔI NHÒE halftone manga (tránh cho manga đen trắng)
+• 4xultrasharp — sắc nét mạnh, có thể gắt
+
+⚠ Chỉ có tác dụng khi Upscale × ≠ Tắt.</span></span></label>
+                     <select id="tMITUpscaler" class="field select sm">
+                       <option value="">default (waifu2x)</option>
+                       <option value="waifu2x">waifu2x ★ manga</option>
+                       <option value="esrgan">esrgan (ảnh chụp)</option>
+                       <option value="4xultrasharp">4xultrasharp</option>
+                     </select>
+                  </div>
+                </div>
+
+                <!-- Row 1c: OCR model -->
+                <div class="grid-3">
+                  <div class="field" style="margin-bottom:0">
+                    <label><span class="tt-wrap">OCR model<span class="tt-icon">?</span><span class="tt-box">Model đọc chữ sau khi detect.
+• default / 48px — cân bằng, ĐỌC ĐƯỢC tiếng Trung/Nhật/Anh ★ (nên dùng cho nguồn TQ)
+• 48px_ctc — biến thể CTC
+• mocr — manga_ocr, train cho TIẾNG NHẬT; hợp manga Nhật / SFX kana, ĐỌC SAI nguồn tiếng Trung
+
+⚠ Vấn đề SFX thường do DETECT (thử detector=yolomanga) chứ không phải OCR.</span></span></label>
+                     <select id="tMITOcr" class="field select sm">
+                       <option value="">default (48px)</option>
+                       <option value="48px">48px (TQ/NH/Anh)</option>
+                       <option value="48px_ctc">48px_ctc</option>
+                       <option value="mocr">mocr (manga JP)</option>
+                     </select>
+                  </div>
+                  <div class="field" style="margin-bottom:0"></div>
+                  <div class="field" style="margin-bottom:0"></div>
                 </div>
 
                 <!-- Row 2: Detection size / Mask dilation / Unclip / Font options -->
@@ -505,6 +573,10 @@ Nếu còn chữ mà không detect nổi, thử 0.45 kèm Detector=ctd và Gamma
                     <label class="cb-item" title="Xoay ảnh khi detect. Chỉ bật thử nếu chữ dọc hoặc detector bỏ sót text theo hướng đứng.">
                       <input type="checkbox" id="tMITDetRotate" />
                       🔄 Rotate detect
+                    </label>
+                    <label class="cb-item" title="Tự xoay ảnh để ưu tiên textline dọc khi detect. Hữu ích cho SFX/chữ dọc bị bỏ sót.">
+                      <input type="checkbox" id="tMITDetAutoRotate" />
+                      🔁 Auto-rotate detect
                     </label>
     <div class="cb-grid">
                   <label class="cb-item" title="In toàn bộ log chi tiết của MIT ra panel Nhật ký — hữu ích để debug khi ảnh bị bỏ qua hoặc dịch sai">

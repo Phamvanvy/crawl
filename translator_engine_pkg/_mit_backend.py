@@ -195,10 +195,13 @@ class MITImageTranslator:
         python_path: str | None = None,
         detector: str = "",
         inpainter: str = "lama_mpe",
+        inpainting_size: str = "",
+        inpainting_precision: str = "",
         ollama_model: str = "",
         custom_openai_api_base: str = "",
         custom_openai_api_key: str = "",
         upscale_ratio: str = "",
+        upscaler: str = "",
         detection_size: str = "",
         mask_dilation_offset: str = "",
         unclip_ratio: str = "",
@@ -207,6 +210,8 @@ class MITImageTranslator:
         det_invert: bool = False,
         det_gamma_correct: bool = False,
         det_rotate: bool = False,
+        det_auto_rotate: bool = False,
+        ocr_model: str = "",
         font_size_offset: str = "",
         font_size_minimum: str = "",
         font_size_fixed: str = "",
@@ -225,10 +230,13 @@ class MITImageTranslator:
         self.python_path           = python_path or _find_mit_python()
         self.detector              = detector
         self.inpainter             = inpainter
+        self.inpainting_size       = inpainting_size
+        self.inpainting_precision  = inpainting_precision
         self.ollama_model          = ollama_model
         self.custom_openai_api_base = custom_openai_api_base
         self.custom_openai_api_key  = custom_openai_api_key
         self.upscale_ratio         = upscale_ratio
+        self.upscaler              = upscaler
         self.detection_size        = detection_size
         self.mask_dilation_offset  = mask_dilation_offset
         self.unclip_ratio          = unclip_ratio
@@ -237,6 +245,8 @@ class MITImageTranslator:
         self.det_invert            = bool(det_invert)
         self.det_gamma_correct     = bool(det_gamma_correct)
         self.det_rotate            = bool(det_rotate)
+        self.det_auto_rotate       = bool(det_auto_rotate)
+        self.ocr_model             = ocr_model
         self.font_size_offset      = font_size_offset
         self.font_size_minimum     = font_size_minimum
         self.font_size_fixed       = font_size_fixed
@@ -285,8 +295,15 @@ class MITImageTranslator:
                 "target_lang": self.target_lang,
             },
         }
+        inp_cfg: dict = {}
         if self.inpainter:
-            cfg["inpainter"] = {"inpainter": self.inpainter}
+            inp_cfg["inpainter"] = self.inpainter
+        if self.inpainting_size:
+            inp_cfg["inpainting_size"] = int(self.inpainting_size)
+        if self.inpainting_precision:
+            inp_cfg["inpainting_precision"] = self.inpainting_precision
+        if inp_cfg:
+            cfg["inpainter"] = inp_cfg
         if self.detector:
             cfg["detector"] = {"detector": self.detector}
         if self.detection_size:
@@ -305,8 +322,21 @@ class MITImageTranslator:
             cfg.setdefault("detector", {})["det_gamma_correct"] = True
         if self.det_rotate:
             cfg.setdefault("detector", {})["det_rotate"] = True
+        if self.det_auto_rotate:
+            cfg.setdefault("detector", {})["det_auto_rotate"] = True
+        if self.ocr_model:
+            cfg.setdefault("ocr", {})["ocr"] = self.ocr_model
         if self.upscale_ratio:
-            cfg["upscale"] = {"upscale_ratio": int(self.upscale_ratio)}
+            # revert_upscaling=True: phóng to để detect/inpaint ở res cao rồi THU NHỎ
+            # về kích thước gốc → nét hơn, đúng cỡ chữ, không để lại bản upscale nhòe.
+            up_cfg: dict = {
+                "upscale_ratio": int(self.upscale_ratio),
+                "revert_upscaling": True,
+            }
+            # Mặc định MIT là esrgan (bôi nhòe halftone manga); ưu tiên waifu2x cho line-art.
+            up_cfg["upscaler"] = self.upscaler or "waifu2x"
+            cfg["upscale"] = up_cfg
+            self._log(f"  [UPSCALE] ×{self.upscale_ratio} upscaler={up_cfg['upscaler']} revert=True")
         if self.font_size_offset:
             cfg.setdefault("render", {})["font_size_offset"] = int(self.font_size_offset)
         if self.font_size_minimum:
@@ -351,10 +381,10 @@ class MITImageTranslator:
         if self.target_lang in ("VIN", "vi") and not self.font_size_fixed:
             pass  # Không cố định font_size — MIT sẽ tự tính
         if self.target_lang in ("VIN", "vi") and not self.font_size_offset and not self.font_size_fixed:
-            cfg.setdefault("render", {})["font_size_offset"] = 0
-            self._log("  [RENDER] font_size_offset=0 (adaptive factor in patch handles VI scaling)")
+            cfg.setdefault("render", {})["font_size_offset"] = 2
+            self._log("  [RENDER] font_size_offset=+2 (bù chữ VI; fit-loop trong patch tự thu nếu tràn)")
         if self.target_lang in ("VIN", "vi") and not self.font_size_minimum:
-            cfg.setdefault("render", {})["font_size_minimum"] = 14
+            cfg.setdefault("render", {})["font_size_minimum"] = 16
         if self.target_lang in ("VIN", "vi") and not self.unclip_ratio:
             cfg.setdefault("detector", {})["unclip_ratio"] = 3.5
             self._log("  [DETECT] Auto unclip_ratio=3.5 (Latin/VI text rộng hơn CJK)")

@@ -490,7 +490,14 @@ def api_translate_start():
     mit_target_lang   = str(data.get("mit_target_lang",  "VIN")).strip() or "VIN"
     mit_detector      = str(data.get("mit_detector",     "")).strip()
     mit_inpainter     = str(data.get("mit_inpainter",    "lama_mpe")).strip()
+    mit_inpaint_size  = str(data.get("mit_inpaint_size", "")).strip()
+    mit_inpaint_prec  = str(data.get("mit_inpaint_prec", "")).strip().lower()
+    if mit_inpaint_prec not in ("fp32", "fp16", "bf16"):
+        mit_inpaint_prec = ""
     mit_upscale       = str(data.get("mit_upscale",      "")).strip()
+    mit_upscaler      = str(data.get("mit_upscaler",     "")).strip().lower()
+    if mit_upscaler not in ("waifu2x", "esrgan", "4xultrasharp"):
+        mit_upscaler = ""
     mit_det_size      = str(data.get("mit_det_size",     "")).strip()
     mit_mask_dil      = str(data.get("mit_mask_dil",     "")).strip()
     mit_unclip         = str(data.get("mit_unclip",       "")).strip()
@@ -499,6 +506,10 @@ def api_translate_start():
     mit_det_invert    = bool(data.get("mit_det_invert",  False))
     mit_det_gamma     = bool(data.get("mit_det_gamma",   False))
     mit_det_rotate    = bool(data.get("mit_det_rotate",  False))
+    mit_det_auto_rotate = bool(data.get("mit_det_auto_rotate", False))
+    mit_ocr           = str(data.get("mit_ocr",          "")).strip()
+    if mit_ocr not in ("32px", "48px", "48px_ctc", "mocr"):
+        mit_ocr = ""
     mit_font_ofs      = str(data.get("mit_font_ofs",     "")).strip()
     mit_font_min      = str(data.get("mit_font_min",     "")).strip()
     mit_font_fixed    = str(data.get("mit_font_fixed",   "")).strip()
@@ -569,10 +580,13 @@ def api_translate_start():
                     python_path=mit_check.get("python"),
                     detector=mit_detector,
                     inpainter=mit_inpainter,
+                    inpainting_size=mit_inpaint_size,
+                    inpainting_precision=mit_inpaint_prec,
                     ollama_model=model,
                     custom_openai_api_base=mit_custom_api_base,
                     custom_openai_api_key=mit_custom_api_key,
                     upscale_ratio=mit_upscale,
+                    upscaler=mit_upscaler,
                     detection_size=mit_det_size,
                     mask_dilation_offset=mit_mask_dil,
                     unclip_ratio=mit_unclip,
@@ -581,6 +595,8 @@ def api_translate_start():
                     det_invert=mit_det_invert,
                     det_gamma_correct=mit_det_gamma,
                     det_rotate=mit_det_rotate,
+                    det_auto_rotate=mit_det_auto_rotate,
+                    ocr_model=mit_ocr,
                     font_size_offset=mit_font_ofs,
                     font_size_minimum=mit_font_min,
                     font_size_fixed=mit_font_fixed,
