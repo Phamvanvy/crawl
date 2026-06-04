@@ -690,6 +690,15 @@ Nếu còn chữ mà không detect nổi, thử 0.45 kèm Detector=ctd và Gamma
         <button class="btn btn-ghost" style="padding:4px 10px;font-size:.76rem;color:var(--red)" onclick="reClearAll()">Xoá hết</button>
         <button class="btn btn-primary" style="padding:4px 14px;font-size:.78rem" onclick="reSave()">💾 Lưu</button>
       </div>
+      <div class="re-textbar" style="display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid var(--border)">
+        <span class="re-pill" style="flex:0 0 auto">✍ Chữ Việt:</span>
+        <input id="reText" type="text" placeholder="Chọn 1 vùng rồi gõ chữ Việt vào đây (để trống = để OCR tự đọc)…"
+          style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:5px 9px;font-size:.84rem"
+          oninput="reOnTextInput(this.value)" disabled />
+        <span class="re-pill" style="flex:0 0 auto" title="Số vòng dãn mask quanh nét chữ khi xoá. Thấp (0–1) = sát nét, ít loang trắng nhưng có thể sót viền. Cao (3–6) = xoá rộng/sạch hơn. Áp cho mọi vùng gõ tay của ảnh này.">Siết mask:</span>
+        <input id="reMaskDilate" type="number" min="0" max="6" value="1"
+          style="width:48px;flex:0 0 auto;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:4px 6px;font-size:.82rem" />
+      </div>
       <div class="re-body">
         <div class="re-side" id="reSide"></div>
         <div class="re-main">

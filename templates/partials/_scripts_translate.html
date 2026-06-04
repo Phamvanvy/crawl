@@ -687,8 +687,10 @@ async function reSelectImage(im) {
     const res = await fetch('/api/regions/get?dir=' + encodeURIComponent(_reDir) + '&img=' + encodeURIComponent(im.name));
     data = await res.json();
   } catch {}
-  _reRegions = (data.regions || []).map(r => ({ x: +r.x, y: +r.y, w: +r.w, h: +r.h }));
+  _reRegions = (data.regions || []).map(r => ({ x: +r.x, y: +r.y, w: +r.w, h: +r.h, text: r.text || '' }));
   reSetMode(data.mode === 'replace' ? 'replace' : 'merge');
+  const md = $('reMaskDilate'); if (md) md.value = (data.mask_dilate != null ? data.mask_dilate : 1);
+  reSyncTextInput();
   // load image
   const img = $('reImg');
   img.onload = () => {
@@ -719,16 +721,45 @@ function reRedraw() {
   _reRegions.forEach((r, i) => {
     const x = r.x * cv.width, y = r.y * cv.height, w = r.w * cv.width, h = r.h * cv.height;
     const sel = (i === _reSel);
-    ctx.fillStyle   = sel ? 'rgba(255,80,80,.22)' : 'rgba(91,140,255,.20)';
+    const typed = !!(r.text && r.text.trim());
+    // viền xanh dương = OCR tự đọc · xanh lá = có chữ gõ tay · đỏ = đang chọn
+    const col = sel ? '#ff5050' : (typed ? '#3ddc84' : '#5b8cff');
+    ctx.fillStyle = sel ? 'rgba(255,80,80,.22)' : (typed ? 'rgba(61,220,132,.18)' : 'rgba(91,140,255,.20)');
     ctx.fillRect(x, y, w, h);
     ctx.lineWidth   = sel ? 2.5 : 1.5;
-    ctx.strokeStyle = sel ? '#ff5050' : '#5b8cff';
+    ctx.strokeStyle = col;
     ctx.strokeRect(x, y, w, h);
-    ctx.fillStyle = sel ? '#ff5050' : '#5b8cff';
+    ctx.fillStyle = col;
     ctx.font = '12px sans-serif';
-    ctx.fillText(String(i + 1), x + 3, y + 13);
+    ctx.fillText((typed ? '✍ ' : '') + String(i + 1), x + 3, y + 13);
+    if (typed) {
+      ctx.fillStyle = 'rgba(0,0,0,.5)';
+      ctx.fillRect(x, y + h - 16, w, 16);
+      ctx.fillStyle = '#3ddc84';
+      ctx.fillText(r.text.slice(0, 24), x + 3, y + h - 4);
+    }
   });
   $('reCount').textContent = _reRegions.length + ' vùng';
+}
+
+// Đồng bộ ô nhập chữ với vùng đang chọn.
+function reSyncTextInput() {
+  const inp = $('reText');
+  if (!inp) return;
+  if (_reSel >= 0 && _reSel < _reRegions.length) {
+    inp.disabled = false;
+    inp.value = _reRegions[_reSel].text || '';
+  } else {
+    inp.disabled = true;
+    inp.value = '';
+  }
+}
+
+function reOnTextInput(val) {
+  if (_reSel >= 0 && _reSel < _reRegions.length) {
+    _reRegions[_reSel].text = val;
+    reRedraw();
+  }
 }
 
 function reCanvasPt(e) {
@@ -778,12 +809,14 @@ function reInitCanvasEvents() {
         x: Math.min(_reDrag.x, p.x), y: Math.min(_reDrag.y, p.y),
         w: Math.abs(p.x - _reDrag.x), h: Math.abs(p.y - _reDrag.y),
       };
-      if (r.w > 0.005 && r.h > 0.005) { _reRegions.push(r); _reSel = _reRegions.length - 1; }
+      if (r.w > 0.005 && r.h > 0.005) { _reRegions.push({ ...r, text: '' }); _reSel = _reRegions.length - 1; }
     } else {
       _reSel = reHitTest(p);   // click → select / deselect
     }
     _reDrag = null;
     reRedraw();
+    reSyncTextInput();
+    if (_reSel >= 0) { const it = $('reText'); if (it) it.focus(); }
   });
   cv.addEventListener('mouseleave', () => { if (_reDrag) { _reDrag = null; reRedraw(); } });
 }
@@ -793,13 +826,14 @@ function reDeleteSelected() {
     _reRegions.splice(_reSel, 1);
     _reSel = -1;
     reRedraw();
+    reSyncTextInput();
   }
 }
 
 function reClearAll() {
   if (!_reRegions.length) return;
   if (!confirm('Xoá hết vùng của ảnh này?')) return;
-  _reRegions = []; _reSel = -1; reRedraw();
+  _reRegions = []; _reSel = -1; reRedraw(); reSyncTextInput();
 }
 
 async function reSave() {
@@ -808,7 +842,10 @@ async function reSave() {
   try {
     const res = await fetch('/api/regions/save', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dir: _reDir, img: _reName, mode: _reMode, regions: _reRegions }),
+      body: JSON.stringify({
+        dir: _reDir, img: _reName, mode: _reMode, regions: _reRegions,
+        mask_dilate: parseInt(($('reMaskDilate') || {}).value, 10) || 0,
+      }),
     });
     data = await res.json();
     if (!res.ok) throw new Error(data.error || 'lỗi');
@@ -824,8 +861,9 @@ async function reSave() {
 
 document.addEventListener('keydown', e => {
   if (!$('regionOverlay') || !$('regionOverlay').classList.contains('open')) return;
-  if (e.key === 'Escape') { closeRegionEditor(); }
-  else if (e.key === 'Delete' || e.key === 'Backspace') {
+  const typing = /^(INPUT|TEXTAREA)$/.test((e.target && e.target.tagName) || '');
+  if (e.key === 'Escape') { if (typing) e.target.blur(); else closeRegionEditor(); }
+  else if ((e.key === 'Delete' || e.key === 'Backspace') && !typing) {
     if (_reSel >= 0) { e.preventDefault(); reDeleteSelected(); }
   }
 });

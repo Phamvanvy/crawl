@@ -156,11 +156,12 @@ def _render_line_height_sample(text: str) -> str:
 
 def render_text(img_pil, bbox, text: str, font_path: str | None,
                 strict_clip: bool = False, font_scale: float = 1.0,
-                bbox_index: int = 0):
+                bbox_index: int = 0, text_color=None, stroke_color=None):
     """Vẽ text ngang vào vùng bbox với pixel-accurate word wrap.
 
     Dùng crop-draw-paste để text không thể tràn ra ngoài bbox (lưu ý 5, 6).
     bbox_index: dùng để chọn font đa dạng giữa các bong bóng (lưu ý 4).
+    text_color/stroke_color: (R,G,B) ghi đè màu chữ/viền (None = tự chọn theo nền).
     """
     from PIL import ImageDraw
     import numpy as np
@@ -192,8 +193,11 @@ def render_text(img_pil, bbox, text: str, font_path: str | None,
     bg_rgb = tuple(int(v) for v in np.median(arr.reshape(-1, 3), axis=0))
 
     brightness   = sum(bg_rgb) / 3
-    text_color   = (255, 255, 255) if brightness < 140 else (0, 0, 0)
-    shadow_color = (0, 0, 0)       if brightness < 140 else (255, 255, 255)
+    auto_text    = (255, 255, 255) if brightness < 140 else (0, 0, 0)
+    auto_shadow  = (0, 0, 0)       if brightness < 140 else (255, 255, 255)
+    # Override màu nếu được chỉ định (vd từ Font color trong cài đặt); None = tự chọn.
+    text_color   = tuple(text_color) if text_color is not None else auto_text
+    shadow_color = tuple(stroke_color) if stroke_color is not None else auto_shadow
     # Vùng tối: stroke dày hơn để chữ trắng nổi bật trên nền đen
     # Vùng sáng: stroke mỏng hơn để không làm loè nền trắng
     stroke_width = 7 if brightness < 80 else (5 if brightness < 140 else 2)

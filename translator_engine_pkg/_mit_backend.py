@@ -27,9 +27,9 @@ _PROJECT_ROOT = Path(__file__).parent.parent
 REGIONS_DIRNAME = ".manga_regions"
 
 
-def _load_region_payload(regions_dir: Path, image_name: str) -> str | None:
-    """Return a compact JSON payload {"mode","regions"} for MIT_MANUAL_REGIONS,
-    or None if the sidecar is missing / has no usable regions."""
+def _load_regions(regions_dir: Path, image_name: str) -> dict | None:
+    """Đọc sidecar vùng thủ công → {"mode", "regions"} hoặc None nếu không có.
+    Mỗi region: {x,y,w,h} và (tùy chọn) "text" — chữ Việt gõ tay (bỏ qua OCR/dịch)."""
     f = regions_dir / (image_name + ".json")
     if not f.is_file():
         return None
@@ -43,7 +43,11 @@ def _load_region_payload(regions_dir: Path, image_name: str) -> str | None:
     mode = data.get("mode", "merge")
     if mode not in ("merge", "replace"):
         mode = "merge"
-    return json.dumps({"mode": mode, "regions": regions}, ensure_ascii=False)
+    try:
+        mask_dilate = max(0, min(6, int(data.get("mask_dilate", 1))))
+    except (TypeError, ValueError):
+        mask_dilate = 1
+    return {"mode": mode, "regions": regions, "mask_dilate": mask_dilate}
 
 # ── Translation style templates (dùng cho MIT custom_openai) ─────────────────
 _GPT_BASE_RULES = """\
@@ -470,18 +474,18 @@ class MITImageTranslator:
         # .manga_regions/<name>.json) are reprocessed individually after the
         # batch pass, with MIT_MANUAL_REGIONS set so the detection patch injects
         # the boxes. Coordinates are normalized 0..1 → resolution independent.
-        manual_jobs: list[tuple[Path, str]] = []
+        manual_jobs: list[tuple[Path, dict]] = []
         regions_dir = inp / REGIONS_DIRNAME
         if regions_dir.is_dir():
             for img in images:
-                payload = _load_region_payload(regions_dir, img.name)
-                if payload:
-                    manual_jobs.append((img, payload))
+                data = _load_regions(regions_dir, img.name)
+                if data:
+                    manual_jobs.append((img, data))
         manual_cfg_path = None
         if manual_jobs:
             self._log(f"  [MANUAL] {len(manual_jobs)} ảnh có vùng thủ công — chèn box lên ảnh đã dịch (không dịch lại cả trang).")
-            # Config riêng cho manual pass: ép detector=none → CHỈ box vẽ tay được
-            # xử lý; bỏ upscale để giữ nguyên trang đã dịch (không upscale/nhoè lại).
+            # Config cho box OCR: detector=none → CHỈ box vẽ tay; bỏ upscale để
+            # giữ nguyên trang đã dịch (không upscale/nhoè lại).
             cfg_manual = json.loads(json.dumps(cfg))
             cfg_manual["detector"] = {"detector": "none"}
             cfg_manual.pop("upscale", None)
@@ -492,13 +496,7 @@ class MITImageTranslator:
 
         # Ảnh ở chế độ Replace KHÔNG chạy lượt batch tự động — chỉ dịch đúng các
         # box vẽ tay (ở pass 2, đặt lên ảnh gốc). Tránh dịch lại cả trang đã dịch.
-        replace_names = set()
-        for _img, _pl in manual_jobs:
-            try:
-                if (json.loads(_pl).get("mode") or "merge").lower() == "replace":
-                    replace_names.add(_img.name)
-            except Exception:
-                pass
+        replace_names = {img.name for img, data in manual_jobs if data["mode"] == "replace"}
         pass1_images = [im for im in images if im.name not in replace_names]
         run_pass1 = bool(pass1_images)
 
@@ -684,40 +682,194 @@ class MITImageTranslator:
         return proc.returncode
 
     def _run_manual_jobs(self, jobs, out_dir: Path, manual_cfg_path: str, stop_event: threading.Event | None):
-        """Pass 2: chèn các vùng vẽ tay LÊN ảnh đã dịch ở pass 1 (merge) hoặc lên
-        ảnh gốc (replace). Config dùng detector=none nên CHỈ vùng vẽ tay được
-        OCR/dịch/xoá-render — phần đã dịch ở pass 1 giữ nguyên, KHÔNG bị dịch lại.
-        --overwrite ghi đè đúng file kết quả của ảnh đó."""
+        """Pass 2: xử lý các vùng vẽ tay LÊN ảnh đã dịch ở pass 1 (merge) hoặc lên
+        ảnh gốc (replace), KHÔNG dịch lại cả trang. Mỗi vùng có 2 loại:
+          • Có "text" (gõ tay) → xoá ĐÚNG NÉT chữ trong box (giữ halftone/hoạt cảnh)
+            rồi vẽ thẳng chữ Việt; bỏ qua OCR/dịch.
+          • Không "text" → đưa qua MIT (detector=none) để OCR+dịch+inpaint+render."""
         import shutil
-        for img_path, payload in jobs:
+        for img_path, data in jobs:
             if stop_event and stop_event.is_set():
                 break
-            try:
-                mode = (json.loads(payload).get("mode") or "merge").lower()
-            except Exception:
-                mode = "merge"
-            # merge → đặt box lên kết quả pass 1 (giữ bong bóng đã dịch);
-            # replace → đặt box lên ảnh gốc (chỉ dịch box, bỏ phần tự động).
+            mode = data.get("mode", "merge")
+            regions = data.get("regions") or []
+            ocr_regions   = [r for r in regions if not str(r.get("text") or "").strip()]
+            typed_regions = [r for r in regions if str(r.get("text") or "").strip()]
+
             translated = out_dir / img_path.name
             on_translated = (mode != "replace" and translated.is_file())
-            source = translated if on_translated else img_path
+            base = translated if on_translated else img_path
             self._log(
-                f"  [MANUAL] {img_path.name} — chèn box "
-                f"{'lên ảnh đã dịch' if on_translated else 'lên ảnh gốc'} ({mode})."
+                f"  [MANUAL] {img_path.name} — {'trên ảnh đã dịch' if on_translated else 'trên ảnh gốc'} "
+                f"({mode}): {len(ocr_regions)} box OCR, {len(typed_regions)} box gõ tay."
             )
-            tmp_in = tempfile.mkdtemp(prefix="mit_manual_")
+
             try:
-                shutil.copy2(source, Path(tmp_in) / img_path.name)
-                cmd = [self.python_path, "-m", "manga_translator"]
-                if self.use_gpu:
-                    cmd.append("--use-gpu")
-                if self.verbose:
-                    cmd.append("--verbose")
-                cmd += ["local", "-i", tmp_in, "-o", str(out_dir),
-                        "--config-file", manual_cfg_path, "--overwrite"]
-                self._spawn_mit(cmd, stop_event=stop_event,
-                                extra_env={"MIT_MANUAL_REGIONS": payload})
+                if ocr_regions:
+                    # MIT đọc base (qua bản copy tạm) + chèn box OCR → ghi ra out/name
+                    payload = json.dumps({"mode": mode, "regions": ocr_regions}, ensure_ascii=False)
+                    self._mit_manual_pass(base, img_path.name, out_dir, manual_cfg_path, payload, stop_event)
+                elif base != translated:
+                    # Không có box OCR → đảm bảo out/name = base để vẽ chữ tay lên
+                    shutil.copy2(base, translated)
+
+                if typed_regions and not (stop_event and stop_event.is_set()):
+                    self._render_typed_regions(translated, typed_regions, mask_dilate=data.get("mask_dilate", 1))
             except Exception as exc:
                 self._log(f"  [MANUAL] Lỗi xử lý {img_path.name}: {exc}")
-            finally:
-                shutil.rmtree(tmp_in, ignore_errors=True)
+
+    def _mit_manual_pass(self, source: Path, out_name: str, out_dir: Path,
+                         manual_cfg_path: str, payload: str, stop_event):
+        """Chạy MIT 1 ảnh với box OCR vẽ tay (detector=none), ghi đè out_dir/out_name."""
+        import shutil
+        tmp_in = tempfile.mkdtemp(prefix="mit_manual_")
+        try:
+            shutil.copy2(source, Path(tmp_in) / out_name)
+            cmd = [self.python_path, "-m", "manga_translator"]
+            if self.use_gpu:
+                cmd.append("--use-gpu")
+            if self.verbose:
+                cmd.append("--verbose")
+            cmd += ["local", "-i", tmp_in, "-o", str(out_dir),
+                    "--config-file", manual_cfg_path, "--overwrite"]
+            self._spawn_mit(cmd, stop_event=stop_event,
+                            extra_env={"MIT_MANUAL_REGIONS": payload})
+        finally:
+            shutil.rmtree(tmp_in, ignore_errors=True)
+
+    def _mit_inpaint(self, img_bgr, mask):
+        """Inpaint mask bằng inpainter của MIT (lama_large) qua helper chạy trong
+        mit_venv — KHÔNG qua OCR nên xoá được cả SFX không đọc nổi, tái tạo halftone
+        đẹp như bong bóng. Trả ảnh BGR đã inpaint, hoặc None nếu lỗi."""
+        import subprocess
+        import shutil
+        import cv2
+        if not self.python_path:
+            return None
+        helper = _PROJECT_ROOT / "mit_inpaint_helper.py"
+        if not helper.exists():
+            return None
+        td = tempfile.mkdtemp(prefix="mit_inp_")
+        try:
+            ip = Path(td) / "in.png"; mp = Path(td) / "mask.png"; op = Path(td) / "out.png"
+            cv2.imwrite(str(ip), img_bgr)
+            cv2.imwrite(str(mp), mask)
+            inpainter = self.inpainter or "lama_large"
+            size = str(self.inpainting_size or 2048)
+            prec = self.inpainting_precision or "bf16"
+            device = "cuda" if self.use_gpu else "cpu"
+            env = os.environ.copy()
+            env["PYTHONIOENCODING"] = "utf-8"; env["PYTHONUTF8"] = "1"
+            self._log(f"  [MANUAL] Inpaint nét chữ bằng MIT {inpainter} (device={device})…")
+            r = subprocess.run(
+                [self.python_path, str(helper), str(ip), str(mp), str(op), inpainter, size, prec, device],
+                capture_output=True, text=True, encoding="utf-8", errors="replace", env=env, timeout=600,
+            )
+            if op.exists():
+                out = cv2.imread(str(op))
+                if out is not None:
+                    return out
+            self._log(f"  [MANUAL] MIT inpaint helper lỗi: {((r.stderr or '') + (r.stdout or ''))[-200:]}")
+            return None
+        except Exception as exc:
+            self._log(f"  [MANUAL] MIT inpaint lỗi: {exc}")
+            return None
+        finally:
+            shutil.rmtree(td, ignore_errors=True)
+
+    def _parse_font_color(self):
+        """Parse self.font_color ('FG' hoặc 'FG:BG' hex, vd 'FFFFFF:000000') →
+        (text_rgb|None, stroke_rgb|None). None = để render tự chọn theo nền."""
+        raw = (self.font_color or "").strip().lstrip("#")
+        if not raw:
+            return None, None
+
+        def _hx(s):
+            s = s.strip().lstrip("#")
+            if len(s) != 6:
+                return None
+            try:
+                return (int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16))
+            except ValueError:
+                return None
+
+        parts = raw.split(":")
+        fg = _hx(parts[0]) if parts and parts[0] else None
+        bg = _hx(parts[1]) if len(parts) > 1 and parts[1] else None
+        return fg, bg
+
+    def _render_typed_regions(self, image_path: Path, typed_regions: list, mask_dilate: int = 1):
+        """Vẽ chữ Việt gõ tay lên ảnh. Xoá theo MẶT NẠ NÉT CHỮ (chỉ những pixel nét
+        SFX trong box) rồi inpaint (lama_large của MIT, fallback TELEA) — giữ lại
+        halftone/hoạt cảnh xung quanh. mask_dilate = số vòng dãn mask quanh nét
+        (0 = sát nét nhất, ít loang trắng; cao hơn = xoá rộng/sạch hơn)."""
+        import cv2
+        import numpy as np
+        from PIL import Image
+        from ._render import render_text
+
+        img = cv2.imread(str(image_path))
+        if img is None:
+            self._log(f"  [MANUAL] Không đọc được {image_path.name} để vẽ chữ tay.")
+            return
+        h, w = img.shape[:2]
+
+        boxes = []
+        for r in typed_regions:
+            try:
+                x = float(r["x"]); y = float(r["y"]); rw = float(r["w"]); rh = float(r["h"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            x0 = int(round(max(0.0, min(1.0, x)) * w)); y0 = int(round(max(0.0, min(1.0, y)) * h))
+            x1 = int(round(max(0.0, min(1.0, x + rw)) * w)); y1 = int(round(max(0.0, min(1.0, y + rh)) * h))
+            if x1 - x0 < 2 or y1 - y0 < 2:
+                continue
+            boxes.append((x0, y0, x1, y1, [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], str(r.get("text") or "")))
+        if not boxes:
+            return
+
+        # 1) Mặt nạ nét chữ: trong mỗi box, tách lớp pixel THIỂU SỐ theo Otsu (nét SFX
+        #    thường chiếm ít diện tích hơn nền) → chỉ xoá nét đó, giữ nền/halftone.
+        mask = np.zeros((h, w), dtype=np.uint8)
+        for (x0, y0, x1, y1, _bbox, _text) in boxes:
+            roi = img[y0:y1, x0:x1]
+            if roi.size == 0:
+                continue
+            gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+            _t, th = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            dark_frac = float((th == 0).mean())
+            strokes = (th == 0) if dark_frac <= 0.5 else (th == 255)  # nét = lớp thiểu số
+            sm = (strokes.astype(np.uint8)) * 255
+            # Dãn mask quanh nét: ít vòng = sát nét, đỡ "lỗ" lama phải đoán → bớt
+            # loang sáng; nhiều vòng = xoá rộng/sạch hơn (theo "Siết mask" của ảnh).
+            if mask_dilate > 0:
+                sm = cv2.dilate(sm, np.ones((3, 3), np.uint8), iterations=int(mask_dilate))
+            mask[y0:y1, x0:x1] = np.maximum(mask[y0:y1, x0:x1], sm)
+        if mask.any():
+            out = self._mit_inpaint(img, mask)
+            if out is not None and out.shape[:2] == img.shape[:2]:
+                img = out  # lama_large của MIT (tái tạo halftone đẹp)
+            else:
+                img = cv2.inpaint(img, mask, 4, cv2.INPAINT_TELEA)  # fallback
+
+        # 2) Vẽ chữ Việt lên vùng đã xoá.
+        font_path = None
+        _fp = _PROJECT_ROOT / "fonts" / "MTO Astro City.ttf"
+        if _fp.exists():
+            font_path = str(_fp)
+        fg_col, bg_col = self._parse_font_color()
+        img_pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+        for i, (_x0, _y0, _x1, _y1, bbox, text) in enumerate(boxes):
+            if text.strip():
+                img_pil = render_text(img_pil, bbox, text, font_path,
+                                      strict_clip=True, font_scale=1.0, bbox_index=i,
+                                      text_color=fg_col, stroke_color=bg_col)
+
+        ext = image_path.suffix.lower()
+        if ext in (".jpg", ".jpeg"):
+            img_pil.save(str(image_path), "JPEG", quality=95)
+        elif ext == ".webp":
+            img_pil.save(str(image_path), "WEBP", quality=95)
+        else:
+            img_pil.save(str(image_path))
+        self._log(f"  [MANUAL] Đã vẽ {len(boxes)} vùng chữ tay vào {image_path.name}.")

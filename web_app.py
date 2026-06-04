@@ -995,7 +995,7 @@ def api_regions_get():
     """Đọc sidecar vùng thủ công của một ảnh."""
     dir_str = request.args.get("dir", "").strip()
     img = request.args.get("img", "").strip()
-    empty = {"mode": "merge", "regions": []}
+    empty = {"mode": "merge", "regions": [], "mask_dilate": 1}
     if not dir_str or not img:
         return jsonify(empty)
     f = Path(dir_str).resolve() / te.REGIONS_DIRNAME / (img + ".json")
@@ -1007,7 +1007,11 @@ def api_regions_get():
         if mode not in ("merge", "replace"):
             mode = "merge"
         regions = [r for r in (data.get("regions") or []) if isinstance(r, dict)]
-        return jsonify({"mode": mode, "regions": regions})
+        try:
+            mask_dilate = max(0, min(6, int(data.get("mask_dilate", 1))))
+        except (TypeError, ValueError):
+            mask_dilate = 1
+        return jsonify({"mode": mode, "regions": regions, "mask_dilate": mask_dilate})
     except Exception:
         return jsonify(empty)
 
@@ -1042,7 +1046,17 @@ def api_regions_save():
         w = max(0.0, min(1.0 - x, w)); h = max(0.0, min(1.0 - y, h))
         if w < 0.002 or h < 0.002:
             continue
-        clean.append({"x": round(x, 5), "y": round(y, 5), "w": round(w, 5), "h": round(h, 5)})
+        box = {"x": round(x, 5), "y": round(y, 5), "w": round(w, 5), "h": round(h, 5)}
+        # text = chữ Việt gõ tay (tùy chọn) → bỏ qua OCR/dịch, vẽ thẳng
+        txt = str(r.get("text") or "").strip()
+        if txt:
+            box["text"] = txt[:300]
+        clean.append(box)
+
+    try:
+        mask_dilate = max(0, min(6, int(data.get("mask_dilate", 1))))
+    except (TypeError, ValueError):
+        mask_dilate = 1
 
     rdir = p / te.REGIONS_DIRNAME
     f = rdir / (img + ".json")
@@ -1055,7 +1069,7 @@ def api_regions_save():
     try:
         rdir.mkdir(exist_ok=True)
         f.write_text(
-            json.dumps({"image": img, "mode": mode, "regions": clean}, ensure_ascii=False),
+            json.dumps({"image": img, "mode": mode, "mask_dilate": mask_dilate, "regions": clean}, ensure_ascii=False),
             encoding="utf-8",
         )
     except Exception as exc:
