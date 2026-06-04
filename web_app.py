@@ -12,6 +12,7 @@ import string
 import sys
 import tempfile
 import threading
+import time
 from collections import deque
 
 # Đảm bảo stdout dùng UTF-8 trên Windows (tránh UnicodeEncodeError)
@@ -98,6 +99,10 @@ def _crawl_queue_worker() -> None:
                 if _stop_event.is_set():
                     break
                 _push({"type": "log", "msg": f"  ▶ URL: {url}"})
+                # Lưu folder/referer hiện tại để /api/failed hiển thị + retry fallback.
+                with _lock:
+                    _state["crawl_folder"]  = folder
+                    _state["crawl_referer"] = url
 
                 job_total = 0
                 def on_progress(done: int, total: int) -> None:
@@ -142,9 +147,6 @@ def _crawl_queue_worker() -> None:
 
 @app.route("/api/start", methods=["POST"])
 def api_start():
-    with _lock:
-        running = _state["running"]
-
     data = request.get_json(silent=True) or {}
     raw_urls = data.get("urls", data.get("url", ""))
     urls = _parse_urls(raw_urls)
@@ -169,31 +171,48 @@ def api_start():
         "retries": retries,
     }
 
-    if not running:
-        _reset()
-        _enqueue_job(job)
+    # Quyết định khởi động worker + claim `running` trong CÙNG một lock để tránh
+    # race: hai request /api/start đồng thời không thể cùng spawn 2 worker.
+    started = False
+    with _lock:
+        if not _state["running"]:
+            _stop_event.clear()
+            _reset_locked()          # set running=True + clear queue/logs
+            _crawl_queue.append(job)
+            _state["queue"] = len(_crawl_queue)
+            queue_length = len(_crawl_queue)
+            started = True
+        else:
+            _crawl_queue.append(job)
+            _state["queue"] = len(_crawl_queue)
+            queue_length = len(_crawl_queue)
+
+    if started:
         _push({"type": "log", "msg": f"▶ Bắt đầu queue mới: {len(urls)} URL"})
         threading.Thread(target=_crawl_queue_worker, daemon=True).start()
-        return jsonify({"ok": True, "queued": len(urls), "queue_length": len(_crawl_queue)})
+    else:
+        _push({"type": "log", "msg": f"➕ Đã xếp thêm {len(urls)} URL vào queue. Queue hiện tại: {queue_length}"})
+    return jsonify({"ok": True, "queued": len(urls), "queue_length": queue_length})
 
-    _enqueue_job(job)
-    _push({"type": "log", "msg": f"➕ Đã xếp thêm {len(urls)} URL vào queue. Queue hiện tại: {len(_crawl_queue)}"})
-    return jsonify({"ok": True, "queued": len(urls), "queue_length": len(_crawl_queue)})
+
+def _reset_locked() -> None:
+    """Reset log + state. Caller PHẢI đang giữ `_lock`."""
+    global _log_total
+    _logs.clear()
+    _log_total = 0
+    _crawl_queue.clear()
+    _state.update(
+        running=True, done=0, total=0,
+        success=0, failed=0, queue=0,
+        status="running", failed_items=[],
+    )
 
 
 def _reset() -> None:
     """Xóa log và reset state (gọi trước khi bắt đầu crawl mới)."""
-    global _log_total
     _stop_event.clear()           # ← xóa flag dừng trước khi bắt đầu
     with _lock:
-        _logs.clear()
-        _log_total = 0
-        _crawl_queue.clear()
-        _state.update(
-            running=True, done=0, total=0,
-            success=0, failed=0, queue=0,
-            status="running", failed_items=[],
-        )
+        _reset_locked()
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -484,6 +503,7 @@ def api_translate_start():
     data           = request.get_json(silent=True) or {}
     input_dir      = str(data.get("input_dir",      "")).strip()
     output_dir     = str(data.get("output_dir",     "")).strip()
+    sel_images     = data.get("images") or []   # tên ảnh đã tích (rỗng = cả thư mục)
     model          = str(data.get("model",      "qwen2.5:7b")).strip() or "qwen2.5:7b"
     use_gpu        = bool(data.get("use_gpu", True))
     src_lang       = str(data.get("src_lang", "zh")).strip().lower()
@@ -512,6 +532,7 @@ def api_translate_start():
     mit_ocr           = str(data.get("mit_ocr",          "")).strip()
     if mit_ocr not in ("32px", "48px", "48px_ctc", "mocr"):
         mit_ocr = ""
+    mit_ocr_prob      = str(data.get("mit_ocr_prob",     "")).strip()
     mit_font_ofs      = str(data.get("mit_font_ofs",     "")).strip()
     mit_font_min      = str(data.get("mit_font_min",     "")).strip()
     mit_font_fixed    = str(data.get("mit_font_fixed",   "")).strip()
@@ -537,7 +558,7 @@ def api_translate_start():
         font_scale = float(data.get("font_scale", 0.60))
         font_scale = max(0.3, min(2.0, font_scale))
     except (TypeError, ValueError):
-        font_scale = 0.75
+        font_scale = 0.60
     if inpainter not in ("opencv", "lama"):
         inpainter = "opencv"
     if src_lang not in ("zh", "en", "ja"):
@@ -551,6 +572,18 @@ def api_translate_start():
         return jsonify({"error": f"Thư mục không tồn tại: {input_dir}"}), 400
     if not output_dir:
         output_dir = str(Path(input_dir).parent / (Path(input_dir).name + "_vi"))
+
+    # Ảnh đã chọn → chỉ dịch các ảnh đó. Chỉ lấy basename (chống path traversal),
+    # ghép với thư mục nguồn. Rỗng/không hợp lệ → None = dịch cả thư mục.
+    images_override = None
+    if isinstance(sel_images, list) and sel_images:
+        _base = Path(input_dir)
+        _picked = []
+        for _n in sel_images:
+            _fp = _base / Path(str(_n)).name
+            if _fp.is_file() and _fp.suffix.lower() in te.IMAGE_EXTS:
+                _picked.append(str(_fp))
+        images_override = _picked or None
 
     _t_reset()
 
@@ -599,6 +632,7 @@ def api_translate_start():
                     det_rotate=mit_det_rotate,
                     det_auto_rotate=mit_det_auto_rotate,
                     ocr_model=mit_ocr,
+                    ocr_prob=mit_ocr_prob,
                     font_size_offset=mit_font_ofs,
                     font_size_minimum=mit_font_min,
                     font_size_fixed=mit_font_fixed,
@@ -634,6 +668,7 @@ def api_translate_start():
                 input_dir=input_dir,
                 output_dir=output_dir,
                 stop_event=_t_stop,
+                images_override=images_override,
             )
             _t_push({"type": "log",  "msg": f"\n✔  Xong: {ok} OK, {fail} lỗi."})
             _t_push({"type": "done", "success": ok, "failed": fail, "output_dir": output_dir})
@@ -819,6 +854,34 @@ def _make_thumbnail(p: Path, mtime: int, size: int) -> Path | None:
         return None
 
 
+def _prune_thumb_cache(max_age_days: int = 7, max_files: int = 5000) -> None:
+    """Best-effort: dọn thumbnail cache cũ để temp không phình vô hạn.
+
+    Xóa file quá `max_age_days` ngày, và nếu vẫn quá `max_files` thì xóa thêm
+    các file cũ nhất. Không bao giờ ném lỗi (chạy lúc khởi động)."""
+    try:
+        if not _THUMB_DIR.is_dir():
+            return
+        files = []
+        for f in _THUMB_DIR.glob("*.webp"):
+            try:
+                files.append((f, f.stat().st_mtime))
+            except OSError:
+                pass
+    except Exception:
+        return
+    files.sort(key=lambda e: e[1])  # cũ nhất trước
+    now = time.time()
+    cutoff = now - max_age_days * 86400
+    excess = len(files) - max_files
+    for idx, (f, mtime) in enumerate(files):
+        if idx < excess or mtime < cutoff:
+            try:
+                f.unlink()
+            except OSError:
+                pass
+
+
 @app.route("/api/translate/image")
 def api_translate_image():
     """Phục vụ file ảnh từ đường dẫn local (dùng cho preview).
@@ -871,18 +934,133 @@ def api_translate_preview():
     except (TypeError, ValueError):
         limit = 0
 
-    all_files = sorted(
-        (f for f in p.iterdir() if f.suffix.lower() in te.IMAGE_EXTS),
-        key=lambda f: f.stat().st_mtime,
-    )
-    total = len(all_files)
+    # stat() một lần / file rồi sort theo mtime (tránh stat lặp lại trong list comp).
+    entries: list[tuple[Path, float]] = []
+    for f in p.iterdir():
+        if f.suffix.lower() not in te.IMAGE_EXTS:
+            continue
+        try:
+            entries.append((f, f.stat().st_mtime))
+        except OSError:
+            continue
+    entries.sort(key=lambda e: e[1])
+    total = len(entries)
     # limit=0 → trả về tất cả
-    display = all_files if limit <= 0 else all_files[-limit:]
+    display = entries if limit <= 0 else entries[-limit:]
     images = [
-        {"name": f.name, "path": str(f), "mtime": int(f.stat().st_mtime)}
-        for f in display
+        {"name": f.name, "path": str(f), "mtime": int(mtime)}
+        for f, mtime in display
     ]
     return jsonify({"images": images, "total": total})
+
+
+# ── Manual text regions (hand-drawn boxes) ──────────────────────────────────
+
+def _regions_natural_key(name: str):
+    return [int(t) if t.isdigit() else t.lower() for t in re.split(r'(\d+)', name)]
+
+
+@app.route("/api/regions/list")
+def api_regions_list():
+    """Liệt kê ảnh trong thư mục nguồn kèm số vùng thủ công đã lưu (badge)."""
+    dir_str = request.args.get("dir", "").strip()
+    if not dir_str:
+        return jsonify({"error": "Thiếu dir"}), 400
+    p = Path(dir_str).resolve()
+    if not p.is_dir():
+        return jsonify({"error": f"Thư mục không tồn tại: {dir_str}"}), 400
+
+    counts: dict[str, int] = {}
+    rdir = p / te.REGIONS_DIRNAME
+    if rdir.is_dir():
+        for jf in rdir.glob("*.json"):
+            try:
+                data = json.loads(jf.read_text(encoding="utf-8"))
+                n = len([r for r in (data.get("regions") or []) if isinstance(r, dict)])
+            except Exception:
+                n = 0
+            if n:
+                counts[jf.stem] = n  # jf.stem of "002.jpg.json" == "002.jpg"
+
+    images = []
+    for f in sorted((c for c in p.iterdir() if c.is_file()), key=lambda c: _regions_natural_key(c.name)):
+        if f.suffix.lower() not in te.IMAGE_EXTS:
+            continue
+        images.append({"name": f.name, "path": str(f), "count": counts.get(f.name, 0)})
+    return jsonify({"images": images})
+
+
+@app.route("/api/regions/get")
+def api_regions_get():
+    """Đọc sidecar vùng thủ công của một ảnh."""
+    dir_str = request.args.get("dir", "").strip()
+    img = request.args.get("img", "").strip()
+    empty = {"mode": "merge", "regions": []}
+    if not dir_str or not img:
+        return jsonify(empty)
+    f = Path(dir_str).resolve() / te.REGIONS_DIRNAME / (img + ".json")
+    if not f.is_file():
+        return jsonify(empty)
+    try:
+        data = json.loads(f.read_text(encoding="utf-8"))
+        mode = data.get("mode", "merge")
+        if mode not in ("merge", "replace"):
+            mode = "merge"
+        regions = [r for r in (data.get("regions") or []) if isinstance(r, dict)]
+        return jsonify({"mode": mode, "regions": regions})
+    except Exception:
+        return jsonify(empty)
+
+
+@app.route("/api/regions/save", methods=["POST"])
+def api_regions_save():
+    """Ghi sidecar vùng thủ công cho một ảnh (toạ độ chuẩn hoá 0..1).
+    Danh sách rỗng → xoá sidecar."""
+    data = request.get_json(silent=True) or {}
+    dir_str = str(data.get("dir", "")).strip()
+    img = str(data.get("img", "")).strip()
+    mode = str(data.get("mode", "merge")).strip().lower()
+    if mode not in ("merge", "replace"):
+        mode = "merge"
+
+    p = Path(dir_str).resolve()
+    if not dir_str or not p.is_dir():
+        return jsonify({"error": "Thư mục không hợp lệ."}), 400
+    imgp = p / img
+    if not img or not imgp.is_file() or imgp.suffix.lower() not in te.IMAGE_EXTS:
+        return jsonify({"error": "Ảnh không hợp lệ."}), 400
+
+    clean = []
+    for r in (data.get("regions") or []):
+        try:
+            x = float(r["x"]); y = float(r["y"])
+            w = float(r["w"]); h = float(r["h"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        # clamp to [0,1] and drop degenerate boxes
+        x = max(0.0, min(1.0, x)); y = max(0.0, min(1.0, y))
+        w = max(0.0, min(1.0 - x, w)); h = max(0.0, min(1.0 - y, h))
+        if w < 0.002 or h < 0.002:
+            continue
+        clean.append({"x": round(x, 5), "y": round(y, 5), "w": round(w, 5), "h": round(h, 5)})
+
+    rdir = p / te.REGIONS_DIRNAME
+    f = rdir / (img + ".json")
+    if not clean:
+        try:
+            f.unlink()
+        except Exception:
+            pass
+        return jsonify({"ok": True, "count": 0})
+    try:
+        rdir.mkdir(exist_ok=True)
+        f.write_text(
+            json.dumps({"image": img, "mode": mode, "regions": clean}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+    return jsonify({"ok": True, "count": len(clean)})
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -905,6 +1083,7 @@ def _auto_apply_mit_patches():
 if __name__ == "__main__":
     import webbrowser
     _auto_apply_mit_patches()
+    _prune_thumb_cache()
     port = int(os.environ.get("PORT", 5000))
     threading.Timer(1.2, lambda: webbrowser.open(f"http://127.0.0.1:{port}")).start()
     print(f"\n  ✔  Web UI: http://127.0.0.1:{port}\n")

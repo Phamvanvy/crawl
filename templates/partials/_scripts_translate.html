@@ -124,6 +124,7 @@ function mitPreset(mode) {
     chk('tMITDetRotate', false);
     chk('tMITDetAutoRotate', false);
     setSel('tMITOcr', '');
+    set('tMITOcrProb',  '');             // subtitle CG sạch → dùng default 0.2
     set('tMITFontOfs',  '-8');           // giảm nhẹ — clipping đã ngăn tràn, không cần offset cực đoan
     document.getElementById('tMITFontOfsVal') && (document.getElementById('tMITFontOfsVal').textContent = '-8');
     set('tMITFontMin',  '10');           // tối thiểu 10px — đủ đọc
@@ -149,6 +150,7 @@ function mitPreset(mode) {
     chk('tMITDetRotate', false);
     chk('tMITDetAutoRotate', false);
     setSel('tMITOcr', '');
+    set('tMITOcrProb',  '0.5');          // box/text thr thấp → lọc OCR đọc bậy
     set('tMITFontOfs',  '4');            // offset DƯƠNG: chữ to lấp đầy bubble; fit-loop tự thu nếu tràn
     document.getElementById('tMITFontOfsVal') && (document.getElementById('tMITFontOfsVal').textContent = '4');
     set('tMITFontMin',  '');
@@ -172,6 +174,7 @@ function mitPreset(mode) {
     chk('tMITDetRotate', false);
     chk('tMITDetAutoRotate', false);
     setSel('tMITOcr', '');
+    set('tMITOcrProb',  '');             // thr cao → ít rác, dùng default 0.2
     set('tMITFontOfs',  '4');            // offset DƯƠNG: chữ to lấp đầy bubble; fit-loop tự thu nếu tràn
     document.getElementById('tMITFontOfsVal') && (document.getElementById('tMITFontOfsVal').textContent = '4');
     set('tMITFontMin',  '');
@@ -195,6 +198,7 @@ function mitPreset(mode) {
     chk('tMITDetRotate', false);
     chk('tMITDetAutoRotate', false);
     setSel('tMITOcr', '');
+    set('tMITOcrProb',  '');
     set('tMITFontOfs',  '');
     set('tMITFontMin',  '');
     set('tMITFontFixed','');
@@ -256,6 +260,7 @@ async function tStart() {
   const mit_det_rotate   = $('tMITDetRotate') ? $('tMITDetRotate').checked : false;
   const mit_det_auto_rotate = $('tMITDetAutoRotate') ? $('tMITDetAutoRotate').checked : false;
   const mit_ocr          = getVal('tMITOcr');
+  const mit_ocr_prob     = $('tMITOcrProb') ? $('tMITOcrProb').value : '';
   const mit_font_ofs     = $('tMITFontOfs').value;
   const mit_font_min     = $('tMITFontMin').value;
   const mit_font_fixed   = $('tMITFontFixed').value;
@@ -273,7 +278,10 @@ async function tStart() {
                            ? _mitOllamaModel
                            : (getVal('tModel').trim() || 'qwen3:8b');
 
+  const images = (typeof _tSelImages !== 'undefined') ? [..._tSelImages] : [];
+
   if (!input_dir) { tAddLog(tr('alert.no_input_dir'), 'warn'); return; }
+  if (images.length) tAddLog(`🖼 Chỉ dịch ${images.length} ảnh đã chọn.`, 'info');
 
   _tCursor    = 0;
   _tRunning   = true;
@@ -293,12 +301,12 @@ async function tStart() {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({
-        input_dir, output_dir, model, use_gpu, src_lang, backend, translation_style,
+        input_dir, output_dir, images, model, use_gpu, src_lang, backend, translation_style,
         llm_api_type, llm_base_url,
         mit_translator, mit_target_lang,
         mit_detector, mit_inpainter, mit_inpaint_size, mit_inpaint_prec, mit_upscale, mit_upscaler, mit_det_size,
         mit_mask_dil, mit_unclip, mit_box_thr, mit_text_thr,
-        mit_det_gamma, mit_det_invert, mit_det_rotate, mit_det_auto_rotate, mit_ocr,
+        mit_det_gamma, mit_det_invert, mit_det_rotate, mit_det_auto_rotate, mit_ocr, mit_ocr_prob,
         mit_font_ofs, mit_font_min, mit_font_fixed, mit_font_color,
         mit_custom_api_base, mit_custom_api_key,
         mit_verbose, mit_skip_no_text, mit_overwrite,
@@ -527,5 +535,303 @@ async function tDeletePreviewImg(path, name, cardEl) {
   if (_tFocusedPreviewImg && _tFocusedPreviewImg.path === path) _tFocusedPreviewImg = null;
   tRenderPreviewPage();
 }
+
+// ── Image selection (translate a subset) ────────────────────────────────────
+let _tSelImages = new Set();   // selected filenames; empty = whole folder
+let _tImgList   = [];          // [{name, path, count}]
+
+async function tLoadImageList() {
+  const dir  = getVal('tInputDir').trim();
+  const grid = $('tImgPickGrid');
+  if (!dir) { grid.innerHTML = '<div class="re-pill" style="grid-column:1/-1;padding:6px;color:var(--warn)">Chưa chọn thư mục nguồn.</div>'; return; }
+  grid.innerHTML = '<div class="re-pill" style="grid-column:1/-1;padding:6px">Đang tải…</div>';
+  let data;
+  try {
+    const res = await fetch('/api/regions/list?dir=' + encodeURIComponent(dir));
+    data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'lỗi');
+  } catch (e) {
+    grid.innerHTML = `<div class="re-pill" style="grid-column:1/-1;padding:6px;color:var(--red)">Lỗi: ${escHtml(String(e.message || e))}</div>`;
+    return;
+  }
+  _tImgList = data.images || [];
+  const names = new Set(_tImgList.map(i => i.name));
+  _tSelImages = new Set([..._tSelImages].filter(n => names.has(n)));  // drop stale
+  tRenderImgPick();
+}
+
+function tRenderImgPick() {
+  const grid = $('tImgPickGrid');
+  if (!_tImgList.length) {
+    grid.innerHTML = '<div class="re-pill" style="grid-column:1/-1;padding:6px">Thư mục không có ảnh.</div>';
+    tUpdImgSelCount(); return;
+  }
+  const frag = document.createDocumentFragment();
+  for (const im of _tImgList) {
+    const sel  = _tSelImages.has(im.name);
+    const cell = document.createElement('div');
+    cell.className = 'img-pick' + (sel ? ' sel' : '');
+    const thumb = '/api/translate/image?path=' + encodeURIComponent(im.path) + '&thumb=120';
+    cell.innerHTML = `<input type="checkbox" class="ip-check" ${sel ? 'checked' : ''} />`
+      + (im.count ? `<span class="ip-badge" title="${im.count} vùng thủ công">✏${im.count}</span>` : '')
+      + `<img src="${thumb}" loading="lazy" alt="">`
+      + `<div class="ip-name" title="${escHtml(im.name)}">${escHtml(im.name)}</div>`;
+    const toggle = () => {
+      if (_tSelImages.has(im.name)) _tSelImages.delete(im.name); else _tSelImages.add(im.name);
+      tRenderImgPick();
+    };
+    cell.addEventListener('click', e => { if (e.target.classList.contains('ip-check')) return; toggle(); });
+    cell.querySelector('.ip-check').addEventListener('change', toggle);
+    frag.appendChild(cell);
+  }
+  grid.innerHTML = '';
+  grid.appendChild(frag);
+  tUpdImgSelCount();
+}
+
+function tSelectAllImages(on) {
+  _tSelImages = on ? new Set(_tImgList.map(i => i.name)) : new Set();
+  tRenderImgPick();
+}
+
+function tUpdImgSelCount() {
+  const n = _tSelImages.size, m = _tImgList.length;
+  const el = $('tImgSelCount');
+  if (el) el.textContent = n ? `Đang chọn ${n}/${m} ảnh` : 'Không tích = cả thư mục';
+}
+
+// Gọi khi thư mục nguồn vừa đổi → auto tải lại danh sách ảnh (và editor nếu mở).
+function onSourceFolderChanged() {
+  _tSelImages = new Set();
+  tLoadImageList();
+  if ($('regionOverlay') && $('regionOverlay').classList.contains('open')) {
+    openRegionEditor();  // reload editor cho thư mục mới
+  }
+}
+// Gõ tay đường dẫn rồi rời ô cũng auto tải lại.
+document.addEventListener('DOMContentLoaded', () => {
+  const el = $('tInputDir');
+  if (el) el.addEventListener('change', onSourceFolderChanged);
+});
+
+// ── Manual region editor ────────────────────────────────────────────────────
+let _reDir       = '';     // source folder
+let _reImages    = [];     // [{name, path, count}]
+let _reName      = '';     // current image filename
+let _reRegions   = [];     // [{x,y,w,h}] normalized 0..1
+let _reMode      = 'merge';
+let _reSel       = -1;     // selected region index
+let _reDrag      = null;   // {x0,y0} normalized while drawing
+
+async function openRegionEditor() {
+  const dir = getVal('tInputDir').trim();
+  if (!dir) { tAddLog(tr('alert.no_input_dir') || '⚠ Chưa chọn thư mục nguồn.', 'warn'); return; }
+  if (dir !== _reDir) {   // thư mục mới → reset trạng thái cũ
+    _reName = ''; _reRegions = []; _reSel = -1;
+    $('reStage').style.display = 'none';
+    $('reEmpty').style.display = '';
+  }
+  _reDir = dir;
+  $('reDirLabel').textContent = dir;
+  $('regionOverlay').classList.add('open');
+  await reLoadList();
+}
+
+function closeRegionEditor() {
+  $('regionOverlay').classList.remove('open');
+}
+
+async function reLoadList() {
+  const side = $('reSide');
+  side.innerHTML = '<div class="re-pill" style="padding:8px">Đang tải…</div>';
+  let data;
+  try {
+    const res = await fetch('/api/regions/list?dir=' + encodeURIComponent(_reDir));
+    data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'lỗi');
+  } catch (e) {
+    side.innerHTML = `<div class="re-pill" style="padding:8px;color:var(--red)">Lỗi: ${escHtml(String(e.message || e))}</div>`;
+    return;
+  }
+  _reImages = data.images || [];
+  reRenderSide();
+  if (_reImages.length && !_reName) reSelectImage(_reImages[0]);
+}
+
+function reRenderSide() {
+  const side = $('reSide');
+  if (!_reImages.length) { side.innerHTML = '<div class="re-pill" style="padding:8px">Thư mục không có ảnh.</div>'; return; }
+  const frag = document.createDocumentFragment();
+  for (const im of _reImages) {
+    const row = document.createElement('div');
+    row.className = 're-thumb' + (im.name === _reName ? ' active' : '');
+    const thumb = '/api/translate/image?path=' + encodeURIComponent(im.path) + '&thumb=92';
+    row.innerHTML = `<img src="${thumb}" loading="lazy" alt="" />`
+                  + `<span class="re-tn" title="${escHtml(im.name)}">${escHtml(im.name)}</span>`
+                  + (im.count ? `<span class="re-badge">${im.count}</span>` : '');
+    row.addEventListener('click', () => reSelectImage(im));
+    frag.appendChild(row);
+  }
+  side.innerHTML = '';
+  side.appendChild(frag);
+}
+
+async function reSelectImage(im) {
+  _reName = im.name;
+  _reSel  = -1;
+  $('reImgName').textContent = im.name;
+  reRenderSide();
+  // load saved regions
+  let data = { mode: 'merge', regions: [] };
+  try {
+    const res = await fetch('/api/regions/get?dir=' + encodeURIComponent(_reDir) + '&img=' + encodeURIComponent(im.name));
+    data = await res.json();
+  } catch {}
+  _reRegions = (data.regions || []).map(r => ({ x: +r.x, y: +r.y, w: +r.w, h: +r.h }));
+  reSetMode(data.mode === 'replace' ? 'replace' : 'merge');
+  // load image
+  const img = $('reImg');
+  img.onload = () => {
+    $('reEmpty').style.display = 'none';
+    $('reStage').style.display = '';
+    reFitCanvas();
+  };
+  img.src = '/api/translate/image?path=' + encodeURIComponent(im.path)
+          + '&rev=' + encodeURIComponent(im.mtime || '0');
+}
+
+function reSetMode(mode) {
+  _reMode = (mode === 'replace') ? 'replace' : 'merge';
+  document.querySelectorAll('#reModeSeg button').forEach(b =>
+    b.classList.toggle('active', b.dataset.mode === _reMode));
+}
+
+function reFitCanvas() {
+  const img = $('reImg'), cv = $('reCanvas');
+  cv.width  = img.clientWidth;
+  cv.height = img.clientHeight;
+  reRedraw();
+}
+
+function reRedraw() {
+  const cv = $('reCanvas'), ctx = cv.getContext('2d');
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  _reRegions.forEach((r, i) => {
+    const x = r.x * cv.width, y = r.y * cv.height, w = r.w * cv.width, h = r.h * cv.height;
+    const sel = (i === _reSel);
+    ctx.fillStyle   = sel ? 'rgba(255,80,80,.22)' : 'rgba(91,140,255,.20)';
+    ctx.fillRect(x, y, w, h);
+    ctx.lineWidth   = sel ? 2.5 : 1.5;
+    ctx.strokeStyle = sel ? '#ff5050' : '#5b8cff';
+    ctx.strokeRect(x, y, w, h);
+    ctx.fillStyle = sel ? '#ff5050' : '#5b8cff';
+    ctx.font = '12px sans-serif';
+    ctx.fillText(String(i + 1), x + 3, y + 13);
+  });
+  $('reCount').textContent = _reRegions.length + ' vùng';
+}
+
+function reCanvasPt(e) {
+  const cv = $('reCanvas'), rect = cv.getBoundingClientRect();
+  return {
+    x: Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)),
+    y: Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height)),
+  };
+}
+
+function reHitTest(pt) {
+  // topmost region containing pt
+  for (let i = _reRegions.length - 1; i >= 0; i--) {
+    const r = _reRegions[i];
+    if (pt.x >= r.x && pt.x <= r.x + r.w && pt.y >= r.y && pt.y <= r.y + r.h) return i;
+  }
+  return -1;
+}
+
+function reInitCanvasEvents() {
+  const cv = $('reCanvas');
+  cv.addEventListener('mousedown', e => {
+    e.preventDefault();
+    _reDrag = reCanvasPt(e);
+    _reDrag.moved = false;
+  });
+  cv.addEventListener('mousemove', e => {
+    if (!_reDrag) return;
+    const p = reCanvasPt(e);
+    if (Math.abs(p.x - _reDrag.x) > 0.004 || Math.abs(p.y - _reDrag.y) > 0.004) _reDrag.moved = true;
+    if (_reDrag.moved) {
+      reRedraw();
+      const ctx = cv.getContext('2d');
+      const x = Math.min(_reDrag.x, p.x) * cv.width, y = Math.min(_reDrag.y, p.y) * cv.height;
+      const w = Math.abs(p.x - _reDrag.x) * cv.width, h = Math.abs(p.y - _reDrag.y) * cv.height;
+      ctx.fillStyle = 'rgba(91,140,255,.20)';
+      ctx.fillRect(x, y, w, h);
+      ctx.lineWidth = 1.5; ctx.strokeStyle = '#5b8cff';
+      ctx.setLineDash([5, 4]); ctx.strokeRect(x, y, w, h); ctx.setLineDash([]);
+    }
+  });
+  cv.addEventListener('mouseup', e => {
+    if (!_reDrag) return;
+    const p = reCanvasPt(e);
+    if (_reDrag.moved) {
+      const r = {
+        x: Math.min(_reDrag.x, p.x), y: Math.min(_reDrag.y, p.y),
+        w: Math.abs(p.x - _reDrag.x), h: Math.abs(p.y - _reDrag.y),
+      };
+      if (r.w > 0.005 && r.h > 0.005) { _reRegions.push(r); _reSel = _reRegions.length - 1; }
+    } else {
+      _reSel = reHitTest(p);   // click → select / deselect
+    }
+    _reDrag = null;
+    reRedraw();
+  });
+  cv.addEventListener('mouseleave', () => { if (_reDrag) { _reDrag = null; reRedraw(); } });
+}
+
+function reDeleteSelected() {
+  if (_reSel >= 0 && _reSel < _reRegions.length) {
+    _reRegions.splice(_reSel, 1);
+    _reSel = -1;
+    reRedraw();
+  }
+}
+
+function reClearAll() {
+  if (!_reRegions.length) return;
+  if (!confirm('Xoá hết vùng của ảnh này?')) return;
+  _reRegions = []; _reSel = -1; reRedraw();
+}
+
+async function reSave() {
+  if (!_reName) return;
+  let data;
+  try {
+    const res = await fetch('/api/regions/save', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dir: _reDir, img: _reName, mode: _reMode, regions: _reRegions }),
+    });
+    data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'lỗi');
+  } catch (e) {
+    alert('Lưu thất bại: ' + (e.message || e)); return;
+  }
+  // update cached badge count
+  const im = _reImages.find(x => x.name === _reName);
+  if (im) im.count = data.count || 0;
+  reRenderSide();
+  tAddLog(`✏️ Lưu ${data.count || 0} vùng thủ công cho ${_reName} (${_reMode}).`, 'ok');
+}
+
+document.addEventListener('keydown', e => {
+  if (!$('regionOverlay') || !$('regionOverlay').classList.contains('open')) return;
+  if (e.key === 'Escape') { closeRegionEditor(); }
+  else if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (_reSel >= 0) { e.preventDefault(); reDeleteSelected(); }
+  }
+});
+window.addEventListener('resize', () => {
+  if ($('regionOverlay') && $('regionOverlay').classList.contains('open') && _reName) reFitCanvas();
+});
+reInitCanvasEvents();
 
 </script>

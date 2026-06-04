@@ -41,6 +41,12 @@ Patches applied:
      - Honor UI detection_size/text_threshold/box_threshold/unclip_ratio for CTD.
      - Higher CTD detect size improves tiny/SFX text detection.
      - Lower box/text thresholds are no longer ignored by CTD's hard-coded defaults.
+
+  5. manga_translator/detection/__init__.py
+     - Manual text region injection via env var MIT_MANUAL_REGIONS (JSON of
+       normalized 0..1 boxes). dispatch() appends hand-drawn boxes as empty-text
+       Quadrilaterals (OCR fills text) and paints them into the mask so the
+       source text is inpainted. No-op / unchanged behavior when env var absent.
 """
 
 import json
@@ -124,6 +130,10 @@ def apply():
         (
             PATCHES_DIR / "manga_translator_detection_ctd.py",
             sp / "manga_translator" / "detection" / "ctd.py",
+        ),
+        (
+            PATCHES_DIR / "manga_translator_detection_init.py",
+            sp / "manga_translator" / "detection" / "__init__.py",
         ),
     ]
 

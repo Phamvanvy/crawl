@@ -34,6 +34,10 @@
           <button class="btn btn-ghost" onclick="openSettingsModal()">
             <span style="font-size:1.1rem">⚙</span> <span data-i18n="t.settings.header">Cài đặt dịch</span>
           </button>
+          <button class="btn btn-ghost" onclick="openRegionEditor()"
+            title="Vẽ tay vùng chữ cho ảnh khó (chữ màu/nghệ thuật detector bỏ sót). Box tay được chèn thẳng vào pipeline khi dịch.">
+            <span style="font-size:1.1rem">✏️</span> <span data-i18n="t.regions.btn">Vùng thủ công</span>
+          </button>
         </div>
       </div>
     </div>
@@ -78,6 +82,33 @@
                     data-i18n="btn.browse">📁 Chọn…</button>
                 </div>
                 <div class="field-hint" data-i18n="t.out_dir.hint">Nếu để trống, kết quả lưu vào _vi/</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Image selection (optional subset) -->
+          <style>
+            .img-pick-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:6px;max-height:240px;overflow-y:auto;}
+            .img-pick{position:relative;border:1px solid var(--border);border-radius:7px;overflow:hidden;cursor:pointer;background:var(--surface2,#26262f);}
+            .img-pick img{width:100%;height:62px;object-fit:cover;display:block;background:#000;}
+            .img-pick .ip-name{font-size:.62rem;padding:2px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+            .img-pick.sel{outline:2px solid var(--accent,#5b8cff);outline-offset:-2px;}
+            .img-pick .ip-check{position:absolute;top:3px;left:3px;width:15px;height:15px;cursor:pointer;}
+            .img-pick .ip-badge{position:absolute;top:3px;right:3px;background:var(--accent,#5b8cff);color:#fff;font-size:.58rem;border-radius:8px;padding:0 5px;}
+          </style>
+          <div class="card" style="margin-bottom:12px">
+            <div class="card-header">
+              <span>🖼 Ảnh cần dịch <span style="font-size:.7rem;opacity:.6">(tùy chọn — bỏ trống = cả thư mục)</span></span>
+              <button class="btn btn-ghost" style="padding:3px 10px;font-size:.72rem" onclick="tLoadImageList()">↻ Tải danh sách</button>
+            </div>
+            <div class="card-body">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+                <button class="btn btn-ghost" style="padding:3px 10px;font-size:.72rem" onclick="tSelectAllImages(true)">☑ Tất cả</button>
+                <button class="btn btn-ghost" style="padding:3px 10px;font-size:.72rem" onclick="tSelectAllImages(false)">☐ Bỏ tất</button>
+                <span id="tImgSelCount" style="font-size:.74rem;color:var(--text-muted);margin-left:auto">Không tích = cả thư mục</span>
+              </div>
+              <div id="tImgPickGrid" class="img-pick-grid">
+                <div class="re-pill" style="grid-column:1/-1;padding:6px;color:var(--text-muted);font-size:.74rem">Chọn thư mục nguồn rồi bấm "↻ Tải danh sách".</div>
               </div>
             </div>
           </div>
@@ -429,6 +460,18 @@ Upscale giúp OCR nhận diện chữ nhỏ chính xác hơn nhưng tốn thêm 
                        <option value="mocr">mocr (manga JP)</option>
                      </select>
                   </div>
+                  <div class="field" style="margin-bottom:0">
+                    <label><span class="tt-wrap">OCR prob<span class="tt-icon">?</span><span class="tt-box">Ngưỡng tin cậy tối thiểu để GIỮ một vùng chữ sau khi OCR đọc xong (lọc rác).
+  Mặc định MIT: 0.2 (lọt nhiều rác khi Box/Text thr thấp)
+
+  • Để trống — dùng mặc định 0.2
+  • 0.5 — lọc OCR đọc bậy (毌, 卉, ký tự lẻ), giữ chữ thật ★
+  • 0.6–0.7 — lọc mạnh hơn, có thể bỏ chữ mờ/nhỏ thật
+
+  Dùng khi Box thr/Text thr để thấp khiến detector vớt cả hoa văn/nền → OCR ra ký tự rác.</span></span></label>
+                     <input type="number" id="tMITOcrProb" placeholder="0.2" min="0.1" max="0.95" step="0.05" value="0.5"
+                      class="sm" />
+                  </div>
                 </div>
 
                 <!-- Row 2: Detection size / Mask dilation / Unclip / Font options -->
@@ -594,6 +637,76 @@ Nếu còn chữ mà không detect nổi, thử 0.45 kèm Detector=ctd và Gamma
       </div><!-- end settings-body -->
     </div><!-- end settings-dialog -->
   </div><!-- end settings-overlay -->
+
+  <!-- ── Manual Region Editor ─────────────────────────────────────────────── -->
+  <style>
+    #regionOverlay{position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:1200;
+      display:none;align-items:stretch;justify-content:center;padding:24px;}
+    #regionOverlay.open{display:flex;}
+    .re-dialog{background:var(--surface,#1b1b22);border:1px solid var(--border);border-radius:12px;
+      width:100%;max-width:1280px;display:flex;flex-direction:column;overflow:hidden;}
+    .re-body{flex:1;display:flex;min-height:0;}
+    .re-side{width:210px;flex:0 0 auto;border-right:1px solid var(--border);overflow-y:auto;padding:8px;}
+    .re-thumb{display:flex;align-items:center;gap:8px;padding:6px;border-radius:8px;cursor:pointer;
+      border:1px solid transparent;margin-bottom:4px;}
+    .re-thumb:hover{background:var(--surface2,#26262f);}
+    .re-thumb.active{border-color:var(--accent,#5b8cff);background:var(--surface2,#26262f);}
+    .re-thumb img{width:46px;height:46px;object-fit:cover;border-radius:5px;background:#000;flex:0 0 auto;}
+    .re-thumb .re-tn{flex:1;min-width:0;font-size:.74rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    .re-badge{background:var(--accent,#5b8cff);color:#fff;border-radius:10px;font-size:.66rem;
+      padding:1px 7px;font-weight:600;flex:0 0 auto;}
+    .re-main{flex:1;display:flex;flex-direction:column;min-width:0;}
+    .re-toolbar{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--border);flex-wrap:wrap;}
+    .re-canvas-wrap{flex:1;overflow:auto;display:flex;align-items:flex-start;justify-content:center;
+      background:#0d0d12;padding:12px;}
+    .re-stage{position:relative;line-height:0;box-shadow:0 0 0 1px var(--border);}
+    .re-stage img{display:block;max-width:100%;user-select:none;-webkit-user-drag:none;}
+    .re-stage canvas{position:absolute;inset:0;cursor:crosshair;}
+    .re-pill{font-size:.74rem;color:var(--text-muted);}
+    .re-seg{display:inline-flex;border:1px solid var(--border);border-radius:7px;overflow:hidden;}
+    .re-seg button{background:transparent;color:var(--text);border:0;padding:5px 12px;font-size:.78rem;cursor:pointer;}
+    .re-seg button.active{background:var(--accent,#5b8cff);color:#fff;}
+  </style>
+  <div id="regionOverlay" onclick="closeRegionEditor()">
+    <div class="re-dialog" role="dialog" aria-modal="true" onclick="event.stopPropagation()">
+      <div class="fb-header">
+        <span class="fb-title">✏️ Vùng chữ thủ công</span>
+        <span class="re-pill" id="reDirLabel" style="margin-left:12px;"></span>
+        <button class="fb-close" onclick="closeRegionEditor()" aria-label="Đóng" style="margin-left:auto;">✕</button>
+      </div>
+      <div class="re-toolbar">
+        <span class="re-pill" id="reImgName">— chọn ảnh —</span>
+        <span style="margin-left:auto"></span>
+        <span class="re-pill">Chế độ:</span>
+        <span class="re-seg" id="reModeSeg">
+          <button data-mode="merge" class="active" onclick="reSetMode('merge')"
+            title="Giữ auto-detect + thêm box tay (vá vùng bị sót)">Merge (auto+tay)</button>
+          <button data-mode="replace" onclick="reSetMode('replace')"
+            title="Bỏ auto-detect, chỉ dịch box tay">Replace (chỉ tay)</button>
+        </span>
+        <span class="re-pill" id="reCount">0 vùng</span>
+        <button class="btn btn-ghost" style="padding:4px 10px;font-size:.76rem" onclick="reDeleteSelected()"
+          title="Xoá vùng đang chọn (phím Delete)">🗑 Xoá vùng chọn</button>
+        <button class="btn btn-ghost" style="padding:4px 10px;font-size:.76rem;color:var(--red)" onclick="reClearAll()">Xoá hết</button>
+        <button class="btn btn-primary" style="padding:4px 14px;font-size:.78rem" onclick="reSave()">💾 Lưu</button>
+      </div>
+      <div class="re-body">
+        <div class="re-side" id="reSide"></div>
+        <div class="re-main">
+          <div class="re-canvas-wrap">
+            <div class="re-stage" id="reStage" style="display:none">
+              <img id="reImg" alt="" />
+              <canvas id="reCanvas"></canvas>
+            </div>
+            <div id="reEmpty" class="re-pill" style="text-align:center">
+              Nhập thư mục nguồn rồi mở lại, hoặc chọn ảnh ở cột trái.<br>
+              Kéo chuột trên ảnh để vẽ vùng chữ. Click vùng để chọn, Delete để xoá.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- ── Right: Log + Preview ──────────────────────────────────────────────── -->
   <div class="right-col" style="display:flex;flex-direction:column;gap:12px">

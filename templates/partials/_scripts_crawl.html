@@ -368,8 +368,12 @@ function fbOverlayClick(e) {
 
 function confirmFolder() {
   if (_fbCurrentPath) {
+    const tgt = _fbTargetId;
     setVal(_fbTargetId, _fbCurrentPath);
     closeFolderBrowser();
+    if (tgt === 'tInputDir' && typeof onSourceFolderChanged === 'function') {
+      onSourceFolderChanged();
+    }
   }
 }
 

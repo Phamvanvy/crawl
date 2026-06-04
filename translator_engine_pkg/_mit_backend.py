@@ -22,6 +22,29 @@ _MIT_INSTALL_HINT = (
 # Project root = parent of this package directory
 _PROJECT_ROOT = Path(__file__).parent.parent
 
+# Subfolder inside an input dir where the web editor stores manual text-region
+# sidecars: <input_dir>/.manga_regions/<image_filename>.json
+REGIONS_DIRNAME = ".manga_regions"
+
+
+def _load_region_payload(regions_dir: Path, image_name: str) -> str | None:
+    """Return a compact JSON payload {"mode","regions"} for MIT_MANUAL_REGIONS,
+    or None if the sidecar is missing / has no usable regions."""
+    f = regions_dir / (image_name + ".json")
+    if not f.is_file():
+        return None
+    try:
+        data = json.loads(f.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    regions = [r for r in (data.get("regions") or []) if isinstance(r, dict)]
+    if not regions:
+        return None
+    mode = data.get("mode", "merge")
+    if mode not in ("merge", "replace"):
+        mode = "merge"
+    return json.dumps({"mode": mode, "regions": regions}, ensure_ascii=False)
+
 # ── Translation style templates (dùng cho MIT custom_openai) ─────────────────
 _GPT_BASE_RULES = """\
 [ROLE] Expert Vietnamese manga localizer. OUTPUT ONLY VIETNAMESE.
@@ -213,6 +236,7 @@ class MITImageTranslator:
         det_rotate: bool = False,
         det_auto_rotate: bool = False,
         ocr_model: str = "",
+        ocr_prob: str = "",
         font_size_offset: str = "",
         font_size_minimum: str = "",
         font_size_fixed: str = "",
@@ -248,6 +272,7 @@ class MITImageTranslator:
         self.det_rotate            = bool(det_rotate)
         self.det_auto_rotate       = bool(det_auto_rotate)
         self.ocr_model             = ocr_model
+        self.ocr_prob              = ocr_prob
         self.font_size_offset      = font_size_offset
         self.font_size_minimum     = font_size_minimum
         self.font_size_fixed       = font_size_fixed
@@ -268,6 +293,7 @@ class MITImageTranslator:
         input_dir: str,
         output_dir: str,
         stop_event: threading.Event | None = None,
+        images_override: list | None = None,
     ) -> tuple[int, int, list[str]]:
         from ._image_translator import IMAGE_EXTS
 
@@ -280,7 +306,17 @@ class MITImageTranslator:
         out = Path(output_dir)
         out.mkdir(parents=True, exist_ok=True)
 
-        images = sorted(f for f in inp.iterdir() if f.suffix.lower() in IMAGE_EXTS)
+        # images_override = chỉ dịch các ảnh đã chọn (list đường dẫn đầy đủ),
+        # None/rỗng = dịch cả thư mục như cũ. Sidecar vùng thủ công vẫn đọc từ
+        # thư mục gốc (inp) bất kể có staging hay không.
+        if images_override:
+            images = sorted(
+                (Path(p) for p in images_override
+                 if Path(p).suffix.lower() in IMAGE_EXTS and Path(p).is_file()),
+                key=lambda p: p.name,
+            )
+        else:
+            images = sorted(f for f in inp.iterdir() if f.suffix.lower() in IMAGE_EXTS)
         if not images:
             self._log("Không tìm thấy ảnh trong thư mục.")
             return 0, 0, []
@@ -327,6 +363,11 @@ class MITImageTranslator:
             cfg.setdefault("detector", {})["det_auto_rotate"] = True
         if self.ocr_model:
             cfg.setdefault("ocr", {})["ocr"] = self.ocr_model
+        if self.ocr_prob:
+            # Lọc rác OCR: bỏ vùng chữ có prob < ngưỡng (MIT mặc định 0.2 → lọt rác
+            # khi box/text threshold để thấp). Vd 0.5 loại ký tự lẻ đọc bậy.
+            cfg.setdefault("ocr", {})["prob"] = float(self.ocr_prob)
+            self._log(f"  [OCR] Lọc vùng prob < {float(self.ocr_prob):.2f} (loại OCR đọc bậy)")
         if self.upscale_ratio:
             # revert_upscaling=True: phóng to để detect/inpaint ở res cao rồi THU NHỎ
             # về kích thước gốc → nét hơn, đúng cỡ chữ, không để lại bản upscale nhòe.
@@ -424,18 +465,76 @@ class MITImageTranslator:
         tf.close()
         cfg_path = tf.name
 
+        # ── Manual-region detection ────────────────────────────────────────
+        # Images with hand-drawn boxes (saved by the web editor as
+        # .manga_regions/<name>.json) are reprocessed individually after the
+        # batch pass, with MIT_MANUAL_REGIONS set so the detection patch injects
+        # the boxes. Coordinates are normalized 0..1 → resolution independent.
+        manual_jobs: list[tuple[Path, str]] = []
+        regions_dir = inp / REGIONS_DIRNAME
+        if regions_dir.is_dir():
+            for img in images:
+                payload = _load_region_payload(regions_dir, img.name)
+                if payload:
+                    manual_jobs.append((img, payload))
+        manual_cfg_path = None
+        if manual_jobs:
+            self._log(f"  [MANUAL] {len(manual_jobs)} ảnh có vùng thủ công — chèn box lên ảnh đã dịch (không dịch lại cả trang).")
+            # Config riêng cho manual pass: ép detector=none → CHỈ box vẽ tay được
+            # xử lý; bỏ upscale để giữ nguyên trang đã dịch (không upscale/nhoè lại).
+            cfg_manual = json.loads(json.dumps(cfg))
+            cfg_manual["detector"] = {"detector": "none"}
+            cfg_manual.pop("upscale", None)
+            tfm = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8")
+            json.dump(cfg_manual, tfm, ensure_ascii=False)
+            tfm.close()
+            manual_cfg_path = tfm.name
+
+        # Ảnh ở chế độ Replace KHÔNG chạy lượt batch tự động — chỉ dịch đúng các
+        # box vẽ tay (ở pass 2, đặt lên ảnh gốc). Tránh dịch lại cả trang đã dịch.
+        replace_names = set()
+        for _img, _pl in manual_jobs:
+            try:
+                if (json.loads(_pl).get("mode") or "merge").lower() == "replace":
+                    replace_names.add(_img.name)
+            except Exception:
+                pass
+        pass1_images = [im for im in images if im.name not in replace_names]
+        run_pass1 = bool(pass1_images)
+
+        # MIT là CLI theo thư mục: khi tập ảnh cần batch ≠ toàn bộ thư mục (do chọn
+        # subset hoặc loại ảnh Replace) → trỏ MIT vào thư mục staging tạm.
+        staging: Path | None = None
+        if run_pass1 and (images_override or replace_names):
+            import shutil as _shutil
+            staging = Path(tempfile.mkdtemp(prefix="mit_select_"))
+            for im in pass1_images:
+                try:
+                    _shutil.copy2(im, staging / im.name)
+                except Exception as exc:
+                    self._log(f"  [SELECT] Bỏ qua {im.name}: {exc}")
+            scan_inp = staging
+        else:
+            scan_inp = inp
+        if images_override:
+            self._log(f"  [SELECT] Chỉ dịch {len(images)} ảnh đã chọn.")
+        if replace_names:
+            self._log(f"  [MANUAL] {len(replace_names)} ảnh Replace — bỏ qua batch, chỉ dịch vùng vẽ tay.")
+
+        # ── Pass 1: batch the (selected) images (automatic detection) ──────
         cmd = [self.python_path, "-m", "manga_translator"]
         if self.use_gpu:
             cmd.append("--use-gpu")
         if self.verbose:
             cmd.append("--verbose")
-        cmd += ["local", "-i", str(inp), "-o", str(out), "--config-file", cfg_path]
+        cmd += ["local", "-i", str(scan_inp), "-o", str(out), "--config-file", cfg_path]
         if self.skip_no_text:
             cmd.append("--skip-no-text")
         if self.overwrite:
             cmd.append("--overwrite")
 
-        self._log(f"  [CMD] {' '.join(str(c) for c in cmd)}")
+        if run_pass1:
+            self._log(f"  [CMD] {' '.join(str(c) for c in cmd)}")
 
         _last: list[int] = [0]
         _stop_watch = threading.Event()
@@ -458,83 +557,14 @@ class MITImageTranslator:
         wt.start()
 
         try:
-            sub_env = os.environ.copy()
-            sub_env["PYTHONIOENCODING"] = "utf-8"
-            sub_env["PYTHONUTF8"] = "1"
-            sub_env["PYTHONUNBUFFERED"] = "1"
-            if self.translator == "custom_openai" and self.ollama_model:
-                sub_env["CUSTOM_OPENAI_MODEL"] = self.ollama_model
-                self._log(f"  [ENV] CUSTOM_OPENAI_MODEL={self.ollama_model}")
-            if self.translator == "custom_openai" and self.custom_openai_api_base:
-                sub_env["CUSTOM_OPENAI_API_BASE"] = self.custom_openai_api_base
-                self._log(f"  [ENV] CUSTOM_OPENAI_API_BASE={self.custom_openai_api_base}")
-            if self.translator == "custom_openai" and self.custom_openai_api_key:
-                sub_env["CUSTOM_OPENAI_API_KEY"] = self.custom_openai_api_key
-                self._log("  [ENV] CUSTOM_OPENAI_API_KEY=***")
+            if run_pass1:
+                self._spawn_mit(cmd, stop_event=stop_event)
+            else:
+                self._log("  [MANUAL] Không có ảnh dịch tự động — chỉ chạy vùng vẽ tay.")
 
-            _thread_limit = "4" if self.cpu_priority == "normal" else "3" if self.cpu_priority == "below_normal" else "2"
-            for _env_key in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
-                             "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS"):
-                sub_env[_env_key] = _thread_limit
-
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                env=sub_env,
-            )
-
-            try:
-                import psutil as _psutil
-                _PRIORITY_MAP = {
-                    "normal":       _psutil.NORMAL_PRIORITY_CLASS,
-                    "below_normal": _psutil.BELOW_NORMAL_PRIORITY_CLASS,
-                    "idle":         _psutil.IDLE_PRIORITY_CLASS,
-                }
-                p = _psutil.Process(proc.pid)
-                p.nice(_PRIORITY_MAP.get(self.cpu_priority, _psutil.BELOW_NORMAL_PRIORITY_CLASS))
-                total_cores = _psutil.cpu_count(logical=True) or 4
-                if total_cores > 4 and self.cpu_priority != "normal":
-                    p_cores = [c for c in range(2, min(total_cores, 12), 2)]
-                    e_cores = [c for c in range(12, min(total_cores, 16))]
-                    if self.cpu_priority == "idle" and e_cores:
-                        ai_cores = e_cores
-                    else:
-                        ai_cores = p_cores
-                    p.cpu_affinity(ai_cores)
-                    self._log(f"  [CPU] Affinity={ai_cores}, priority={self.cpu_priority} (PID={proc.pid})")
-                else:
-                    self._log(f"  [CPU] Priority={self.cpu_priority} (PID={proc.pid}, all cores)")
-            except Exception as _pe:
-                self._log(f"  [CPU] Không set được affinity: {_pe}")
-
-            _LOG_BATCH_INTERVAL = {"normal": 0.05, "below_normal": 0.1, "idle": 0.2}
-            _flush_interval = _LOG_BATCH_INTERVAL.get(self.cpu_priority, 0.1)
-            _log_buf: list[str] = []
-            _last_flush = time.monotonic()
-            for line in proc.stdout:
-                line = line.rstrip("\n")
-                if line:
-                    _log_buf.append(line)
-                if stop_event and stop_event.is_set():
-                    proc.terminate()
-                    for _bl in _log_buf:
-                        self._log(f"  {_bl}")
-                    self._log("⚠  Đã dừng theo yêu cầu.")
-                    _log_buf.clear()
-                    break
-                _now = time.monotonic()
-                if _now - _last_flush >= _flush_interval:
-                    for _bl in _log_buf:
-                        self._log(f"  {_bl}")
-                    _log_buf.clear()
-                    _last_flush = _now
-            for _bl in _log_buf:
-                self._log(f"  {_bl}")
-            proc.wait()
+            # ── Pass 2: chèn box vẽ tay lên ảnh đã dịch (detector=none) ─────
+            if manual_jobs and not (stop_event and stop_event.is_set()):
+                self._run_manual_jobs(manual_jobs, out, manual_cfg_path, stop_event)
         except Exception as exc:
             self._log(f"  [FAIL] Lỗi chạy manga_translator: {exc}")
         finally:
@@ -544,12 +574,150 @@ class MITImageTranslator:
                 os.unlink(cfg_path)
             except Exception:
                 pass
+            if manual_cfg_path:
+                try:
+                    os.unlink(manual_cfg_path)
+                except Exception:
+                    pass
+            if staging is not None:
+                import shutil as _shutil
+                _shutil.rmtree(staging, ignore_errors=True)
 
-        ok = sum(
-            1 for f in out.rglob("*")
-            if f.is_file() and f.suffix.lower() in IMAGE_EXTS
-        )
+        if images_override:
+            sel_names = {im.name for im in images}
+            ok = sum(
+                1 for f in out.rglob("*")
+                if f.is_file() and f.name in sel_names and f.suffix.lower() in IMAGE_EXTS
+            )
+        else:
+            ok = sum(
+                1 for f in out.rglob("*")
+                if f.is_file() and f.suffix.lower() in IMAGE_EXTS
+            )
         fail = max(0, total - ok)
         self.on_progress(ok, total)
         self._log(f"  [OK] Kết quả: {ok} ảnh trong {out}")
         return ok, fail, []
+
+    def _spawn_mit(self, cmd, stop_event: threading.Event | None = None, extra_env: dict | None = None):
+        """Run one `manga_translator` subprocess, stream its logs, and wait.
+        extra_env is merged into the child environment (e.g. MIT_MANUAL_REGIONS)."""
+        sub_env = os.environ.copy()
+        sub_env["PYTHONIOENCODING"] = "utf-8"
+        sub_env["PYTHONUTF8"] = "1"
+        sub_env["PYTHONUNBUFFERED"] = "1"
+        if self.translator == "custom_openai" and self.ollama_model:
+            sub_env["CUSTOM_OPENAI_MODEL"] = self.ollama_model
+            self._log(f"  [ENV] CUSTOM_OPENAI_MODEL={self.ollama_model}")
+        if self.translator == "custom_openai" and self.custom_openai_api_base:
+            sub_env["CUSTOM_OPENAI_API_BASE"] = self.custom_openai_api_base
+            self._log(f"  [ENV] CUSTOM_OPENAI_API_BASE={self.custom_openai_api_base}")
+        if self.translator == "custom_openai" and self.custom_openai_api_key:
+            sub_env["CUSTOM_OPENAI_API_KEY"] = self.custom_openai_api_key
+            self._log("  [ENV] CUSTOM_OPENAI_API_KEY=***")
+
+        _thread_limit = "4" if self.cpu_priority == "normal" else "3" if self.cpu_priority == "below_normal" else "2"
+        for _env_key in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
+                         "VECLIB_MAXIMUM_THREADS", "NUMEXPR_NUM_THREADS"):
+            sub_env[_env_key] = _thread_limit
+        if extra_env:
+            sub_env.update(extra_env)
+
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=sub_env,
+        )
+
+        try:
+            import psutil as _psutil
+            _PRIORITY_MAP = {
+                "normal":       _psutil.NORMAL_PRIORITY_CLASS,
+                "below_normal": _psutil.BELOW_NORMAL_PRIORITY_CLASS,
+                "idle":         _psutil.IDLE_PRIORITY_CLASS,
+            }
+            p = _psutil.Process(proc.pid)
+            p.nice(_PRIORITY_MAP.get(self.cpu_priority, _psutil.BELOW_NORMAL_PRIORITY_CLASS))
+            total_cores = _psutil.cpu_count(logical=True) or 4
+            if total_cores > 4 and self.cpu_priority != "normal":
+                p_cores = [c for c in range(2, min(total_cores, 12), 2)]
+                e_cores = [c for c in range(12, min(total_cores, 16))]
+                if self.cpu_priority == "idle" and e_cores:
+                    ai_cores = e_cores
+                else:
+                    ai_cores = p_cores
+                p.cpu_affinity(ai_cores)
+                self._log(f"  [CPU] Affinity={ai_cores}, priority={self.cpu_priority} (PID={proc.pid})")
+            else:
+                self._log(f"  [CPU] Priority={self.cpu_priority} (PID={proc.pid}, all cores)")
+        except Exception as _pe:
+            self._log(f"  [CPU] Không set được affinity: {_pe}")
+
+        _LOG_BATCH_INTERVAL = {"normal": 0.05, "below_normal": 0.1, "idle": 0.2}
+        _flush_interval = _LOG_BATCH_INTERVAL.get(self.cpu_priority, 0.1)
+        _log_buf: list[str] = []
+        _last_flush = time.monotonic()
+        for line in proc.stdout:
+            line = line.rstrip("\n")
+            if line:
+                _log_buf.append(line)
+            if stop_event and stop_event.is_set():
+                proc.terminate()
+                for _bl in _log_buf:
+                    self._log(f"  {_bl}")
+                self._log("⚠  Đã dừng theo yêu cầu.")
+                _log_buf.clear()
+                break
+            _now = time.monotonic()
+            if _now - _last_flush >= _flush_interval:
+                for _bl in _log_buf:
+                    self._log(f"  {_bl}")
+                _log_buf.clear()
+                _last_flush = _now
+        for _bl in _log_buf:
+            self._log(f"  {_bl}")
+        proc.wait()
+        return proc.returncode
+
+    def _run_manual_jobs(self, jobs, out_dir: Path, manual_cfg_path: str, stop_event: threading.Event | None):
+        """Pass 2: chèn các vùng vẽ tay LÊN ảnh đã dịch ở pass 1 (merge) hoặc lên
+        ảnh gốc (replace). Config dùng detector=none nên CHỈ vùng vẽ tay được
+        OCR/dịch/xoá-render — phần đã dịch ở pass 1 giữ nguyên, KHÔNG bị dịch lại.
+        --overwrite ghi đè đúng file kết quả của ảnh đó."""
+        import shutil
+        for img_path, payload in jobs:
+            if stop_event and stop_event.is_set():
+                break
+            try:
+                mode = (json.loads(payload).get("mode") or "merge").lower()
+            except Exception:
+                mode = "merge"
+            # merge → đặt box lên kết quả pass 1 (giữ bong bóng đã dịch);
+            # replace → đặt box lên ảnh gốc (chỉ dịch box, bỏ phần tự động).
+            translated = out_dir / img_path.name
+            on_translated = (mode != "replace" and translated.is_file())
+            source = translated if on_translated else img_path
+            self._log(
+                f"  [MANUAL] {img_path.name} — chèn box "
+                f"{'lên ảnh đã dịch' if on_translated else 'lên ảnh gốc'} ({mode})."
+            )
+            tmp_in = tempfile.mkdtemp(prefix="mit_manual_")
+            try:
+                shutil.copy2(source, Path(tmp_in) / img_path.name)
+                cmd = [self.python_path, "-m", "manga_translator"]
+                if self.use_gpu:
+                    cmd.append("--use-gpu")
+                if self.verbose:
+                    cmd.append("--verbose")
+                cmd += ["local", "-i", tmp_in, "-o", str(out_dir),
+                        "--config-file", manual_cfg_path, "--overwrite"]
+                self._spawn_mit(cmd, stop_event=stop_event,
+                                extra_env={"MIT_MANUAL_REGIONS": payload})
+            except Exception as exc:
+                self._log(f"  [MANUAL] Lỗi xử lý {img_path.name}: {exc}")
+            finally:
+                shutil.rmtree(tmp_in, ignore_errors=True)

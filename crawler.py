@@ -10,6 +10,7 @@ import time
 import hashlib
 import argparse
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urljoin, urlparse, unquote
 
@@ -110,9 +111,9 @@ class ImageDownloader:
         self.stop_event = stop_event or threading.Event()
         self._lock = threading.Lock()
         self._claimed: set[Path] = set()  # paths đã được claim bởi threads khác
-        self._semaphore = threading.Semaphore(max_workers)
         self.success = 0
         self.failed = 0
+        self.skipped = 0  # ảnh bị bỏ qua (không phải ảnh) — vẫn tính vào progress
 
     def _get_session(self, referer: str) -> requests.Session:
         return make_session(referer=referer)
@@ -132,76 +133,79 @@ class ImageDownloader:
     def _download_one(self, url: str, index: int, total: int, referer: str):
         if self.stop_event.is_set():
             return
-        with self._semaphore:
+        filename = url_to_filename(url, index)
+        dest = self._claim_path(filename)  # thread-safe reservation
+        last_exc: Exception | None = None
+        for attempt in range(self.max_retries + 1):
             if self.stop_event.is_set():
                 return
-            filename = url_to_filename(url, index)
-            dest = self._claim_path(filename)  # thread-safe reservation
-            last_exc: Exception | None = None
-            for attempt in range(self.max_retries + 1):
-                if self.stop_event.is_set():
-                    return
-                if attempt > 0:
-                    wait = min(2 ** attempt, 30)
-                    self.on_log(f"  [RETRY {attempt}/{self.max_retries}] {dest.name}  (chờ {wait}s…)")
-                    time.sleep(wait)
-                try:
-                    session = self._get_session(referer)
-                    resp = session.get(url, timeout=self.timeout, stream=True)
-                    resp.raise_for_status()
-                    content_type = resp.headers.get("Content-Type", "")
-                    if "image" not in content_type and not is_image_url(url):
-                        self.on_log(f"  [skip] Không phải ảnh: {url}")
-                        return
-                    with open(dest, "wb") as f:
-                        for chunk in resp.iter_content(chunk_size=8192):
-                            f.write(chunk)
+            if attempt > 0:
+                wait = min(2 ** attempt, 30)
+                self.on_log(f"  [RETRY {attempt}/{self.max_retries}] {dest.name}  (chờ {wait}s…)")
+                time.sleep(wait)
+            try:
+                session = self._get_session(referer)
+                resp = session.get(url, timeout=self.timeout, stream=True)
+                resp.raise_for_status()
+                content_type = resp.headers.get("Content-Type", "")
+                if "image" not in content_type and not is_image_url(url):
                     with self._lock:
-                        self.success += 1
-                        done = self.success + self.failed
+                        self.skipped += 1
+                        self._claimed.discard(dest)  # nhả path đã reserve (chưa ghi file)
+                        done = self.success + self.failed + self.skipped
                         self.on_progress(done, total)
-                    suffix = f" (retry {attempt}x)" if attempt > 0 else ""
-                    self.on_log(f"  [OK {index}/{total}] {dest.name}{suffix}")
-                    time.sleep(self.delay)
+                    self.on_log(f"  [skip {index}/{total}] Không phải ảnh: {url}")
                     return
-                except requests.exceptions.HTTPError as exc:
-                    status_code = exc.response.status_code if exc.response is not None else 0
-                    # 4xx errors (except 429 Too Many Requests) are permanent — stop retrying
-                    if status_code != 429 and 400 <= status_code < 500:
-                        last_exc = exc
-                        break
+                with open(dest, "wb") as f:
+                    for chunk in resp.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                with self._lock:
+                    self.success += 1
+                    done = self.success + self.failed + self.skipped
+                    self.on_progress(done, total)
+                suffix = f" (retry {attempt}x)" if attempt > 0 else ""
+                self.on_log(f"  [OK {index}/{total}] {dest.name}{suffix}")
+                time.sleep(self.delay)
+                return
+            except requests.exceptions.HTTPError as exc:
+                status_code = exc.response.status_code if exc.response is not None else 0
+                # 4xx errors (except 429 Too Many Requests) are permanent — stop retrying
+                if status_code != 429 and 400 <= status_code < 500:
                     last_exc = exc
-                except Exception as exc:
-                    last_exc = exc
-            # All attempts exhausted
-            with self._lock:
-                self.failed += 1
-                done = self.success + self.failed
-                self.on_progress(done, total)
-                self.failed_items.append({
-                    "url": url,
-                    "index": index,
-                    "folder": str(self.output_folder),
-                    "referer": referer,
-                })
-            self.on_log(f"  [FAIL {index}/{total}] {url}  →  {last_exc}")
-            time.sleep(self.delay)
+                    break
+                last_exc = exc
+            except Exception as exc:
+                last_exc = exc
+        # All attempts exhausted — dọn file ghi dở (nếu có) rồi ghi nhận lỗi.
+        try:
+            dest.unlink(missing_ok=True)
+        except OSError:
+            pass
+        with self._lock:
+            self.failed += 1
+            done = self.success + self.failed + self.skipped
+            self.on_progress(done, total)
+            self.failed_items.append({
+                "url": url,
+                "index": index,
+                "folder": str(self.output_folder),
+                "referer": referer,
+            })
+        self.on_log(f"  [FAIL {index}/{total}] {url}  →  {last_exc}")
+        time.sleep(self.delay)
 
     def download_all(self, image_urls: list[str], referer: str):
         total = len(image_urls)
-        threads = []
-        for i, url in enumerate(image_urls, start=1):
-            if self.stop_event.is_set():
-                break
-            t = threading.Thread(
-                target=self._download_one,
-                args=(url, i, total, referer),
-                daemon=True,
-            )
-            threads.append(t)
-            t.start()
-        for t in threads:
-            t.join()
+        # ThreadPoolExecutor giới hạn số luồng đồng thời = max_workers, thay vì
+        # spawn một thread cho mỗi URL (gallery vài trăm/ngàn ảnh = ngần ấy thread).
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            futures = []
+            for i, url in enumerate(image_urls, start=1):
+                if self.stop_event.is_set():
+                    break
+                futures.append(executor.submit(self._download_one, url, i, total, referer))
+            for fut in futures:
+                fut.result()  # chờ xong + propagate exception bất ngờ
         return self.success, self.failed, self.failed_items
 
 
