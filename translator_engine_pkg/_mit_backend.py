@@ -38,6 +38,7 @@ CORE RULES:
 9. TONE: RAW — literal, preserve harsh/vulgar/blunt tone, no softening.
 10. GLOSSARY: 老师→cô giáo | 催眠→thôi miên | The End→Hết | 小 (prefix)→Tiểu
 11. FALLBACK: garbled OCR → translate visible + [...]. Empty/URL input → return "".
+12. NATURAL & IN-CONTEXT WORDING: Pick the word that fits the SCENE and the speaker, NOT the stiff dictionary gloss. Use everyday spoken Vietnamese; match register to the mood. In intimate/erotic scenes prefer direct colloquial verbs — 插入/放进去/塞进去 → "đút vào" / "cho vào" (NOT the clinical "chèn vào"); 摸→sờ, 舔→liếm, 抱→ôm. Keep names, pronouns and recurring terms consistent with the STORY CONTEXT block (recent pages) when one is provided above.
 """
 
 _GPT_STYLE_MODERN = """\

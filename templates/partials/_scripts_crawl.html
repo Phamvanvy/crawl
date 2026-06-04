@@ -149,7 +149,7 @@ async function poll() {
     }
   }
   _cursor = data.total;
-  $("queueText").textContent = data.state.queue ? `Queue: ${data.state.queue}` : "";
+  $("queueText").textContent = data.state.queue ? tr('crawl.queue', data.state.queue) : "";
 
   if (!data.state.running && _crawling) {
     _crawling = false;
@@ -191,6 +191,9 @@ async function startCrawl() {
   if (!validUrls.length) {
     addLog(tr('alert.no_url'), "warn"); return;
   }
+  // Cảnh báo: "Bắt đầu" sẽ xóa nhật ký + danh sách ảnh lỗi của lần chạy trước.
+  const hasOldState = _failedItems.length > 0 || logBox.querySelector('.log-line');
+  if (hasOldState && !confirm(tr('confirm.start_reset'))) return;
   const folder  = getVal("folderInput").trim();
   const delay   = parseFloat(getVal("delayInput"));
   const workers = parseInt(getVal("workersInput"), 10);
@@ -351,10 +354,12 @@ async function openFolderBrowser(targetId) {
   document.getElementById("fbOverlay").classList.add("open");
   const cur = getVal(_fbTargetId).trim();
   await fbNavigate(cur || "");
+  if (typeof _modalOpened === 'function') _modalOpened(document.querySelector("#fbOverlay .fb-dialog"));
 }
 
 function closeFolderBrowser() {
   document.getElementById("fbOverlay").classList.remove("open");
+  if (typeof _modalClosed === 'function') _modalClosed();
 }
 
 function fbOverlayClick(e) {
@@ -392,6 +397,9 @@ async function fbNavigate(path) {
   _fbCurrentPath = data.path || "";
   breadcrumb.textContent   = _fbCurrentPath || "Ổ đĩa";
   selectedPath.textContent = _fbCurrentPath ? `📁 ${_fbCurrentPath}` : "Chọn thư mục bên dưới";
+  // Chỉ cho xác nhận khi đã ở trong một thư mục cụ thể (không phải gốc danh sách ổ đĩa).
+  const _fbBtn = document.getElementById("fbConfirmBtn");
+  if (_fbBtn) _fbBtn.disabled = !_fbCurrentPath;
 
   body.innerHTML = "";
 

@@ -1,4 +1,28 @@
 <script>
+// ── Modal accessibility: focus-on-open, focus restore, Tab focus-trap ──────────
+let _activeDialogEl = null;
+let _lastFocusBeforeModal = null;
+
+function _focusableIn(el) {
+  return [...el.querySelectorAll(
+    'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
+  )].filter(n => n.offsetParent !== null);  // visible only (skips hidden tab panes)
+}
+function _modalOpened(dialogEl) {
+  _lastFocusBeforeModal = document.activeElement;
+  _activeDialogEl = dialogEl || null;
+  if (!_activeDialogEl) return;
+  const f = _focusableIn(_activeDialogEl);
+  (f[0] || _activeDialogEl).focus();
+}
+function _modalClosed() {
+  _activeDialogEl = null;
+  if (_lastFocusBeforeModal && typeof _lastFocusBeforeModal.focus === 'function') {
+    _lastFocusBeforeModal.focus();
+  }
+  _lastFocusBeforeModal = null;
+}
+
 // ── Lightbox ──────────────────────────────────────────────────────────────────
 let _lbImages = [];   // [{src, path, name, cardEl}]
 let _lbIdx    = 0;
@@ -10,10 +34,12 @@ function openLightbox(imgList, startIdx = 0) {
   _lbZoom   = 1.0;
   _lbRender();
   $('lightbox').classList.add('open');
+  _modalOpened($('lightbox'));
 }
 function _lbRender() {
   const cur = _lbImages[_lbIdx];
   $('lightboxImg').src = cur.src;
+  $('lightboxImg').alt = cur.name || '';
   $('lbCounter').textContent = `${_lbIdx + 1} / ${_lbImages.length}`;
   $('lbName').textContent = cur.name || '';
   $('lbPrevBtn').disabled = _lbIdx === 0;
@@ -24,6 +50,7 @@ function _lbRender() {
 function closeLightbox() {
   $('lightbox').classList.remove('open');
   $('lightboxImg').src = '';
+  _modalClosed();
 }
 function lbPrev() { if (_lbIdx > 0) { _lbIdx--; _lbZoom = 1; _lbRender(); } }
 function lbNext() { if (_lbIdx < _lbImages.length - 1) { _lbIdx++; _lbZoom = 1; _lbRender(); } }
@@ -61,6 +88,21 @@ $('lightbox').addEventListener('wheel', e => {
 }, { passive: false });
 
 document.addEventListener('keydown', e => {
+  // Focus-trap: keep Tab inside the currently open dialog
+  if (_activeDialogEl && e.key === 'Tab') {
+    const f = _focusableIn(_activeDialogEl);
+    if (f.length) {
+      const first = f[0], last = f[f.length - 1];
+      if (!_activeDialogEl.contains(document.activeElement)) {
+        e.preventDefault(); first.focus();
+      } else if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault(); last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault(); first.focus();
+      }
+    }
+  }
+
   const lbOpen = $('lightbox').classList.contains('open');
   if (lbOpen) {
     if (e.key === 'Escape')      { closeLightbox(); return; }

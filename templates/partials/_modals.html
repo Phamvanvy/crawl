@@ -1,11 +1,11 @@
 <!-- ── Lightbox ─────────────────────────────────────────────────────────── -->
-<div class="lightbox" id="lightbox">
+<div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-label="Xem ảnh phóng to">
   <!-- backdrop closes -->
   <div class="lb-backdrop" onclick="closeLightbox()"></div>
 
   <!-- nav arrows -->
-  <button class="lb-nav lb-prev" id="lbPrevBtn" onclick="lbPrev()">&#8249;</button>
-  <button class="lb-nav lb-next" id="lbNextBtn" onclick="lbNext()">&#8250;</button>
+  <button class="lb-nav lb-prev" id="lbPrevBtn" onclick="lbPrev()" aria-label="Ảnh trước">&#8249;</button>
+  <button class="lb-nav lb-next" id="lbNextBtn" onclick="lbNext()" aria-label="Ảnh sau">&#8250;</button>
 
   <!-- image wrapper (zoom container) -->
   <div class="lb-img-wrap" id="lbImgWrap">
@@ -16,25 +16,25 @@
   <div class="lb-topbar">
     <span class="lb-counter" id="lbCounter">1 / 1</span>
     <span class="lb-name" id="lbName"></span>
-    <button class="lb-close" onclick="closeLightbox()">✕</button>
+    <button class="lb-close" onclick="closeLightbox()" aria-label="Đóng">✕</button>
   </div>
 
   <!-- bottom toolbar -->
   <div class="lb-toolbar" onclick="event.stopPropagation()">
-    <button class="lb-tool" onclick="lbZoomOut()" title="Thu nhỏ (−)">&#x2212;</button>
-    <button class="lb-tool lb-zoom-reset" id="lbZoomLabel" onclick="lbZoomReset()" title="Reset zoom">100%</button>
-    <button class="lb-tool" onclick="lbZoomIn()"  title="Phóng to (+)">+</button>
+    <button class="lb-tool" onclick="lbZoomOut()" title="Thu nhỏ (−)" aria-label="Thu nhỏ">&#x2212;</button>
+    <button class="lb-tool lb-zoom-reset" id="lbZoomLabel" onclick="lbZoomReset()" title="Reset zoom" aria-label="Đặt lại zoom">100%</button>
+    <button class="lb-tool" onclick="lbZoomIn()"  title="Phóng to (+)" aria-label="Phóng to">+</button>
     <div class="lb-sep"></div>
-    <button class="lb-tool lb-del" id="lbDelBtn" onclick="lbDelete()" title="Xóa ảnh này">🗑 Xóa</button>
+    <button class="lb-tool lb-del" id="lbDelBtn" onclick="lbDelete()" title="Xóa ảnh này" aria-label="Xóa ảnh này">🗑 Xóa</button>
   </div>
 </div>
 
 <!-- ── Folder browser modal ────────────────────────────────────────────── -->
 <div class="fb-overlay" id="fbOverlay" onclick="fbOverlayClick(event)">
-  <div class="fb-dialog">
+  <div class="fb-dialog" role="dialog" aria-modal="true" aria-labelledby="fbTitle" tabindex="-1">
     <div class="fb-header">
-      <span class="fb-title">📁 Chọn thư mục lưu ảnh</span>
-      <button class="fb-close" onclick="closeFolderBrowser()">✕</button>
+      <span class="fb-title" id="fbTitle">📁 Chọn thư mục lưu ảnh</span>
+      <button class="fb-close" onclick="closeFolderBrowser()" aria-label="Đóng">✕</button>
     </div>
     <div class="fb-breadcrumb" id="fbBreadcrumb">—</div>
     <div class="fb-body" id="fbBody">
@@ -43,7 +43,7 @@
     <div class="fb-footer">
       <span class="fb-selected-path" id="fbSelectedPath">Chưa chọn thư mục</span>
       <button class="btn btn-ghost" onclick="closeFolderBrowser()">Hủy</button>
-      <button class="btn btn-primary" id="fbConfirmBtn" onclick="confirmFolder()">✔ Chọn thư mục này</button>
+      <button class="btn btn-primary" id="fbConfirmBtn" onclick="confirmFolder()" disabled>✔ Chọn thư mục này</button>
     </div>
   </div>
 </div>

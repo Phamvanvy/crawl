@@ -3,12 +3,14 @@ Image Crawler Web UI – Giao diện web để crawl và tải ảnh từ web.
 Chạy: python web_app.py  →  tự mở http://localhost:5000
 """
 
+import hashlib
 import json
 import mimetypes
 import os
 import re
 import string
 import sys
+import tempfile
 import threading
 from collections import deque
 
@@ -786,18 +788,71 @@ def api_translate_logs():
     return jsonify({"logs": batch, "total": total, "state": state})
 
 
+# Thư mục cache thumbnail (WebP) — tránh tải/decode lại ảnh full-res cho lưới preview.
+_THUMB_DIR = Path(tempfile.gettempdir()) / "crawl_preview_thumbs"
+
+
+def _make_thumbnail(p: Path, mtime: int, size: int) -> Path | None:
+    """Tạo (hoặc lấy từ cache) thumbnail WebP cạnh dài ≤ size px.
+
+    Cache trên đĩa theo (path, mtime, size) → chỉ sinh 1 lần / ảnh.
+    Trả None nếu thiếu Pillow hoặc lỗi → caller fallback ảnh gốc.
+    """
+    try:
+        from PIL import Image
+    except Exception:
+        return None
+    key = hashlib.sha1(f"{p}|{mtime}|{size}".encode("utf-8")).hexdigest()
+    out = _THUMB_DIR / f"{key}.webp"
+    if out.is_file():
+        return out
+    try:
+        _THUMB_DIR.mkdir(parents=True, exist_ok=True)
+        resample = getattr(Image, "Resampling", Image).LANCZOS
+        with Image.open(p) as im:
+            im.draft("RGB", (size, size))  # tăng tốc decode JPEG
+            im = im.convert("RGB")
+            im.thumbnail((size, size), resample)
+            im.save(out, "WEBP", quality=80, method=4)
+        return out
+    except Exception:
+        return None
+
+
 @app.route("/api/translate/image")
 def api_translate_image():
-    """Phục vụ file ảnh từ đường dẫn local (dùng cho preview)."""
+    """Phục vụ file ảnh từ đường dẫn local (dùng cho preview).
+
+    ?thumb=<px> → trả thumbnail WebP nhỏ (dùng cho lưới preview). Không có
+    tham số này → trả ảnh full-res (dùng cho lightbox khi mở to).
+    """
     path_str = request.args.get("path", "").strip()
     if not path_str:
         return jsonify({"error": "Thiếu path"}), 400
     p = Path(path_str).resolve()
     if not p.is_file() or p.suffix.lower() not in te.IMAGE_EXTS:
         return jsonify({"error": "File không hợp lệ"}), 400
+
+    thumb = request.args.get("thumb", "").strip()
+    if thumb:
+        try:
+            size = max(64, min(512, int(thumb)))
+        except (TypeError, ValueError):
+            size = 256
+        try:
+            mtime = int(p.stat().st_mtime)
+        except OSError:
+            mtime = 0
+        tpath = _make_thumbnail(p, mtime, size)
+        if tpath is not None:
+            resp = send_file(str(tpath), mimetype="image/webp")
+            resp.headers["Cache-Control"] = "public, max-age=86400, immutable"
+            return resp
+        # Pillow lỗi/thiếu → fallback xuống phục vụ ảnh gốc bên dưới.
+
     mime, _ = mimetypes.guess_type(str(p))
     resp = send_file(str(p), mimetype=mime or "image/jpeg")
-    # Cho phép browser cache thumbnail preview (mtime-based rev từ client)
+    # Cho phép browser cache (rev theo mtime từ client)
     resp.headers["Cache-Control"] = "public, max-age=3600, immutable"
     return resp
 
@@ -832,8 +887,24 @@ def api_translate_preview():
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
+def _auto_apply_mit_patches():
+    """Best-effort: copy patches/ into the MIT venv on startup so edits to the
+    patch files take effect without remembering to run apply_patches.py.
+    Never crashes the web app — MIT not installed → skip silently."""
+    try:
+        import apply_patches
+        if apply_patches.find_site_packages() is None:
+            return  # MIT venv not installed yet — nothing to patch.
+        apply_patches.apply()
+    except SystemExit:
+        pass  # apply() exits on "not found"; ignore so we never kill the app.
+    except Exception as exc:
+        print(f"  ⚠  Bỏ qua auto-apply patches MIT: {exc}")
+
+
 if __name__ == "__main__":
     import webbrowser
+    _auto_apply_mit_patches()
     port = int(os.environ.get("PORT", 5000))
     threading.Timer(1.2, lambda: webbrowser.open(f"http://127.0.0.1:{port}")).start()
     print(f"\n  ✔  Web UI: http://127.0.0.1:{port}\n")

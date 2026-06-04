@@ -279,6 +279,21 @@
     .check-item .ci-label { color: var(--text-muted); }
     .check-item .ci-val   { color: var(--text); font-weight: 600; margin-left: auto; font-size: 0.7rem; }
 
+    /* ── MIT preset buttons (was repeated inline 4×; unified on --accent) ── */
+    .mit-preset-btn {
+      flex: 1;
+      padding: 5px 8px;
+      font-size: .75rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text);
+      cursor: pointer;
+      transition: border-color .15s, color .15s;
+    }
+    .mit-preset-btn:hover { border-color: var(--accent); }
+    .mit-preset-btn.accent { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+
     /* ── Preview grid ───────────────────────────────────────────────────── */
     .preview-grid {
       display: grid;
@@ -294,6 +309,9 @@
       transition: border-color .15s, transform .1s;
       background: var(--surface2);
       position: relative;
+      /* Bỏ qua render/decode card ngoài viewport → cuộn mượt khi có nhiều ảnh */
+      content-visibility: auto;
+      contain-intrinsic-size: auto 120px;
     }
     .preview-card:hover { border-color: var(--accent); transform: scale(1.02); }
     .preview-card img  { width: 100%; height: 90px; object-fit: cover; display: block; }

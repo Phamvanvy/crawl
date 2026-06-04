@@ -210,10 +210,12 @@ function onBackendChange() {
 
 function openSettingsModal() {
   $('settingsOverlay').classList.add('open');
+  if (typeof _modalOpened === 'function') _modalOpened(document.querySelector('#settingsOverlay .settings-dialog'));
 }
 
 function closeSettingsModal() {
   $('settingsOverlay').classList.remove('open');
+  if (typeof _modalClosed === 'function') _modalClosed();
 }
 
 function switchSettingsTab(tabId) {
@@ -223,16 +225,6 @@ function switchSettingsTab(tabId) {
   if (pane) pane.classList.add('active');
   const btn = document.querySelector(`.modal-tab-btn[data-tab="${tabId}"]`);
   if (btn) btn.classList.add('active');
-}
-
-function openDashboard() {
-  const el = $('dashboardOverlay');
-  if (el) el.style.display = 'flex';
-}
-
-function closeDashboard() {
-  const el = $('dashboardOverlay');
-  if (el) el.style.display = 'none';
 }
 
 // ── Start / Stop translate ────────────────────────────────────────────────────
@@ -287,8 +279,8 @@ async function tStart() {
   _tRunning   = true;
   _tOutputDir = output_dir;
   tClearLog();
-  if ($('dashboardOverlay')) openDashboard();
-  else if ($('tProgressWrap')) { if ($('tProgressCard')) $('tProgressCard').style.display = ''; $('tProgressWrap').style.display = ''; }
+  if ($('tProgressCard')) $('tProgressCard').style.display = '';
+  if ($('tProgressWrap'))  $('tProgressWrap').style.display = '';
   tShowProgress(0, 0);
   tShowStats(0, 0);
   tSetStatus(tr('status.t.running'), 'running');
@@ -350,7 +342,7 @@ async function tLoadFailed(roundsLeft = 0) {
   const panel = $('tFailedPanel');
   const badge = $('tFailedBadge');
   if (!imgs.length) { panel.style.display = 'none'; if ($('tProgressCard') && $('tProgressWrap') && $('tProgressWrap').style.display === 'none') $('tProgressCard').style.display = 'none'; return; }
-  badge.textContent = `${imgs.length} ảnh lỗi`;
+  badge.textContent = tr('badge.failed', imgs.length);
   if ($('tProgressCard')) $('tProgressCard').style.display = '';
   panel.style.display = '';
   if (roundsLeft > 0) {
@@ -372,8 +364,8 @@ async function tRetryFailed() {
   _tCursor  = 0;
   _tRunning = true;
   tClearLog();
-  if ($('dashboardOverlay')) openDashboard();
-  else if ($('tProgressWrap')) { if ($('tProgressCard')) $('tProgressCard').style.display = ''; $('tProgressWrap').style.display = ''; }
+  if ($('tProgressCard')) $('tProgressCard').style.display = '';
+  if ($('tProgressWrap'))  $('tProgressWrap').style.display = '';
   tShowProgress(0, 0);
   tShowStats(0, 0);
   tSetStatus(tr('status.t.running'), 'running');
@@ -432,7 +424,7 @@ function tRenderPreviewPage() {
   _tFocusedPreviewImg = null;
 
   if (!total) {
-    grid.innerHTML      = '<div class="log-empty" style="height:120px;grid-column:1/-1"><span>🖼</span><span>Chưa có ảnh</span></div>';
+    grid.innerHTML      = `<div class="log-empty" style="height:120px;grid-column:1/-1"><span>🖼</span><span>${escHtml(tr('t.preview.empty'))}</span></div>`;
     pager.style.display = 'none';
     return;
   }
@@ -445,10 +437,12 @@ function tRenderPreviewPage() {
     const card = document.createElement('div');
     card.className = 'preview-card';
     card.tabIndex  = 0;
-    const src = '/api/translate/image?path=' + encodeURIComponent(img.path)
-              + '&rev=' + encodeURIComponent(img.mtime || '0');
-    lbList.push({ src, path: img.path, name: img.name, cardEl: card });
-    card.innerHTML = `<img src="${src}" loading="lazy" decoding="async" alt="" />`
+    const full  = '/api/translate/image?path=' + encodeURIComponent(img.path)
+                + '&rev=' + encodeURIComponent(img.mtime || '0');
+    const thumb = full + '&thumb=256';
+    // Lightbox mở ảnh full-res; lưới chỉ tải thumbnail nhỏ (tránh decode hàng chục ảnh full).
+    lbList.push({ src: full, path: img.path, name: img.name, cardEl: card });
+    card.innerHTML = `<img src="${thumb}" loading="lazy" decoding="async" alt="${escHtml(img.name)}" width="130" height="90" />`
                    + `<div class="pc-name">${escHtml(img.name)}</div>`
                    + `<button class="pc-del-btn" title="Xóa ảnh này để dịch lại (Del)">🗑</button>`;
     card.querySelector('img').addEventListener('click', ((_i) => () => openLightbox(lbList, _i))(i));
