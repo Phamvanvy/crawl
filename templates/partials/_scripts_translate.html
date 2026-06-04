@@ -110,26 +110,26 @@ function mitPreset(mode) {
     // CG / Visual Novel: dùng default detector (craft không phát hiện được subtitle CG)
     setSel('tMITDetector', '');          // default detector
     setSel('tMITInpainter', 'lama_large');
-    setSel('tMITUpscale',   '');
+    setSel('tMITUpscale',   '');         // Tắt
     setSel('tMITUpscaler',  'waifu2x');
-    setSel('tMITInpaintSize', '');
-    setSel('tMITInpaintPrec', '');
-    setSel('tMITDetSize',  '');          // default
-    set('tMITMaskDil',  '20');
-    set('tMITUnclip',   '4.5');          // mở rộng bbox → đủ cho text VN dài hơn TQ; >5 dễ gây shift bbox vào vùng có người
-    set('tMITBoxThr',   '');
-    set('tMITTextThr',  '');
-    chk('tMITDetGamma', false);
-    chk('tMITDetInvert', false);
+    setSel('tMITInpaintSize', '2560');   // inpaint res cao cho nét
+    setSel('tMITInpaintPrec', '');       // default (bf16)
+    setSel('tMITDetSize',  '2560');
+    set('tMITMaskDil',  '0');
+    set('tMITUnclip',   '2.3');
+    set('tMITBoxThr',   '0.2');
+    set('tMITTextThr',  '0.2');
+    chk('tMITDetGamma', true);
+    chk('tMITDetInvert', true);
     chk('tMITDetRotate', false);
     chk('tMITDetAutoRotate', false);
-    setSel('tMITOcr', '');
-    set('tMITOcrProb',  '');             // subtitle CG sạch → dùng default 0.2
-    set('tMITFontOfs',  '-8');           // giảm nhẹ — clipping đã ngăn tràn, không cần offset cực đoan
-    document.getElementById('tMITFontOfsVal') && (document.getElementById('tMITFontOfsVal').textContent = '-8');
-    set('tMITFontMin',  '10');           // tối thiểu 10px — đủ đọc
-    set('tMITFontFixed','');             // để trống — MIT tự scale theo bbox (clipping sẽ ngăn tràn)
-    set('tMITFontColor','FFFFFF:000000');// trắng nền đen
+    setSel('tMITOcr', '48px_ctc');
+    set('tMITOcrProb',  '0.5');
+    set('tMITFontOfs',  '-4');
+    document.getElementById('tMITFontOfsVal') && (document.getElementById('tMITFontOfsVal').textContent = '-4');
+    set('tMITFontMin',  '');             // auto
+    set('tMITFontFixed','');             // auto — MIT tự scale theo bbox
+    set('tMITFontColor','');             // auto
   } else if (mode === 'manga_sfx') {
     // Manga nét / SFX — CÔNG THỨC ĐÃ KIỂM CHỨNG bắt được cả SFX vẽ tay (vd 哈啊):
     // detect chạy trên ảnh upscale ×2 (waifu2x) nên nhìn rõ nét SFX; threshold thấp + gamma.
