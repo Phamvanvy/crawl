@@ -408,8 +408,11 @@ let _tPreviewPage        = 0;    // current page (0-based)
 let _tFocusedPreviewImg  = null; // { path, name, cardEl } — for Delete key
 
 async function tRefreshPreview() {
-  const folder = _tOutputDir || getVal('tOutputDir').trim();
+  // Ưu tiên giá trị trong ô input (người dùng có thể vừa sửa tay thư mục xuất);
+  // chỉ fallback về _tOutputDir (đường dẫn server tự tạo _vi sau khi chạy) khi ô để trống.
+  const folder = getVal('tOutputDir').trim() || _tOutputDir;
   if (!folder) return;
+  _tOutputDir = folder;
   let data;
   try {
     const res = await fetch('/api/translate/preview?folder=' + encodeURIComponent(folder) + '&limit=0');
