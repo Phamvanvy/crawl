@@ -695,6 +695,21 @@ Nếu còn chữ mà không detect nổi, thử 0.45 kèm Detector=ctd và Gamma
         <input id="reText" type="text" placeholder="Chọn 1 vùng rồi gõ chữ Việt vào đây (để trống = để OCR tự đọc)…"
           style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:5px 9px;font-size:.84rem"
           oninput="reOnTextInput(this.value)" disabled />
+        <span class="re-pill" style="flex:0 0 auto" title="Font cho vùng gõ tay đang chọn (chỉ áp khi vùng có chữ).">Font:</span>
+        <select id="reFont" disabled onchange="reOnFontChange(this.value)"
+          style="flex:0 0 auto;max-width:150px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:4px 6px;font-size:.8rem">
+          <option value="">Tự động (Astro City)</option>
+          <option value="MTO Astro City.ttf">MTO Astro City (thường)</option>
+          <option value="MTO COMIC 1.ttf">MTO Comic 1 (suy nghĩ)</option>
+          <option value="MTO COMIC 2.ttf">MTO Comic 2 (SFX/rên)</option>
+          <option value="MTO Chiller.ttf">MTO Chiller (hét)</option>
+          <option value="BeVietnamPro-Regular.ttf">Be Vietnam Pro</option>
+          <option value="NotoSans-Regular.ttf">Noto Sans</option>
+        </select>
+        <span class="re-pill" style="flex:0 0 auto" title="Cỡ chữ (px) cho vùng đang chọn. Để trống = tự canh vừa khung.">Cỡ:</span>
+        <input id="reFontSize" type="number" min="6" max="200" placeholder="auto" disabled
+          onchange="reOnFontSizeChange(this.value)"
+          style="width:54px;flex:0 0 auto;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:4px 6px;font-size:.82rem" />
         <span class="re-pill" style="flex:0 0 auto" title="Số vòng dãn mask quanh nét chữ khi xoá. Thấp (0–1) = sát nét, ít loang trắng nhưng có thể sót viền. Cao (3–6) = xoá rộng/sạch hơn. Áp cho mọi vùng gõ tay của ảnh này.">Siết mask:</span>
         <input id="reMaskDilate" type="number" min="0" max="6" value="1"
           style="width:48px;flex:0 0 auto;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:4px 6px;font-size:.82rem" />

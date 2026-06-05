@@ -1051,6 +1051,17 @@ def api_regions_save():
         txt = str(r.get("text") or "").strip()
         if txt:
             box["text"] = txt[:300]
+        # font = tên file font trong fonts/ (chỉ basename, chống path traversal);
+        # font_size = cỡ chữ px (6..200, 0/None = tự canh). Chỉ có ý nghĩa khi có text.
+        font_name = str(r.get("font") or "").strip().replace("\\", "/").split("/")[-1]
+        if font_name and font_name.lower().endswith((".ttf", ".otf")):
+            box["font"] = font_name[:80]
+        try:
+            fsz = int(r.get("font_size") or 0)
+            if 6 <= fsz <= 200:
+                box["font_size"] = fsz
+        except (TypeError, ValueError):
+            pass
         clean.append(box)
 
     try:

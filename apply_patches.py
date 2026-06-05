@@ -145,6 +145,15 @@ def apply():
             print(f"[SKIP] Target directory not found: {dst.parent}")
             continue
         shutil.copy2(src, dst)
+        # Xoá .pyc cũ của module vừa ghi: copy2 giữ nguyên mtime nên Python có thể
+        # dùng bytecode cache cũ → patch "không ăn". Xoá để buộc biên dịch lại.
+        pycache = dst.parent / "__pycache__"
+        if pycache.is_dir():
+            for pyc in pycache.glob(dst.stem + ".*.pyc"):
+                try:
+                    pyc.unlink()
+                except Exception:
+                    pass
         print(f"[OK]   {dst.relative_to(sp)}")
 
     print("\nAll patches applied.")

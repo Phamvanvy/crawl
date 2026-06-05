@@ -690,7 +690,8 @@ async function reSelectImage(im) {
     const res = await fetch('/api/regions/get?dir=' + encodeURIComponent(_reDir) + '&img=' + encodeURIComponent(im.name));
     data = await res.json();
   } catch {}
-  _reRegions = (data.regions || []).map(r => ({ x: +r.x, y: +r.y, w: +r.w, h: +r.h, text: r.text || '' }));
+  _reRegions = (data.regions || []).map(r => ({ x: +r.x, y: +r.y, w: +r.w, h: +r.h, text: r.text || '',
+                                                font: r.font || '', font_size: +r.font_size || 0 }));
   reSetMode(data.mode === 'replace' ? 'replace' : 'merge');
   const md = $('reMaskDilate'); if (md) md.value = (data.mask_dilate != null ? data.mask_dilate : 1);
   reSyncTextInput();
@@ -745,23 +746,31 @@ function reRedraw() {
   $('reCount').textContent = _reRegions.length + ' vùng';
 }
 
-// Đồng bộ ô nhập chữ với vùng đang chọn.
+// Đồng bộ ô nhập chữ + font + cỡ chữ với vùng đang chọn.
 function reSyncTextInput() {
-  const inp = $('reText');
-  if (!inp) return;
-  if (_reSel >= 0 && _reSel < _reRegions.length) {
-    inp.disabled = false;
-    inp.value = _reRegions[_reSel].text || '';
-  } else {
-    inp.disabled = true;
-    inp.value = '';
-  }
+  const inp = $('reText'), selF = $('reFont'), inpS = $('reFontSize');
+  const has = (_reSel >= 0 && _reSel < _reRegions.length);
+  const r = has ? _reRegions[_reSel] : null;
+  if (inp)  { inp.disabled  = !has; inp.value  = has ? (r.text || '') : ''; }
+  if (selF) { selF.disabled = !has; selF.value = has ? (r.font || '') : ''; }
+  if (inpS) { inpS.disabled = !has; inpS.value = (has && r.font_size) ? r.font_size : ''; }
 }
 
 function reOnTextInput(val) {
   if (_reSel >= 0 && _reSel < _reRegions.length) {
     _reRegions[_reSel].text = val;
     reRedraw();
+  }
+}
+
+function reOnFontChange(val) {
+  if (_reSel >= 0 && _reSel < _reRegions.length) _reRegions[_reSel].font = val || '';
+}
+
+function reOnFontSizeChange(val) {
+  if (_reSel >= 0 && _reSel < _reRegions.length) {
+    const n = parseInt(val, 10);
+    _reRegions[_reSel].font_size = (Number.isFinite(n) && n >= 6) ? n : 0;
   }
 }
 
@@ -812,7 +821,7 @@ function reInitCanvasEvents() {
         x: Math.min(_reDrag.x, p.x), y: Math.min(_reDrag.y, p.y),
         w: Math.abs(p.x - _reDrag.x), h: Math.abs(p.y - _reDrag.y),
       };
-      if (r.w > 0.005 && r.h > 0.005) { _reRegions.push({ ...r, text: '' }); _reSel = _reRegions.length - 1; }
+      if (r.w > 0.005 && r.h > 0.005) { _reRegions.push({ ...r, text: '', font: '', font_size: 0 }); _reSel = _reRegions.length - 1; }
     } else {
       _reSel = reHitTest(p);   // click → select / deselect
     }

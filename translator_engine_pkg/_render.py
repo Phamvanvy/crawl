@@ -156,7 +156,8 @@ def _render_line_height_sample(text: str) -> str:
 
 def render_text(img_pil, bbox, text: str, font_path: str | None,
                 strict_clip: bool = False, font_scale: float = 1.0,
-                bbox_index: int = 0, text_color=None, stroke_color=None):
+                bbox_index: int = 0, text_color=None, stroke_color=None,
+                font_px: int | None = None):
     """Vẽ text ngang vào vùng bbox với pixel-accurate word wrap.
 
     Dùng crop-draw-paste để text không thể tràn ra ngoài bbox (lưu ý 5, 6).
@@ -232,25 +233,36 @@ def render_text(img_pil, bbox, text: str, font_path: str | None,
     ]
 
     sample_text = _render_line_height_sample(text)
-    for size in range(max_start, 4, -1):
-        font = _load_font(font_path, size)
+    # font_px: ép cỡ chữ cố định (vùng gõ tay chọn cỡ) — bỏ qua vòng tự canh.
+    # Vẫn wrap theo bề rộng (hard-split) và clip bằng crop-paste nếu tràn.
+    if font_px is not None and int(font_px) >= 6:
+        best_font  = _load_font(font_path, int(font_px))
+        best_lines = _wrap_text_px(draw, text, best_font, max(10, render_w), allow_hard_split=True) or [text]
         try:
-            bb = draw.textbbox((0, 0), sample_text, font=font)
-            lh = bb[3] - bb[1] + 3
+            bb = draw.textbbox((0, 0), sample_text, font=best_font)
+            best_lh = bb[3] - bb[1] + 3
         except Exception:
-            lh = size + 3
-        for current_wrap in wrap_candidates:
-            lines = _wrap_text_px(draw, text, font, current_wrap, allow_hard_split=False)
-            if lines is None:
-                continue
-            if (lh + 2) * len(lines) <= render_h:
-                best_font  = font
-                best_lines = lines
-                best_lh    = lh
-                wrap_w = current_wrap
+            best_lh = int(font_px) + 3
+    else:
+        for size in range(max_start, 4, -1):
+            font = _load_font(font_path, size)
+            try:
+                bb = draw.textbbox((0, 0), sample_text, font=font)
+                lh = bb[3] - bb[1] + 3
+            except Exception:
+                lh = size + 3
+            for current_wrap in wrap_candidates:
+                lines = _wrap_text_px(draw, text, font, current_wrap, allow_hard_split=False)
+                if lines is None:
+                    continue
+                if (lh + 2) * len(lines) <= render_h:
+                    best_font  = font
+                    best_lines = lines
+                    best_lh    = lh
+                    wrap_w = current_wrap
+                    break
+            if best_font is not None:
                 break
-        if best_font is not None:
-            break
 
     if best_font is None:
         best_font  = _load_font(font_path, 6)
