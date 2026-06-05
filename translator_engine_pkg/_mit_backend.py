@@ -59,7 +59,8 @@ CORE RULES:
 3. VOLUMES: 上→Phần 1, 中→Phần 2, 下→Phần 3 / Phần cuối.
 4. WATERMARK/URL/logo/ACG/handle → return "" (empty, nothing else).
 5. SFX → Vietnamese: 嘭→Bùm, 哈哈哈→hà hà hà, 哼→hừ, 嘿嘿嘿→hắc hắc hắc.
-6. FORMAT: Start EVERY translated segment with its input marker <|n|> (same number, same order). Content may span multiple lines for long text. No JSON/numbering/other markup.
+6. FORMAT: Start EVERY translated segment with its input marker <|n|>, then a TYPE TAG in square brackets, then the Vietnamese translation. Same number/order. No JSON/other markup.
+6b. TYPE TAG (REQUIRED, right after <|n|>, exactly one): [speech]=lời nói trong bóng (mặc định) | [thought]=độc thoại nội tâm | [moan]=rên/khoái cảm (haa,hừ,ah♡) | [shout]=hét to | [narration]=lời dẫn truyện | [sfx]=tượng thanh khác. Ví dụ: <|1|>[thought] Đầu óc cứ bồng bềnh…
 7. LENGTH: Keep translations concise. For long text use \\n within the segment to break lines (≤4 words/sub-line).
 8. PUNCT: every segment ends with . ! ? or … Never start a line with . , ! ?
 9. TONE: RAW — literal, preserve harsh/vulgar/blunt tone, no softening.
@@ -434,6 +435,15 @@ class MITImageTranslator:
         if self.target_lang in ("VIN", "vi") and not self.unclip_ratio:
             cfg.setdefault("detector", {})["unclip_ratio"] = 3.5
             self._log("  [DETECT] Auto unclip_ratio=3.5 (Latin/VI text rộng hơn CJK)")
+        # Giảm mask_dilation_offset (MIT mặc định 20) → mask inpaint sát nét chữ hơn,
+        # bớt ăn lan vào artwork (mảng trắng/mất nét ở SFX đè lên hình). Tăng lại nếu
+        # còn sót viền chữ gốc; giảm thêm (vd 0) nếu vẫn phá hình.
+        if self.target_lang in ("VIN", "vi") and not self.mask_dilation_offset:
+            cfg["mask_dilation_offset"] = 6
+            self._log("  [INPAINT] Auto mask_dilation_offset=6 (mask sát nét, đỡ phá hình quanh SFX)")
+        # Căn giữa thoại trong khung (đỡ lệch khi vùng text gốc đặt lệch trong bong bóng).
+        if self.target_lang in ("VIN", "vi"):
+            cfg.setdefault("render", {}).setdefault("alignment", "center")
 
         # Auto-inject gpt_config for custom_openai
         if self.translator == "custom_openai":
@@ -824,14 +834,21 @@ class MITImageTranslator:
             x1 = int(round(max(0.0, min(1.0, x + rw)) * w)); y1 = int(round(max(0.0, min(1.0, y + rh)) * h))
             if x1 - x0 < 2 or y1 - y0 < 2:
                 continue
-            boxes.append((x0, y0, x1, y1, [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], str(r.get("text") or "")))
+            # font (tên file trong fonts/) + cỡ chữ px do người dùng chọn cho vùng này.
+            font_name = str(r.get("font") or "").strip().replace("\\", "/").split("/")[-1]
+            try:
+                font_px = int(r.get("font_size") or 0) or None
+            except (TypeError, ValueError):
+                font_px = None
+            boxes.append((x0, y0, x1, y1, [[x0, y0], [x1, y0], [x1, y1], [x0, y1]],
+                          str(r.get("text") or ""), font_name, font_px))
         if not boxes:
             return
 
         # 1) Mặt nạ nét chữ: trong mỗi box, tách lớp pixel THIỂU SỐ theo Otsu (nét SFX
         #    thường chiếm ít diện tích hơn nền) → chỉ xoá nét đó, giữ nền/halftone.
         mask = np.zeros((h, w), dtype=np.uint8)
-        for (x0, y0, x1, y1, _bbox, _text) in boxes:
+        for (x0, y0, x1, y1, _bbox, _text, _font, _fpx) in boxes:
             roi = img[y0:y1, x0:x1]
             if roi.size == 0:
                 continue
@@ -853,17 +870,26 @@ class MITImageTranslator:
                 img = cv2.inpaint(img, mask, 4, cv2.INPAINT_TELEA)  # fallback
 
         # 2) Vẽ chữ Việt lên vùng đã xoá.
-        font_path = None
-        _fp = _PROJECT_ROOT / "fonts" / "MTO Astro City.ttf"
-        if _fp.exists():
-            font_path = str(_fp)
+        fonts_dir = _PROJECT_ROOT / "fonts"
+        default_fp = fonts_dir / "MTO Astro City.ttf"
+        default_font = str(default_fp) if default_fp.exists() else None
+
+        def _resolve_typed_font(name: str) -> str | None:
+            """Tên font người dùng chọn → đường dẫn trong fonts/ (fallback Astro City)."""
+            if name:
+                cand = fonts_dir / name
+                if cand.exists():
+                    return str(cand)
+            return default_font
+
         fg_col, bg_col = self._parse_font_color()
         img_pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-        for i, (_x0, _y0, _x1, _y1, bbox, text) in enumerate(boxes):
+        for i, (_x0, _y0, _x1, _y1, bbox, text, font_name, font_px) in enumerate(boxes):
             if text.strip():
-                img_pil = render_text(img_pil, bbox, text, font_path,
+                img_pil = render_text(img_pil, bbox, text, _resolve_typed_font(font_name),
                                       strict_clip=True, font_scale=1.0, bbox_index=i,
-                                      text_color=fg_col, stroke_color=bg_col)
+                                      text_color=fg_col, stroke_color=bg_col,
+                                      font_px=font_px)
 
         ext = image_path.suffix.lower()
         if ext in (".jpg", ".jpeg"):

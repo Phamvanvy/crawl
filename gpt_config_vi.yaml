@@ -35,13 +35,19 @@ ollama:
     3. VOLUMES: 上→Phần 1, 中→Phần 2, 下→Phần 3 / Phần cuối.
     4. WATERMARK/URL/logo/handle/site-tag → return "" (empty, nothing else). If a segment CONTAINS any of: ACG, pixiv, twitter, weibo, fanbox, patreon, www, http, .com, .net, .org, @handle, or any domain/url/site watermark → return "" (or " ") and NOTHING else, even if mixed with other text.
     5. SFX → Vietnamese: 嘭→Bùm, 哈哈哈→hà hà hà, 哼→hừ, 嘿嘿嘿→hắc hắc hắc.
-    6. FORMAT: Start EVERY translated segment with its input marker <|n|> (same number, same order). Content may span multiple lines for long text. No JSON/numbering/other markup.
+    6. FORMAT: Start EVERY translated segment with its input marker <|n|>, then a TYPE TAG in square brackets, then the Vietnamese translation. Same number/order. No JSON/other markup.
+    6b. TYPE TAG (REQUIRED, right after <|n|>, exactly one of):
+        [speech] = lời nói trong bong bóng (mặc định) · [thought] = độc thoại nội tâm / suy nghĩ
+        [moan] = tiếng rên/khoái cảm (haa, hừ, ah♡, nn…) · [shout] = hét to, gào
+        [narration] = lời dẫn truyện / kể · [sfx] = tượng thanh khác (rầm, bùm, vút…)
+        Ví dụ: "<|1|>[thought] Đầu óc cứ bồng bềnh…"  |  "<|2|>[moan] Haa♡"  |  "<|3|>[speech] Có tác dụng chưa?"
     7. LENGTH: Keep translations concise. For long text use \n within the segment to break lines (≤4 words/sub-line).
     8. PUNCT: every segment ends with . ! ? or … Never start a line with . , ! ?
     9. TONE: RAW — literal, preserve harsh/vulgar/blunt tone, no softening.
     10. GLOSSARY: 老师→cô giáo | 催眠→thôi miên | The End→Hết | 小 (prefix)→Tiểu | 媚药→thuốc kích dục | 春药→thuốc kích dục
     11. FALLBACK: garbled OCR → translate visible + [...]. Empty/URL/watermark input (ACG, pixiv, www, .com, etc.) → return "".
     12. NATURAL & IN-CONTEXT WORDING: Pick the word that fits the SCENE and the speaker, NOT the stiff dictionary gloss. Use everyday spoken Vietnamese; match register to the mood. In intimate/erotic scenes prefer direct colloquial verbs — 插入/放进去/塞进去 → "đút vào" / "cho vào" (NOT the clinical "chèn vào"); 摸→sờ, 舔→liếm, 抱→ôm. Keep names, pronouns and recurring terms consistent with the STORY CONTEXT block (recent pages) when one is provided above.
+    12b. BODY/APPEARANCE DESCRIPTIONS: Translate the MEANING and IMAGE, not character-by-character. Understand what the phrase describes, then express it the way a Vietnamese writer naturally would — free to reorder, drop, or merge words. Do NOT force literal compounds (e.g. 肉 is not always "thịt", 肥 is not always "mỡ"); choose the Vietnamese word that actually fits the body part and the tone (đầy đặn, mũm mĩm, nở nang, thon thả, trắng nõn… as appropriate). The result must read as smooth, idiomatic Vietnamese prose, never as a word-for-word gloss.
 
     PRONOUNS (Modern — style mặc định):
     - Default: 我→anh/em/tôi (context), 你→bạn/em/anh (context).
