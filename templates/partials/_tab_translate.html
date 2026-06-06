@@ -695,6 +695,11 @@ Nếu còn chữ mà không detect nổi, thử 0.45 kèm Detector=ctd và Gamma
         <input id="reText" type="text" placeholder="Chọn 1 vùng rồi gõ chữ Việt vào đây (để trống = để OCR tự đọc)…"
           style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:5px 9px;font-size:.84rem"
           oninput="reOnTextInput(this.value)" disabled />
+        <label class="re-pill" style="flex:0 0 auto;display:flex;align-items:center;gap:4px;cursor:pointer"
+          title="Chỉ xoá sạch cả khung (inpaint), không OCR/dịch/vẽ chữ. Dùng để dọn lại vùng còn chữ/nhiễu sót.">
+          <input id="reInpaintOnly" type="checkbox" disabled onchange="reOnInpaintOnlyChange(this.checked)" />
+          🧽 Chỉ xoá
+        </label>
         <span class="re-pill" style="flex:0 0 auto" title="Font cho vùng gõ tay đang chọn (chỉ áp khi vùng có chữ).">Font:</span>
         <select id="reFont" disabled onchange="reOnFontChange(this.value)"
           style="flex:0 0 auto;max-width:150px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:4px 6px;font-size:.8rem">
@@ -702,7 +707,10 @@ Nếu còn chữ mà không detect nổi, thử 0.45 kèm Detector=ctd và Gamma
           <option value="MTO Astro City.ttf">MTO Astro City (thường)</option>
           <option value="MTO COMIC 1.ttf">MTO Comic 1 (suy nghĩ)</option>
           <option value="MTO COMIC 2.ttf">MTO Comic 2 (SFX/rên)</option>
-          <option value="MTO Chiller.ttf">MTO Chiller (hét)</option>
+          <option value="MTO Damn Noisy Kids.ttf">MTO Damn Noisy Kids (hét)</option>
+          <option value="MTO Chaney.ttf">MTO Chaney (dẫn truyện)</option>
+          <option value="Bangers-Regular.ttf">Bangers (giận dữ / hiệu ứng)</option>
+          <option value="ShantellSans.ttf">Shantell Sans (sợ hãi / run rẩy)</option>
           <option value="BeVietnamPro-Regular.ttf">Be Vietnam Pro</option>
           <option value="NotoSans-Regular.ttf">Noto Sans</option>
         </select>
@@ -710,7 +718,15 @@ Nếu còn chữ mà không detect nổi, thử 0.45 kèm Detector=ctd và Gamma
         <input id="reFontSize" type="number" min="6" max="200" placeholder="auto" disabled
           onchange="reOnFontSizeChange(this.value)"
           style="width:54px;flex:0 0 auto;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:4px 6px;font-size:.82rem" />
-        <span class="re-pill" style="flex:0 0 auto" title="Số vòng dãn mask quanh nét chữ khi xoá. Thấp (0–1) = sát nét, ít loang trắng nhưng có thể sót viền. Cao (3–6) = xoá rộng/sạch hơn. Áp cho mọi vùng gõ tay của ảnh này.">Siết mask:</span>
+        <span class="re-pill" style="flex:0 0 auto" title="Góc nghiêng chữ (độ) cho vùng đang chọn. Dương = nghiêng ngược chiều kim đồng hồ. Để trống/0 = thẳng.">Nghiêng°:</span>
+        <input id="reRotate" type="number" min="-180" max="180" step="1" placeholder="0" disabled
+          onchange="reOnRotateChange(this.value)"
+          style="width:56px;flex:0 0 auto;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:4px 6px;font-size:.82rem" />
+        <span class="re-pill" style="flex:0 0 auto" title="Siết mask RIÊNG cho vùng đang chọn (0–6). Để trống = dùng mặc định của ảnh ở ô bên phải.">Siết vùng:</span>
+        <input id="reRegionDilate" type="number" min="0" max="6" placeholder="auto" disabled
+          onchange="reOnRegionDilateChange(this.value)"
+          style="width:54px;flex:0 0 auto;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:4px 6px;font-size:.82rem" />
+        <span class="re-pill" style="flex:0 0 auto" title="Số vòng dãn mask quanh nét chữ khi xoá (MẶC ĐỊNH cả ảnh). Thấp (0–1) = sát nét, ít loang trắng nhưng có thể sót viền. Cao (3–6) = xoá rộng/sạch hơn. Vùng có 'Siết vùng' riêng sẽ ghi đè giá trị này.">Siết mask:</span>
         <input id="reMaskDilate" type="number" min="0" max="6" value="1"
           style="width:48px;flex:0 0 auto;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:4px 6px;font-size:.82rem" />
       </div>

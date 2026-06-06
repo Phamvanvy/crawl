@@ -691,7 +691,10 @@ async function reSelectImage(im) {
     data = await res.json();
   } catch {}
   _reRegions = (data.regions || []).map(r => ({ x: +r.x, y: +r.y, w: +r.w, h: +r.h, text: r.text || '',
-                                                font: r.font || '', font_size: +r.font_size || 0 }));
+                                                font: r.font || '', font_size: +r.font_size || 0,
+                                                inpaint_only: !!r.inpaint_only,
+                                                mask_dilate: (r.mask_dilate != null ? +r.mask_dilate : null),
+                                                rotate: +r.rotate || 0 }));
   reSetMode(data.mode === 'replace' ? 'replace' : 'merge');
   const md = $('reMaskDilate'); if (md) md.value = (data.mask_dilate != null ? data.mask_dilate : 1);
   reSyncTextInput();
@@ -725,17 +728,20 @@ function reRedraw() {
   _reRegions.forEach((r, i) => {
     const x = r.x * cv.width, y = r.y * cv.height, w = r.w * cv.width, h = r.h * cv.height;
     const sel = (i === _reSel);
-    const typed = !!(r.text && r.text.trim());
-    // viền xanh dương = OCR tự đọc · xanh lá = có chữ gõ tay · đỏ = đang chọn
-    const col = sel ? '#ff5050' : (typed ? '#3ddc84' : '#5b8cff');
-    ctx.fillStyle = sel ? 'rgba(255,80,80,.22)' : (typed ? 'rgba(61,220,132,.18)' : 'rgba(91,140,255,.20)');
+    const ipo = !!r.inpaint_only;
+    const typed = !ipo && !!(r.text && r.text.trim());
+    // viền xanh dương = OCR tự đọc · xanh lá = có chữ gõ tay · cam = chỉ xoá · đỏ = đang chọn
+    const col = sel ? '#ff5050' : (ipo ? '#ff9f40' : (typed ? '#3ddc84' : '#5b8cff'));
+    ctx.fillStyle = sel ? 'rgba(255,80,80,.22)' : (ipo ? 'rgba(255,159,64,.20)' : (typed ? 'rgba(61,220,132,.18)' : 'rgba(91,140,255,.20)'));
     ctx.fillRect(x, y, w, h);
     ctx.lineWidth   = sel ? 2.5 : 1.5;
+    if (ipo) ctx.setLineDash([6, 4]);
     ctx.strokeStyle = col;
     ctx.strokeRect(x, y, w, h);
+    ctx.setLineDash([]);
     ctx.fillStyle = col;
     ctx.font = '12px sans-serif';
-    ctx.fillText((typed ? '✍ ' : '') + String(i + 1), x + 3, y + 13);
+    ctx.fillText((ipo ? '🧽 ' : (typed ? '✍ ' : '')) + String(i + 1), x + 3, y + 13);
     if (typed) {
       ctx.fillStyle = 'rgba(0,0,0,.5)';
       ctx.fillRect(x, y + h - 16, w, 16);
@@ -746,14 +752,46 @@ function reRedraw() {
   $('reCount').textContent = _reRegions.length + ' vùng';
 }
 
-// Đồng bộ ô nhập chữ + font + cỡ chữ với vùng đang chọn.
+// Đồng bộ ô nhập chữ + font + cỡ chữ + cờ "chỉ xoá" + siết mask + nghiêng với vùng đang chọn.
 function reSyncTextInput() {
-  const inp = $('reText'), selF = $('reFont'), inpS = $('reFontSize');
+  const inp = $('reText'), selF = $('reFont'), inpS = $('reFontSize'), ipo = $('reInpaintOnly');
+  const dil = $('reRegionDilate'), rot = $('reRotate');
   const has = (_reSel >= 0 && _reSel < _reRegions.length);
   const r = has ? _reRegions[_reSel] : null;
-  if (inp)  { inp.disabled  = !has; inp.value  = has ? (r.text || '') : ''; }
-  if (selF) { selF.disabled = !has; selF.value = has ? (r.font || '') : ''; }
-  if (inpS) { inpS.disabled = !has; inpS.value = (has && r.font_size) ? r.font_size : ''; }
+  const only = !!(has && r.inpaint_only);
+  if (ipo)  { ipo.disabled  = !has; ipo.checked = only; }
+  // Khi "chỉ xoá": vô hiệu hoá ô chữ/font/cỡ/nghiêng (vùng này không vẽ chữ).
+  if (inp)  { inp.disabled  = !has || only; inp.value  = has ? (r.text || '') : ''; }
+  if (selF) { selF.disabled = !has || only; selF.value = has ? (r.font || '') : ''; }
+  if (inpS) { inpS.disabled = !has || only; inpS.value = (has && r.font_size) ? r.font_size : ''; }
+  if (rot)  { rot.disabled  = !has || only; rot.value  = (has && r.rotate) ? r.rotate : ''; }
+  // Siết mask riêng vùng: bật cho mọi vùng đang chọn (rỗng = dùng mặc định của ảnh).
+  if (dil)  { dil.disabled  = !has; dil.value = (has && r.mask_dilate != null) ? r.mask_dilate : ''; }
+}
+
+function reOnInpaintOnlyChange(checked) {
+  if (_reSel >= 0 && _reSel < _reRegions.length) {
+    _reRegions[_reSel].inpaint_only = !!checked;
+    if (checked) { _reRegions[_reSel].text = ''; }  // chỉ xoá → không giữ chữ
+    reSyncTextInput();
+    reRedraw();
+  }
+}
+
+function reOnRegionDilateChange(val) {
+  if (_reSel >= 0 && _reSel < _reRegions.length) {
+    const s = String(val).trim();
+    if (s === '') { _reRegions[_reSel].mask_dilate = null; return; }  // dùng mặc định ảnh
+    const n = parseInt(s, 10);
+    _reRegions[_reSel].mask_dilate = (Number.isFinite(n)) ? Math.max(0, Math.min(6, n)) : null;
+  }
+}
+
+function reOnRotateChange(val) {
+  if (_reSel >= 0 && _reSel < _reRegions.length) {
+    const n = parseFloat(val);
+    _reRegions[_reSel].rotate = (Number.isFinite(n)) ? Math.max(-180, Math.min(180, n)) : 0;
+  }
 }
 
 function reOnTextInput(val) {
@@ -821,7 +859,7 @@ function reInitCanvasEvents() {
         x: Math.min(_reDrag.x, p.x), y: Math.min(_reDrag.y, p.y),
         w: Math.abs(p.x - _reDrag.x), h: Math.abs(p.y - _reDrag.y),
       };
-      if (r.w > 0.005 && r.h > 0.005) { _reRegions.push({ ...r, text: '', font: '', font_size: 0 }); _reSel = _reRegions.length - 1; }
+      if (r.w > 0.005 && r.h > 0.005) { _reRegions.push({ ...r, text: '', font: '', font_size: 0, inpaint_only: false, mask_dilate: null, rotate: 0 }); _reSel = _reRegions.length - 1; }
     } else {
       _reSel = reHitTest(p);   // click → select / deselect
     }

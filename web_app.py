@@ -1047,6 +1047,12 @@ def api_regions_save():
         if w < 0.002 or h < 0.002:
             continue
         box = {"x": round(x, 5), "y": round(y, 5), "w": round(w, 5), "h": round(h, 5)}
+        # inpaint_only = chỉ xoá sạch cả khung (không OCR/dịch/vẽ chữ). Ưu tiên cao
+        # nhất: bỏ qua text/font nếu có.
+        if r.get("inpaint_only"):
+            box["inpaint_only"] = True
+            clean.append(box)
+            continue
         # text = chữ Việt gõ tay (tùy chọn) → bỏ qua OCR/dịch, vẽ thẳng
         txt = str(r.get("text") or "").strip()
         if txt:
@@ -1060,6 +1066,20 @@ def api_regions_save():
             fsz = int(r.get("font_size") or 0)
             if 6 <= fsz <= 200:
                 box["font_size"] = fsz
+        except (TypeError, ValueError):
+            pass
+        # mask_dilate riêng cho vùng (0..6); vắng = dùng mặc định của ảnh.
+        try:
+            mdl = int(r["mask_dilate"])
+            if 0 <= mdl <= 6:
+                box["mask_dilate"] = mdl
+        except (KeyError, TypeError, ValueError):
+            pass
+        # rotate = góc nghiêng chữ (độ, -180..180); 0/vắng = không nghiêng.
+        try:
+            rot = float(r.get("rotate") or 0)
+            if -180 <= rot <= 180 and abs(rot) > 0.01:
+                box["rotate"] = round(rot, 1)
         except (TypeError, ValueError):
             pass
         clean.append(box)

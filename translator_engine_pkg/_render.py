@@ -157,14 +157,16 @@ def _render_line_height_sample(text: str) -> str:
 def render_text(img_pil, bbox, text: str, font_path: str | None,
                 strict_clip: bool = False, font_scale: float = 1.0,
                 bbox_index: int = 0, text_color=None, stroke_color=None,
-                font_px: int | None = None):
+                font_px: int | None = None, rotate: float = 0.0):
     """Vẽ text ngang vào vùng bbox với pixel-accurate word wrap.
 
     Dùng crop-draw-paste để text không thể tràn ra ngoài bbox (lưu ý 5, 6).
     bbox_index: dùng để chọn font đa dạng giữa các bong bóng (lưu ý 4).
     text_color/stroke_color: (R,G,B) ghi đè màu chữ/viền (None = tự chọn theo nền).
+    rotate: góc nghiêng chữ (độ, dương = ngược chiều kim đồng hồ). Khi != 0, chữ được
+    vẽ lên lớp trong suốt rồi xoay quanh tâm bbox (có thể tràn nhẹ ra ngoài khung).
     """
-    from PIL import ImageDraw
+    from PIL import ImageDraw, Image
     import numpy as np
     if not text.strip():
         return img_pil
@@ -185,9 +187,11 @@ def render_text(img_pil, bbox, text: str, font_path: str | None,
     bw = max(x2i - x1i, 40)
     bh = max(y2i - y1i, 16)
 
-    # Crop vùng bbox ra để vẽ — PIL tự clip bất kỳ nét vẽ nào vượt quá kích thước region
+    # Crop vùng bbox ra để lấy màu nền; chữ vẽ lên lớp RGBA trong suốt riêng để có
+    # thể xoay nghiêng mà không kéo theo nền.
     region = img_pil.crop((x1i, y1i, x1i + bw, y1i + bh))
-    draw   = ImageDraw.Draw(region)
+    layer  = Image.new("RGBA", (bw, bh), (0, 0, 0, 0))
+    draw   = ImageDraw.Draw(layer)
 
     # Lấy màu nền từ region để chọn màu chữ tương phản
     arr = np.array(region)
@@ -299,8 +303,19 @@ def render_text(img_pil, bbox, text: str, font_path: str | None,
         _draw_text_with_shadow(draw, (tx, ty), line, best_font, text_color, shadow_color, stroke_width)
         ty += best_lh + line_spacing
 
-    # Paste region đã vẽ chữ trở lại ảnh gốc — mọi pixel ngoài (bw×bh) tự bị clip
-    img_pil.paste(region, (x1i, y1i))
+    # Paste lớp chữ (RGBA) trở lại ảnh gốc, dùng alpha làm mask.
+    try:
+        ang = float(rotate)
+    except (TypeError, ValueError):
+        ang = 0.0
+    if abs(ang) > 0.01:
+        # Xoay quanh tâm, expand để không cắt góc; căn lại vào tâm bbox (tràn nhẹ OK).
+        rot = layer.rotate(ang, resample=Image.BICUBIC, expand=True)
+        px = x1i + (bw - rot.width) // 2
+        py = y1i + (bh - rot.height) // 2
+        img_pil.paste(rot, (px, py), rot)
+    else:
+        img_pil.paste(layer, (x1i, y1i), layer)
     return img_pil
 
 

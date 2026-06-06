@@ -60,11 +60,11 @@ CORE RULES:
 4. WATERMARK/URL/logo/ACG/handle → return "" (empty, nothing else).
 5. SFX → Vietnamese: 嘭→Bùm, 哈哈哈→hà hà hà, 哼→hừ, 嘿嘿嘿→hắc hắc hắc.
 6. FORMAT: Start EVERY translated segment with its input marker <|n|>, then a TYPE TAG in square brackets, then the Vietnamese translation. Same number/order. No JSON/other markup.
-6b. TYPE TAG (REQUIRED, right after <|n|>, exactly one): [speech]=lời nói trong bóng (mặc định) | [thought]=độc thoại nội tâm | [moan]=rên/khoái cảm (haa,hừ,ah♡) | [shout]=hét to | [narration]=lời dẫn truyện | [sfx]=tượng thanh khác. Ví dụ: <|1|>[thought] Đầu óc cứ bồng bềnh…
+6b. TYPE TAG (REQUIRED, right after <|n|>, exactly one): [speech]=lời nói trong bong bóng (MẶC ĐỊNH — phân vân thì chọn cái này) | [thought]=suy nghĩ/độc thoại nội tâm/cảm giác cơ thể của nhân vật (vd "Toàn thân nóng rực", "Có tác dụng chưa?") — kể cả khi nằm trong bong bóng | [moan]=rên/khoái cảm (haa,hừ,ah♡) | [shout]=hét to | [anger]=giận dữ/gắt gỏng/đe doạ (cáu nhưng không nhất thiết gào; nếu vừa giận vừa hét → ưu tiên [anger]) | [fear]=sợ hãi/run rẩy/lắp bắp ("K-không thể…","Đ-đừng lại gần!") | [narration]=CHỈ lời NGƯỜI KỂ thuật lại bối cảnh/diễn biến (giọng kể khách quan, thường ngôi thứ 3) — TUYỆT ĐỐI không dùng cho suy nghĩ, cảm giác hay lời nói của nhân vật | [sfx]=tượng thanh khác. Ví dụ: <|1|>[thought] Đầu óc cứ bồng bềnh… | <|2|>[anger] Mày dám! | <|3|>[fear] X-xin… đừng… | <|4|>[narration] Ba ngày sau, tại học viện…
 7. LENGTH: Keep translations concise. For long text use \\n within the segment to break lines (≤4 words/sub-line).
 8. PUNCT: every segment ends with . ! ? or … Never start a line with . , ! ?
 9. TONE: RAW — literal, preserve harsh/vulgar/blunt tone, no softening.
-10. GLOSSARY: 老师→cô giáo | 催眠→thôi miên | The End→Hết | 小 (prefix)→Tiểu
+10. GLOSSARY: 老师→cô giáo | 催眠→thôi miên | The End→Hết | 小 (prefix)→Tiểu | 媚药→thuốc kích dục | 春药→thuốc kích dục | 迷药/麻药/麻醉药→thuốc mê
 11. FALLBACK: garbled OCR → translate visible + [...]. Empty/URL input → return "".
 12. NATURAL & IN-CONTEXT WORDING: Pick the word that fits the SCENE and the speaker, NOT the stiff dictionary gloss. Use everyday spoken Vietnamese; match register to the mood. In intimate/erotic scenes prefer direct colloquial verbs — 插入/放进去/塞进去 → "đút vào" / "cho vào" (NOT the clinical "chèn vào"); 摸→sờ, 舔→liếm, 抱→ôm. Keep names, pronouns and recurring terms consistent with the STORY CONTEXT block (recent pages) when one is provided above.
 """
@@ -693,7 +693,9 @@ class MITImageTranslator:
 
     def _run_manual_jobs(self, jobs, out_dir: Path, manual_cfg_path: str, stop_event: threading.Event | None):
         """Pass 2: xử lý các vùng vẽ tay LÊN ảnh đã dịch ở pass 1 (merge) hoặc lên
-        ảnh gốc (replace), KHÔNG dịch lại cả trang. Mỗi vùng có 2 loại:
+        ảnh gốc (replace), KHÔNG dịch lại cả trang. Mỗi vùng có 3 loại:
+          • inpaint_only → CHỈ xoá sạch cả khung (inpaint), không OCR/dịch/vẽ chữ.
+            Dùng để dọn lại vùng vẫn còn chữ/nhiễu sót.
           • Có "text" (gõ tay) → xoá ĐÚNG NÉT chữ trong box (giữ halftone/hoạt cảnh)
             rồi vẽ thẳng chữ Việt; bỏ qua OCR/dịch.
           • Không "text" → đưa qua MIT (detector=none) để OCR+dịch+inpaint+render."""
@@ -703,15 +705,20 @@ class MITImageTranslator:
                 break
             mode = data.get("mode", "merge")
             regions = data.get("regions") or []
-            ocr_regions   = [r for r in regions if not str(r.get("text") or "").strip()]
-            typed_regions = [r for r in regions if str(r.get("text") or "").strip()]
+            inpaint_regions = [r for r in regions if r.get("inpaint_only")]
+            _rest         = [r for r in regions if not r.get("inpaint_only")]
+            ocr_regions   = [r for r in _rest if not str(r.get("text") or "").strip()]
+            typed_regions = [r for r in _rest if str(r.get("text") or "").strip()]
+            # Vùng gõ tay + vùng chỉ-xoá đều xử lý cục bộ (đọc/ghi ảnh 1 lần).
+            render_regions = typed_regions + inpaint_regions
 
             translated = out_dir / img_path.name
             on_translated = (mode != "replace" and translated.is_file())
             base = translated if on_translated else img_path
             self._log(
                 f"  [MANUAL] {img_path.name} — {'trên ảnh đã dịch' if on_translated else 'trên ảnh gốc'} "
-                f"({mode}): {len(ocr_regions)} box OCR, {len(typed_regions)} box gõ tay."
+                f"({mode}): {len(ocr_regions)} box OCR, {len(typed_regions)} box gõ tay, "
+                f"{len(inpaint_regions)} box chỉ xoá."
             )
 
             try:
@@ -720,11 +727,11 @@ class MITImageTranslator:
                     payload = json.dumps({"mode": mode, "regions": ocr_regions}, ensure_ascii=False)
                     self._mit_manual_pass(base, img_path.name, out_dir, manual_cfg_path, payload, stop_event)
                 elif base != translated:
-                    # Không có box OCR → đảm bảo out/name = base để vẽ chữ tay lên
+                    # Không có box OCR → đảm bảo out/name = base để vẽ/xoá vùng tay lên
                     shutil.copy2(base, translated)
 
-                if typed_regions and not (stop_event and stop_event.is_set()):
-                    self._render_typed_regions(translated, typed_regions, mask_dilate=data.get("mask_dilate", 1))
+                if render_regions and not (stop_event and stop_event.is_set()):
+                    self._render_typed_regions(translated, render_regions, mask_dilate=data.get("mask_dilate", 1))
             except Exception as exc:
                 self._log(f"  [MANUAL] Lỗi xử lý {img_path.name}: {exc}")
 
@@ -809,10 +816,12 @@ class MITImageTranslator:
         return fg, bg
 
     def _render_typed_regions(self, image_path: Path, typed_regions: list, mask_dilate: int = 1):
-        """Vẽ chữ Việt gõ tay lên ảnh. Xoá theo MẶT NẠ NÉT CHỮ (chỉ những pixel nét
-        SFX trong box) rồi inpaint (lama_large của MIT, fallback TELEA) — giữ lại
-        halftone/hoạt cảnh xung quanh. mask_dilate = số vòng dãn mask quanh nét
-        (0 = sát nét nhất, ít loang trắng; cao hơn = xoá rộng/sạch hơn)."""
+        """Vẽ chữ Việt gõ tay lên ảnh + xoá các vùng "chỉ inpaint". Xoá theo MẶT NẠ
+        NÉT CHỮ (chỉ những pixel nét SFX trong box) với vùng gõ tay, hoặc theo CẢ
+        KHUNG với vùng inpaint_only, rồi inpaint (lama_large của MIT, fallback TELEA)
+        — giữ lại halftone/hoạt cảnh xung quanh. mask_dilate = số vòng dãn mask quanh
+        nét (0 = sát nét nhất, ít loang trắng; cao hơn = xoá rộng/sạch hơn).
+        Vùng inpaint_only không vẽ chữ — chỉ làm sạch."""
         import cv2
         import numpy as np
         from PIL import Image
@@ -840,17 +849,32 @@ class MITImageTranslator:
                 font_px = int(r.get("font_size") or 0) or None
             except (TypeError, ValueError):
                 font_px = None
+            # Siết mask riêng cho vùng (None = dùng mặc định của ảnh).
+            try:
+                rdil = max(0, min(6, int(r["mask_dilate"])))
+            except (KeyError, TypeError, ValueError):
+                rdil = int(mask_dilate)
+            # Góc nghiêng chữ (độ); chỉ áp cho vùng gõ tay.
+            try:
+                rot = float(r.get("rotate") or 0.0)
+            except (TypeError, ValueError):
+                rot = 0.0
             boxes.append((x0, y0, x1, y1, [[x0, y0], [x1, y0], [x1, y1], [x0, y1]],
-                          str(r.get("text") or ""), font_name, font_px))
+                          str(r.get("text") or ""), font_name, font_px,
+                          bool(r.get("inpaint_only")), rdil, rot))
         if not boxes:
             return
 
-        # 1) Mặt nạ nét chữ: trong mỗi box, tách lớp pixel THIỂU SỐ theo Otsu (nét SFX
-        #    thường chiếm ít diện tích hơn nền) → chỉ xoá nét đó, giữ nền/halftone.
+        # 1) Mặt nạ xoá. Vùng gõ tay: tách lớp pixel THIỂU SỐ theo Otsu (nét SFX thường
+        #    chiếm ít diện tích hơn nền) → chỉ xoá nét đó, giữ nền/halftone. Vùng
+        #    inpaint_only: xoá CẢ KHUNG (người dùng chủ động muốn dọn sạch vùng này).
         mask = np.zeros((h, w), dtype=np.uint8)
-        for (x0, y0, x1, y1, _bbox, _text, _font, _fpx) in boxes:
+        for (x0, y0, x1, y1, _bbox, _text, _font, _fpx, _ipo, _rdil, _rot) in boxes:
             roi = img[y0:y1, x0:x1]
             if roi.size == 0:
+                continue
+            if _ipo:
+                mask[y0:y1, x0:x1] = 255  # cả khung
                 continue
             gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
             _t, th = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
@@ -858,9 +882,9 @@ class MITImageTranslator:
             strokes = (th == 0) if dark_frac <= 0.5 else (th == 255)  # nét = lớp thiểu số
             sm = (strokes.astype(np.uint8)) * 255
             # Dãn mask quanh nét: ít vòng = sát nét, đỡ "lỗ" lama phải đoán → bớt
-            # loang sáng; nhiều vòng = xoá rộng/sạch hơn (theo "Siết mask" của ảnh).
-            if mask_dilate > 0:
-                sm = cv2.dilate(sm, np.ones((3, 3), np.uint8), iterations=int(mask_dilate))
+            # loang sáng; nhiều vòng = xoá rộng/sạch hơn (siết mask riêng từng vùng).
+            if _rdil > 0:
+                sm = cv2.dilate(sm, np.ones((3, 3), np.uint8), iterations=int(_rdil))
             mask[y0:y1, x0:x1] = np.maximum(mask[y0:y1, x0:x1], sm)
         if mask.any():
             out = self._mit_inpaint(img, mask)
@@ -884,12 +908,12 @@ class MITImageTranslator:
 
         fg_col, bg_col = self._parse_font_color()
         img_pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-        for i, (_x0, _y0, _x1, _y1, bbox, text, font_name, font_px) in enumerate(boxes):
-            if text.strip():
+        for i, (_x0, _y0, _x1, _y1, bbox, text, font_name, font_px, _ipo, _rdil, _rot) in enumerate(boxes):
+            if text.strip() and not _ipo:
                 img_pil = render_text(img_pil, bbox, text, _resolve_typed_font(font_name),
                                       strict_clip=True, font_scale=1.0, bbox_index=i,
                                       text_color=fg_col, stroke_color=bg_col,
-                                      font_px=font_px)
+                                      font_px=font_px, rotate=_rot)
 
         ext = image_path.suffix.lower()
         if ext in (".jpg", ".jpeg"):
@@ -898,4 +922,6 @@ class MITImageTranslator:
             img_pil.save(str(image_path), "WEBP", quality=95)
         else:
             img_pil.save(str(image_path))
-        self._log(f"  [MANUAL] Đã vẽ {len(boxes)} vùng chữ tay vào {image_path.name}.")
+        _n_typed = sum(1 for b in boxes if b[5].strip() and not b[8])
+        _n_ipo = sum(1 for b in boxes if b[8])
+        self._log(f"  [MANUAL] Đã xử lý {_n_typed} vùng chữ tay, {_n_ipo} vùng chỉ xoá vào {image_path.name}.")

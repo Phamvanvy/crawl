@@ -40,7 +40,9 @@ ollama:
         [speech] = lời nói trong bong bóng (mặc định) · [thought] = độc thoại nội tâm / suy nghĩ
         [moan] = tiếng rên/khoái cảm (haa, hừ, ah♡, nn…) · [shout] = hét to, gào
         [narration] = lời dẫn truyện / kể · [sfx] = tượng thanh khác (rầm, bùm, vút…)
-        Ví dụ: "<|1|>[thought] Đầu óc cứ bồng bềnh…"  |  "<|2|>[moan] Haa♡"  |  "<|3|>[speech] Có tác dụng chưa?"
+        [anger] = giận dữ, gắt gỏng, đe doạ (cáu kỉnh nhưng KHÔNG nhất thiết gào — nếu vừa giận vừa hét thì ưu tiên [anger])
+        [fear] = sợ hãi, run rẩy, lắp bắp, hoảng loạn (vd "K-không thể nào…", "Đ-đừng lại gần!")
+        Ví dụ: "<|1|>[thought] Đầu óc cứ bồng bềnh…"  |  "<|2|>[moan] Haa♡"  |  "<|3|>[speech] Có tác dụng chưa?"  |  "<|4|>[anger] Mày dám!"  |  "<|5|>[fear] X-xin… đừng…"
     7. LENGTH: Keep translations concise. For long text use \n within the segment to break lines (≤4 words/sub-line).
     8. PUNCT: every segment ends with . ! ? or … Never start a line with . , ! ?
     9. TONE: RAW — literal, preserve harsh/vulgar/blunt tone, no softening.
