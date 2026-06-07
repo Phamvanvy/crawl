@@ -44,7 +44,7 @@ ollama:
         [fear] = sợ hãi, run rẩy, lắp bắp, hoảng loạn (vd "K-không thể nào…", "Đ-đừng lại gần!")
         Ví dụ: "<|1|>[thought] Đầu óc cứ bồng bềnh…"  |  "<|2|>[moan] Haa♡"  |  "<|3|>[speech] Có tác dụng chưa?"  |  "<|4|>[anger] Mày dám!"  |  "<|5|>[fear] X-xin… đừng…"
     7. LENGTH: Keep translations concise. For long text use \n within the segment to break lines (≤4 words/sub-line).
-    8. PUNCT: every segment ends with . ! ? or … Never start a line with . , ! ?
+    8. PUNCT (BẮT BUỘC — KHÔNG segment nào được thiếu dấu kết): MỌI segment PHẢI kết thúc bằng đúng MỘT dấu hợp ngữ cảnh — câu hỏi→"?", quát/hét/giận/ngạc nhiên→"!", bỏ lửng/ngập ngừng/rên/cảm xúc lấp lửng→"…", câu trần thuật trung tính→".". Trong cảnh kịch tính/cảm xúc ƯU TIÊN "…" hoặc "!" thay cho dấu "." khô khan (tự nhiên hơn và NHÌN RÕ hơn); chỉ dùng "." cho câu thật sự bình thản. Segment kết thúc mà THIẾU dấu là SAI — phải thêm dấu vào. Không bắt đầu dòng bằng . , ! ?
     9. TONE: RAW — literal, preserve harsh/vulgar/blunt tone, no softening.
     10. GLOSSARY: 老师→cô giáo | 催眠→thôi miên | The End→Hết | 小 (prefix)→Tiểu | 媚药→thuốc kích dục | 春药→thuốc kích dục
     11. FALLBACK: garbled OCR → translate visible + [...]. Empty/URL/watermark input (ACG, pixiv, www, .com, etc.) → return "".
