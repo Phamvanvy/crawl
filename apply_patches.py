@@ -47,6 +47,13 @@ Patches applied:
        normalized 0..1 boxes). dispatch() appends hand-drawn boxes as empty-text
        Quadrilaterals (OCR fills text) and paints them into the mask so the
        source text is inpainted. No-op / unchanged behavior when env var absent.
+
+  6. manga_translator/utils/generic.py
+     - Quadrilateral.get_transformed_region: guard against an empty crop when a
+       textline's bbox clips entirely to the image border. Without it,
+       cv2.warpPerspective fails the `_src.total() > 0` assertion and aborts the
+       whole page during OCR. Now returns a blank region of the expected size so
+       that one region just yields no text instead of crashing.
 """
 
 import json
@@ -134,6 +141,10 @@ def apply():
         (
             PATCHES_DIR / "manga_translator_detection_init.py",
             sp / "manga_translator" / "detection" / "__init__.py",
+        ),
+        (
+            PATCHES_DIR / "manga_translator_utils_generic.py",
+            sp / "manga_translator" / "utils" / "generic.py",
         ),
     ]
 
