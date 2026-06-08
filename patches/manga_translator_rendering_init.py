@@ -542,6 +542,23 @@ def resize_regions_to_font_size(img: np.ndarray, text_regions: List['TextBlock']
                     cx = max(ix1, min(rcx, ix2))
                     cy = max(iy1, min(rcy, iy2))
                     bub_in = (ix1, iy1, ix2, iy2, cx, cy)
+            if is_manual and bub_in is None:
+                # ✏️ Vùng tay = CHAT BOX do người dùng vẽ. Coi CHÍNH box đó là khung
+                # chứa cố định: FIT chữ BÊN TRONG (calc_horizontal wrap nhiều dòng +
+                # vòng co font ở nhánh bubble-fit), KHÔNG free-scale phình ra ngoài
+                # (gây tràn rộng, không xuống dòng, đè artwork — đúng lỗi đang gặp).
+                try:
+                    ox1, oy1, ox2, oy2 = [int(v) for v in region.xyxy]
+                    mx = int((ox2 - ox1) * 0.05); my = int((oy2 - oy1) * 0.06)
+                    ix1, iy1, ix2, iy2 = ox1 + mx, oy1 + my, ox2 - mx, oy2 - my
+                    if ix2 - ix1 >= 12 and iy2 - iy1 >= 12:
+                        bbox_w = ix2 - ix1
+                        bbox_h = iy2 - iy1
+                        cx = (ix1 + ix2) // 2
+                        cy = (iy1 + iy2) // 2
+                        bub_in = (ix1, iy1, ix2, iy2, cx, cy)
+                except Exception:
+                    pass
             if bub_in is None:
                 bbox_h = region.unrotated_size[1]
                 bbox_w = region.unrotated_size[0]

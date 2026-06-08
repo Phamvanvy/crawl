@@ -442,6 +442,7 @@ function tRenderPreviewPage() {
 
   // Build lightbox list + cards in one pass
   const lbList = [];
+  const origDir = getVal('tInputDir').trim();   // thư mục nguồn để so sánh ảnh gốc
   const frag   = document.createDocumentFragment();
   for (let i = 0; i < pageImgs.length; i++) {
     const img  = pageImgs[i];
@@ -452,7 +453,7 @@ function tRenderPreviewPage() {
                 + '&rev=' + encodeURIComponent(img.mtime || '0');
     const thumb = full + '&thumb=256';
     // Lightbox mở ảnh full-res; lưới chỉ tải thumbnail nhỏ (tránh decode hàng chục ảnh full).
-    lbList.push({ src: full, path: img.path, name: img.name, cardEl: card });
+    lbList.push({ src: full, path: img.path, name: img.name, cardEl: card, origDir });
     card.innerHTML = `<img src="${thumb}" loading="lazy" decoding="async" alt="${escHtml(img.name)}" width="130" height="90" />`
                    + `<div class="pc-name">${escHtml(img.name)}</div>`
                    + `<button class="pc-del-btn" title="Xóa ảnh này để dịch lại (Del)">🗑</button>`;
@@ -657,6 +658,8 @@ async function reLoadList() {
     return;
   }
   _reImages = data.images || [];
+  const names = new Set(_reImages.map(i => i.name));
+  _tSelImages = new Set([..._tSelImages].filter(n => names.has(n)));  // bỏ tên ảnh không còn
   reRenderSide();
   if (_reImages.length && !_reName) reSelectImage(_reImages[0]);
 }
@@ -669,14 +672,46 @@ function reRenderSide() {
     const row = document.createElement('div');
     row.className = 're-thumb' + (im.name === _reName ? ' active' : '');
     const thumb = '/api/translate/image?path=' + encodeURIComponent(im.path) + '&thumb=92';
-    row.innerHTML = `<img src="${thumb}" loading="lazy" alt="" />`
+    const checked = _tSelImages.has(im.name) ? 'checked' : '';
+    row.innerHTML = `<input type="checkbox" class="re-pickcb" ${checked} title="Tích để dịch ảnh này" />`
+                  + `<img src="${thumb}" loading="lazy" alt="" />`
                   + `<span class="re-tn" title="${escHtml(im.name)}">${escHtml(im.name)}</span>`
                   + (im.count ? `<span class="re-badge">${im.count}</span>` : '');
-    row.addEventListener('click', () => reSelectImage(im));
+    // Click checkbox = chọn ảnh để DỊCH; click chỗ khác = mở ảnh để SỬA vùng.
+    row.addEventListener('click', e => {
+      if (e.target.classList.contains('re-pickcb')) return;
+      reSelectImage(im);
+    });
+    row.querySelector('.re-pickcb').addEventListener('change', () => {
+      if (_tSelImages.has(im.name)) _tSelImages.delete(im.name); else _tSelImages.add(im.name);
+      reUpdPickCount();
+    });
     frag.appendChild(row);
   }
   side.innerHTML = '';
   side.appendChild(frag);
+  reUpdPickCount();
+}
+
+// Đồng bộ với danh sách chọn ảnh _tSelImages (dùng chung với lưới ở Cài đặt).
+function reUpdPickCount() {
+  const el = $('rePickCount');
+  if (el) el.textContent = _tSelImages.size ? `Đã chọn ${_tSelImages.size} ảnh để dịch` : 'Chưa chọn ảnh nào';
+}
+
+function reSelectAllTranslate(on) {
+  _tSelImages = on ? new Set(_reImages.map(i => i.name)) : new Set();
+  reRenderSide();
+}
+
+// Dịch ngay các ảnh đã tích, không cần ra màn chính. Tự lưu vùng của ảnh đang mở.
+async function reTranslateSelected() {
+  if (!_tSelImages.size) { alert('Hãy tích ít nhất 1 ảnh để dịch.'); return; }
+  if (_reName) { try { await reSave(); } catch {} }   // áp vùng vừa sửa của ảnh đang mở
+  // Đồng bộ lưới chọn ảnh ở Cài đặt (nếu đã tải) để hai nơi khớp nhau.
+  if (typeof tRenderImgPick === 'function' && _tImgList && _tImgList.length) tRenderImgPick();
+  closeRegionEditor();
+  tStart();   // tStart() đọc thẳng _tSelImages
 }
 
 async function reSelectImage(im) {

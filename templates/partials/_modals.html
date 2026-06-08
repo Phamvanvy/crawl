@@ -10,6 +10,18 @@
   <!-- image wrapper (zoom container) -->
   <div class="lb-img-wrap" id="lbImgWrap">
     <img id="lightboxImg" src="" alt="" draggable="false" />
+    <!-- So sánh gốc ↔ đã dịch (ẩn mặc định) -->
+    <div class="lb-compare" id="lbCompare" style="display:none">
+      <figure class="lb-cmp-fig">
+        <figcaption>Gốc</figcaption>
+        <img id="lbOrigImg" src="" alt="Ảnh gốc" draggable="false" />
+        <div class="lb-cmp-missing" id="lbOrigMissing" style="display:none">Không tìm thấy ảnh gốc trong thư mục nguồn.</div>
+      </figure>
+      <figure class="lb-cmp-fig">
+        <figcaption>Đã dịch</figcaption>
+        <img id="lbTransImg" src="" alt="Ảnh đã dịch" draggable="false" />
+      </figure>
+    </div>
   </div>
 
   <!-- top bar -->
@@ -25,6 +37,7 @@
     <button class="lb-tool lb-zoom-reset" id="lbZoomLabel" onclick="lbZoomReset()" title="Reset zoom" aria-label="Đặt lại zoom">100%</button>
     <button class="lb-tool" onclick="lbZoomIn()"  title="Phóng to (+)" aria-label="Phóng to">+</button>
     <div class="lb-sep"></div>
+    <button class="lb-tool lb-cmp" id="lbCompareBtn" onclick="lbToggleCompare()" title="So sánh ảnh gốc và ảnh đã dịch (phím C)" aria-label="So sánh gốc và đã dịch" style="display:none">⇄ So sánh gốc</button>
     <button class="lb-tool lb-del" id="lbDelBtn" onclick="lbDelete()" title="Xóa ảnh này" aria-label="Xóa ảnh này">🗑 Xóa</button>
   </div>
 </div>

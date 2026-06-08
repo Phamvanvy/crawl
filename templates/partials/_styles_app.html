@@ -81,6 +81,28 @@
     .lb-del { color: #ff7b7b; border-color: rgba(255,100,100,.35); }
     .lb-del:hover { background: rgba(220,40,40,.35); }
     .lb-sep { width: 1px; height: 20px; background: rgba(255,255,255,.2); margin: 0 4px; }
+    .lb-cmp.active { background: rgba(91,140,255,.45); border-color: rgba(91,140,255,.6); }
+    /* ── So sánh gốc ↔ đã dịch ── */
+    .lb-compare {
+      display: flex; gap: 12px; align-items: flex-start; justify-content: center;
+      max-width: 92vw; max-height: 88vh; overflow: auto;
+    }
+    .lb-cmp-fig {
+      margin: 0; display: flex; flex-direction: column; align-items: center; gap: 6px;
+      flex: 1 1 0; min-width: 0; max-width: 46vw;
+    }
+    .lb-cmp-fig figcaption {
+      font-size: .76rem; color: rgba(255,255,255,.8); letter-spacing: .3px;
+      background: rgba(0,0,0,.5); padding: 2px 12px; border-radius: 10px;
+    }
+    .lb-cmp-fig img {
+      max-width: 100%; max-height: 80vh; border-radius: 4px;
+      transform-origin: top center; transition: transform .15s ease;
+      user-select: none; background: #000;
+    }
+    .lb-cmp-missing {
+      color: rgba(255,180,180,.9); font-size: .82rem; padding: 24px 12px; text-align: center;
+    }
 
     /* ── Folder browser modal ───────────────────────────────────────────── */
     .fb-overlay {

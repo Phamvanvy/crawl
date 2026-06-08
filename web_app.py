@@ -920,6 +920,55 @@ def api_translate_image():
     return resp
 
 
+@app.route("/api/translate/source")
+def api_translate_source():
+    """Phục vụ ẢNH GỐC (chưa dịch) khớp với một ảnh đã dịch — dùng cho so sánh.
+
+    ?dir=<thư mục nguồn>&name=<tên file ảnh đã dịch>. Khớp ĐÚNG tên trước; nếu
+    không có (vd pipeline đổi đuôi .jpg→.png) thì khớp theo phần tên KHÔNG đuôi
+    (stem) với bất kỳ đuôi ảnh nào. ?thumb=<px> trả thumbnail như /api/translate/image.
+    """
+    dir_str = request.args.get("dir", "").strip()
+    name = request.args.get("name", "").strip()
+    if not dir_str or not name:
+        return jsonify({"error": "Thiếu dir/name"}), 400
+    d = Path(dir_str).resolve()
+    if not d.is_dir():
+        return jsonify({"error": "Thư mục nguồn không tồn tại"}), 404
+    name = Path(name).name  # chống path traversal: chỉ lấy tên file
+    cand = d / name
+    if not (cand.is_file() and cand.suffix.lower() in te.IMAGE_EXTS):
+        cand = None
+        stem = Path(name).stem.lower()
+        for f in d.iterdir():
+            if f.is_file() and f.suffix.lower() in te.IMAGE_EXTS and f.stem.lower() == stem:
+                cand = f
+                break
+    if cand is None:
+        return jsonify({"error": "Không tìm thấy ảnh gốc"}), 404
+
+    thumb = request.args.get("thumb", "").strip()
+    if thumb:
+        try:
+            size = max(64, min(512, int(thumb)))
+        except (TypeError, ValueError):
+            size = 256
+        try:
+            mtime = int(cand.stat().st_mtime)
+        except OSError:
+            mtime = 0
+        tpath = _make_thumbnail(cand, mtime, size)
+        if tpath is not None:
+            resp = send_file(str(tpath), mimetype="image/webp")
+            resp.headers["Cache-Control"] = "public, max-age=86400, immutable"
+            return resp
+
+    mime, _ = mimetypes.guess_type(str(cand))
+    resp = send_file(str(cand), mimetype=mime or "image/jpeg")
+    resp.headers["Cache-Control"] = "public, max-age=3600, immutable"
+    return resp
+
+
 @app.route("/api/translate/preview")
 def api_translate_preview():
     """Liệt kê các ảnh đã xử lý trong output_dir."""

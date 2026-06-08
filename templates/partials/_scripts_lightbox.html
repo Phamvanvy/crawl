@@ -24,14 +24,16 @@ function _modalClosed() {
 }
 
 // ── Lightbox ──────────────────────────────────────────────────────────────────
-let _lbImages = [];   // [{src, path, name, cardEl}]
+let _lbImages = [];   // [{src, path, name, cardEl, origDir}]
 let _lbIdx    = 0;
 let _lbZoom   = 1.0;
+let _lbCompare = false;  // bật xem song song Gốc ↔ Đã dịch
 
 function openLightbox(imgList, startIdx = 0) {
   _lbImages = Array.isArray(imgList) ? imgList : [{ src: imgList, path: '', name: '', cardEl: null }];
   _lbIdx    = Math.max(0, Math.min(startIdx, _lbImages.length - 1));
   _lbZoom   = 1.0;
+  _lbCompare = false;
   _lbRender();
   $('lightbox').classList.add('open');
   _modalOpened($('lightbox'));
@@ -45,6 +47,37 @@ function _lbRender() {
   $('lbPrevBtn').disabled = _lbIdx === 0;
   $('lbNextBtn').disabled = _lbIdx === _lbImages.length - 1;
   $('lbDelBtn').style.display = cur.path ? '' : 'none';
+  // Nút "So sánh gốc" chỉ hiện khi ảnh này biết thư mục nguồn để đối chiếu.
+  const canCompare = !!(cur.origDir && cur.name);
+  $('lbCompareBtn').style.display = canCompare ? '' : 'none';
+  if (!canCompare) _lbCompare = false;
+  _lbRenderCompare();
+  _lbApplyZoom();
+}
+// Dựng/ẩn khung so sánh song song theo trạng thái _lbCompare.
+function _lbRenderCompare() {
+  const cur = _lbImages[_lbIdx];
+  $('lbCompareBtn').classList.toggle('active', _lbCompare);
+  if (_lbCompare && cur.origDir && cur.name) {
+    $('lightboxImg').style.display = 'none';
+    $('lbCompare').style.display   = 'flex';
+    $('lbTransImg').src = cur.src;
+    const miss = $('lbOrigMissing'), oimg = $('lbOrigImg');
+    miss.style.display = 'none';
+    oimg.style.display = '';
+    oimg.onerror = () => { oimg.style.display = 'none'; miss.style.display = ''; };
+    oimg.src = '/api/translate/source?dir=' + encodeURIComponent(cur.origDir)
+             + '&name=' + encodeURIComponent(cur.name);
+  } else {
+    $('lbCompare').style.display   = 'none';
+    $('lightboxImg').style.display = '';
+  }
+}
+function lbToggleCompare() {
+  const cur = _lbImages[_lbIdx];
+  if (!cur || !cur.origDir || !cur.name) return;
+  _lbCompare = !_lbCompare;
+  _lbRenderCompare();
   _lbApplyZoom();
 }
 function closeLightbox() {
@@ -58,7 +91,10 @@ function lbZoomIn()    { _lbZoom = Math.min(5, parseFloat((_lbZoom + 0.25).toFix
 function lbZoomOut()   { _lbZoom = Math.max(0.25, parseFloat((_lbZoom - 0.25).toFixed(2))); _lbApplyZoom(); }
 function lbZoomReset() { _lbZoom = 1; _lbApplyZoom(); }
 function _lbApplyZoom() {
-  $('lightboxImg').style.transform = `scale(${_lbZoom})`;
+  const t = `scale(${_lbZoom})`;
+  $('lightboxImg').style.transform = t;
+  $('lbOrigImg').style.transform   = t;
+  $('lbTransImg').style.transform  = t;
   $('lbZoomLabel').textContent = Math.round(_lbZoom * 100) + '%';
 }
 async function lbDelete() {
@@ -109,6 +145,7 @@ document.addEventListener('keydown', e => {
     if (e.key === 'ArrowLeft')   { e.preventDefault(); lbPrev(); return; }
     if (e.key === 'ArrowRight')  { e.preventDefault(); lbNext(); return; }
     if (e.key === 'Delete')      { e.preventDefault(); lbDelete(); return; }
+    if (e.key === 'c' || e.key === 'C') { e.preventDefault(); lbToggleCompare(); return; }
     if (e.key === '+' || e.key === '=') { e.preventDefault(); lbZoomIn(); return; }
     if (e.key === '-')           { e.preventDefault(); lbZoomOut(); return; }
     if (e.key === '0')           { e.preventDefault(); lbZoomReset(); return; }

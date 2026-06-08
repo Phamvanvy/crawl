@@ -651,6 +651,7 @@ Nếu còn chữ mà không detect nổi, thử 0.45 kèm Detector=ctd và Gamma
       border:1px solid transparent;margin-bottom:4px;}
     .re-thumb:hover{background:var(--surface2,#26262f);}
     .re-thumb.active{border-color:var(--accent,#5b8cff);background:var(--surface2,#26262f);}
+    .re-thumb .re-pickcb{width:15px;height:15px;flex:0 0 auto;cursor:pointer;margin:0;}
     .re-thumb img{width:46px;height:46px;object-fit:cover;border-radius:5px;background:#000;flex:0 0 auto;}
     .re-thumb .re-tn{flex:1;min-width:0;font-size:.74rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
     .re-badge{background:var(--accent,#5b8cff);color:#fff;border-radius:10px;font-size:.66rem;
@@ -729,6 +730,15 @@ Nếu còn chữ mà không detect nổi, thử 0.45 kèm Detector=ctd và Gamma
         <span class="re-pill" style="flex:0 0 auto" title="Số vòng dãn mask quanh nét chữ khi xoá (MẶC ĐỊNH cả ảnh). Thấp (0–1) = sát nét, ít loang trắng nhưng có thể sót viền. Cao (3–6) = xoá rộng/sạch hơn. Vùng có 'Siết vùng' riêng sẽ ghi đè giá trị này.">Siết mask:</span>
         <input id="reMaskDilate" type="number" min="0" max="6" value="1"
           style="width:48px;flex:0 0 auto;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:4px 6px;font-size:.82rem" />
+      </div>
+      <div class="re-pickbar" style="display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid var(--border);flex-wrap:wrap">
+        <span class="re-pill" style="flex:0 0 auto">🖼 Chọn ảnh để dịch:</span>
+        <button class="btn btn-ghost" style="padding:3px 10px;font-size:.74rem" onclick="reSelectAllTranslate(true)">☑ Tất cả</button>
+        <button class="btn btn-ghost" style="padding:3px 10px;font-size:.74rem" onclick="reSelectAllTranslate(false)">☐ Bỏ tất</button>
+        <span class="re-pill" id="rePickCount" style="flex:0 0 auto">Chưa chọn ảnh nào</span>
+        <span style="margin-left:auto"></span>
+        <button class="btn btn-primary" style="padding:4px 14px;font-size:.78rem" onclick="reTranslateSelected()"
+          title="Dịch ngay các ảnh đã tích (tự 💾 lưu vùng của ảnh đang mở trước). Đóng editor và chạy ở màn chính.">▶ Dịch ảnh đã chọn</button>
       </div>
       <div class="re-body">
         <div class="re-side" id="reSide"></div>

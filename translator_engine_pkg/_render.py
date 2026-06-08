@@ -280,12 +280,25 @@ def render_text(img_pil, bbox, text: str, font_path: str | None,
             best_lh = 8
 
     line_spacing = max(2, best_lh // 5)
-    max_lines = max(1, render_h // (best_lh + line_spacing))
-    if len(best_lines) > max_lines:
-        best_lines = best_lines[:max_lines]
-        if best_lines:
-            tail = best_lines[-1].rstrip()
-            best_lines[-1] = (tail + "...") if tail else "..."
+
+    # ── ĐẢM BẢO VỪA, KHÔNG cắt chữ (lựa chọn: "giữ trong box, đừng cắt") ──────────
+    # TRƯỚC: nếu khối chữ cao hơn box thì cắt bớt dòng thừa + thêm "…" → MẤT nội
+    # dung (chữ Việt dài hơn tiếng Trung nên rất hay bị cắt). NAY: hạ dần cỡ chữ +
+    # wrap lại (hard-split) cho tới khi CHỨA HẾT chữ trong chiều cao box (sàn 3px).
+    # Áp cho cả vùng gõ tay cỡ cố định (font_px): cỡ người dùng chọn là cỡ TỐI ĐA,
+    # chỉ co nhỏ thêm khi tràn — không bao giờ cắt chữ.
+    cur_size = int(getattr(best_font, "size", best_lh) or best_lh)
+    while ((best_lh + line_spacing) * len(best_lines) > render_h) and cur_size > 3:
+        cur_size -= 1
+        best_font = _load_font(font_path, cur_size)
+        try:
+            bb = draw.textbbox((0, 0), sample_text, font=best_font)
+            best_lh = bb[3] - bb[1] + 3
+        except Exception:
+            best_lh = cur_size + 3
+        line_spacing = max(2, best_lh // 5)
+        best_lines = _wrap_text_px(draw, text, best_font, max(10, render_w),
+                                   allow_hard_split=True) or [text]
 
     total_h = len(best_lines) * (best_lh + line_spacing) - line_spacing
 
