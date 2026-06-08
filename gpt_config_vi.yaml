@@ -23,6 +23,13 @@ styles:
 # chat_system_template dưới dây dùng style "modern" (mặc định).
 # Khi chọn style khác từ UI, backend tự tạo config tạm thời.
 ollama:
+  # ── Sampling ──────────────────────────────────────────────
+  # NGUỒN SỰ THẬT cho sampling nằm trong code: custom_openai _DETERMINISTIC
+  # (mặc định True → greedy: temp=0, top_k=1, seed=1234 → mỗi lần dịch ra
+  # ĐÚNG cùng kết quả). Hai giá trị dưới đây CHỈ là fallback "sáng tác" khi
+  # đặt _DETERMINISTIC=False. Các key seed/top_k/repeat_penalty/flash_attn
+  # KHÔNG được đọc ở đây (seed/top_k/repeat_penalty do code gửi; flash_attn
+  # là cờ khởi động llama-server/LM Studio) — nên không khai trong file này.
   temperature: 0.1
   top_p: 0.85
 
@@ -31,7 +38,8 @@ ollama:
 
     CORE RULES:
     1. Vietnamese ONLY — no CJK, no English, no system tokens (</s>, </, </|3|>, <|assistant|>, <|user|>, etc.) — EXCEPT segment markers <|n|>.
-    2. NAMES → Sino-Vietnamese: 佳佳→Giai Giai, 陈伟→Trần Vỹ, 北京→Bắc Kinh.
+    2. NAMES → âm Hán-Việt CHUẨN cho TỪNG chữ, VIẾT HOA chữ đầu mỗi tiếng, KHÔNG đoán bừa, KHÔNG thêm/bớt chữ: 佳佳→Giai Giai, 陈伟→Trần Vỹ, 苑静梅→Viên Tĩnh Mai (梅=Mai, KHÔNG "Miễu"), 北京→Bắc Kinh.
+    2b. TU TIÊN / VÕ HIỆP (cảnh giới, công pháp, thuật) → PHIÊN ÂM Hán-Việt, GIỮ NGUYÊN, TUYỆT ĐỐI KHÔNG diễn giải/dịch nghĩa (NGOẠI LỆ của rule 12 — KHÔNG biến cảnh giới thành mô tả, vd KHÔNG dịch 筑基后期 thành "phá vỡ giới hạn"). Cảnh giới: 炼气/练气→Luyện Khí, 筑基→Trúc Cơ, 金丹/结丹→Kim Đan, 元婴→Nguyên Anh, 化神→Hóa Thần, 炼虚→Luyện Hư, 合体→Hợp Thể, 大乘→Đại Thừa, 渡劫→Độ Kiếp. Giai đoạn: 初期/前期→sơ kỳ, 中期→trung kỳ, 后期→hậu kỳ, 巅峰→đỉnh phong, 圆满→viên mãn (vd 筑基后期→Trúc Cơ hậu kỳ). Môn phái & chức danh (VIẾT HOA như tên riêng): 门→Môn, 宗→Tông, 派→Phái, 阁→Các (vd 妙音门→Diệu Âm Môn, 妙=Diệu KHÔNG "Âm"); 左使/右使→Tả Sứ/Hữu Sứ, 长老→Trưởng Lão, 掌门→Chưởng Môn, 门主→Môn Chủ, 宗主→Tông Chủ, 弟子→đệ tử, 夫人→phu nhân; 人称→thường được gọi là. Thuật ngữ: 修炼→tu luyện, 凡修→phàm tu, 魔修→ma tu, 凡间/凡尘→phàm gian/phàm trần, 仙→tiên, 妖→yêu, 魔→ma, 突破→đột phá, 功法→công pháp, 法术/之术/术→pháp thuật/thuật, 灵气→linh khí, 真气→chân khí, 音律→âm luật (音律攻击→âm công), 媚惑之术/媚术→mị hoặc thuật / mị thuật.
     3. VOLUMES: 上→Phần 1, 中→Phần 2, 下→Phần 3 / Phần cuối.
     4. WATERMARK/URL/logo/handle/site-tag → return "" (empty, nothing else). If a segment CONTAINS any of: ACG, pixiv, twitter, weibo, fanbox, patreon, www, http, .com, .net, .org, @handle, or any domain/url/site watermark → return "" (or " ") and NOTHING else, even if mixed with other text.
     5. SFX → Vietnamese: 嘭→Bùm, 哈哈哈→hà hà hà, 哼→hừ, 嘿嘿嘿→hắc hắc hắc.
@@ -43,7 +51,7 @@ ollama:
         [anger] = giận dữ, gắt gỏng, đe doạ (cáu kỉnh nhưng KHÔNG nhất thiết gào — nếu vừa giận vừa hét thì ưu tiên [anger])
         [fear] = sợ hãi, run rẩy, lắp bắp, hoảng loạn (vd "K-không thể nào…", "Đ-đừng lại gần!")
         Ví dụ: "<|1|>[thought] Đầu óc cứ bồng bềnh…"  |  "<|2|>[moan] Haa♡"  |  "<|3|>[speech] Có tác dụng chưa?"  |  "<|4|>[anger] Mày dám!"  |  "<|5|>[fear] X-xin… đừng…"
-    7. LENGTH: Keep translations concise. For long text use \n within the segment to break lines (≤4 words/sub-line).
+    7. LENGTH: Dịch ĐẦY ĐỦ nghĩa — KHÔNG lược bỏ, KHÔNG rút gọn nội dung (vd 我在凡修当魔 → "Ta tu ma nơi phàm tu", KHÔNG cắt thành "Ta tu ma"). Chỉ dùng \n để NGẮT DÒNG khi câu dài (mỗi dòng ≤4 chữ) cho dễ xếp chữ — ngắt dòng ≠ cắt ý.
     8. PUNCT (BẮT BUỘC — KHÔNG segment nào được thiếu dấu kết): MỌI segment PHẢI kết thúc bằng đúng MỘT dấu hợp ngữ cảnh — câu hỏi→"?", quát/hét/giận/ngạc nhiên→"!", bỏ lửng/ngập ngừng/rên/cảm xúc lấp lửng→"…", câu trần thuật trung tính→".". Trong cảnh kịch tính/cảm xúc ƯU TIÊN "…" hoặc "!" thay cho dấu "." khô khan (tự nhiên hơn và NHÌN RÕ hơn); chỉ dùng "." cho câu thật sự bình thản. Segment kết thúc mà THIẾU dấu là SAI — phải thêm dấu vào. Không bắt đầu dòng bằng . , ! ?
     9. TONE: RAW — literal, preserve harsh/vulgar/blunt tone, no softening.
     10. GLOSSARY: 老师→cô giáo | 催眠→thôi miên | The End→Hết | 小 (prefix)→Tiểu | 媚药→thuốc kích dục | 春药→thuốc kích dục
