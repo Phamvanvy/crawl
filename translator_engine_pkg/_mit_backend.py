@@ -247,6 +247,8 @@ class MITImageTranslator:
         font_size_minimum: str = "",
         font_size_fixed: str = "",
         font_color: str = "",
+        narrow_width_mult: str = "",
+        narrow_font_cap: str = "",
         verbose: bool = False,
         skip_no_text: bool = False,
         overwrite: bool = False,
@@ -283,6 +285,8 @@ class MITImageTranslator:
         self.font_size_minimum     = font_size_minimum
         self.font_size_fixed       = font_size_fixed
         self.font_color            = font_color
+        self.narrow_width_mult     = narrow_width_mult
+        self.narrow_font_cap       = narrow_font_cap
         self.verbose               = verbose
         self.skip_no_text          = skip_no_text
         self.overwrite             = overwrite
@@ -618,6 +622,24 @@ class MITImageTranslator:
         sub_env["PYTHONIOENCODING"] = "utf-8"
         sub_env["PYTHONUTF8"] = "1"
         sub_env["PYTHONUNBUFFERED"] = "1"
+        # Nới ngang vùng chữ DỌC HẸP (patch rendering đọc env này). Rỗng/≤1 = tắt.
+        if str(self.narrow_width_mult or "").strip():
+            try:
+                _nw = float(self.narrow_width_mult)
+            except (TypeError, ValueError):
+                _nw = 0.0
+            if _nw > 1.0:
+                sub_env["MIT_NARROW_WIDTH_MULT"] = str(_nw)
+                self._log(f"  [RENDER] Nới ngang vùng dọc hẹp ×{_nw:g}")
+        # Trần cỡ chữ (px) cho vùng nới-ngang (patch rendering đọc env này). Rỗng/≤0 = tắt.
+        if str(self.narrow_font_cap or "").strip():
+            try:
+                _fc = float(self.narrow_font_cap)
+            except (TypeError, ValueError):
+                _fc = 0.0
+            if _fc > 0:
+                sub_env["MIT_NARROW_FONT_CAP"] = str(int(_fc))
+                self._log(f"  [RENDER] Trần cỡ chữ vùng nới-ngang ≤ {int(_fc)}px")
         if self.translator == "custom_openai" and self.ollama_model:
             sub_env["CUSTOM_OPENAI_MODEL"] = self.ollama_model
             self._log(f"  [ENV] CUSTOM_OPENAI_MODEL={self.ollama_model}")
@@ -831,7 +853,12 @@ class MITImageTranslator:
         from PIL import Image
         from ._render import render_text
 
-        img = cv2.imread(str(image_path))
+        # cv2.imread chết với path Unicode (vd thư mục tiếng Trung) trên Windows →
+        # đọc qua np.fromfile + imdecode (giống _image_translator).
+        try:
+            img = cv2.imdecode(np.fromfile(str(image_path), dtype=np.uint8), cv2.IMREAD_COLOR)
+        except OSError:
+            img = None
         if img is None:
             self._log(f"  [MANUAL] Không đọc được {image_path.name} để vẽ chữ tay.")
             return
@@ -863,9 +890,11 @@ class MITImageTranslator:
                 rot = float(r.get("rotate") or 0.0)
             except (TypeError, ValueError):
                 rot = 0.0
+            # erase_box: vùng gõ tay nhưng xoá CẢ KHUNG (như inpaint_only) thay vì
+            # chỉ nét — dùng cho chữ SFX màu/viền mà Otsu tách không sạch.
             boxes.append((x0, y0, x1, y1, [[x0, y0], [x1, y0], [x1, y1], [x0, y1]],
                           str(r.get("text") or ""), font_name, font_px,
-                          bool(r.get("inpaint_only")), rdil, rot))
+                          bool(r.get("inpaint_only")), rdil, rot, bool(r.get("erase_box"))))
         if not boxes:
             return
 
@@ -873,12 +902,12 @@ class MITImageTranslator:
         #    chiếm ít diện tích hơn nền) → chỉ xoá nét đó, giữ nền/halftone. Vùng
         #    inpaint_only: xoá CẢ KHUNG (người dùng chủ động muốn dọn sạch vùng này).
         mask = np.zeros((h, w), dtype=np.uint8)
-        for (x0, y0, x1, y1, _bbox, _text, _font, _fpx, _ipo, _rdil, _rot) in boxes:
+        for (x0, y0, x1, y1, _bbox, _text, _font, _fpx, _ipo, _rdil, _rot, _ebox) in boxes:
             roi = img[y0:y1, x0:x1]
             if roi.size == 0:
                 continue
-            if _ipo:
-                mask[y0:y1, x0:x1] = 255  # cả khung
+            if _ipo or _ebox:
+                mask[y0:y1, x0:x1] = 255  # cả khung (chỉ-xoá, hoặc gõ tay bật "xoá cả khung")
                 continue
             gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
             _t, th = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
@@ -912,7 +941,7 @@ class MITImageTranslator:
 
         fg_col, bg_col = self._parse_font_color()
         img_pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-        for i, (_x0, _y0, _x1, _y1, bbox, text, font_name, font_px, _ipo, _rdil, _rot) in enumerate(boxes):
+        for i, (_x0, _y0, _x1, _y1, bbox, text, font_name, font_px, _ipo, _rdil, _rot, _ebox) in enumerate(boxes):
             if text.strip() and not _ipo:
                 img_pil = render_text(img_pil, bbox, text, _resolve_typed_font(font_name),
                                       strict_clip=True, font_scale=1.0, bbox_index=i,

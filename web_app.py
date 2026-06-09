@@ -537,6 +537,8 @@ def api_translate_start():
     mit_font_min      = str(data.get("mit_font_min",     "")).strip()
     mit_font_fixed    = str(data.get("mit_font_fixed",   "")).strip()
     mit_font_color    = str(data.get("mit_font_color",   "")).strip()
+    mit_narrow_wide   = str(data.get("mit_narrow_wide",  "")).strip()
+    mit_narrow_fcap   = str(data.get("mit_narrow_fcap",  "")).strip()
     mit_custom_api_base = str(data.get("mit_custom_api_base", "")).strip()
     mit_custom_api_key  = str(data.get("mit_custom_api_key",  "")).strip()
     mit_verbose       = bool(data.get("mit_verbose",     False))
@@ -637,6 +639,8 @@ def api_translate_start():
                     font_size_minimum=mit_font_min,
                     font_size_fixed=mit_font_fixed,
                     font_color=mit_font_color,
+                    narrow_width_mult=mit_narrow_wide,
+                    narrow_font_cap=mit_narrow_fcap,
                     verbose=mit_verbose,
                     skip_no_text=mit_skip_no_text,
                     overwrite=mit_overwrite,
@@ -992,13 +996,16 @@ def api_translate_preview():
             entries.append((f, f.stat().st_mtime))
         except OSError:
             continue
-    entries.sort(key=lambda e: e[1])
     total = len(entries)
-    # limit=0 → trả về tất cả
-    display = entries if limit <= 0 else entries[-limit:]
+    # limit>0 → chọn N ảnh mới nhất theo mtime trước khi sort tên
+    if limit > 0:
+        entries.sort(key=lambda e: e[1])
+        entries = entries[-limit:]
+    # sort hiển thị theo tên (natural order) thay vì date
+    entries.sort(key=lambda e: _regions_natural_key(e[0].name))
     images = [
         {"name": f.name, "path": str(f), "mtime": int(mtime)}
-        for f, mtime in display
+        for f, mtime in entries
     ]
     return jsonify({"images": images, "total": total})
 
@@ -1105,7 +1112,11 @@ def api_regions_save():
         # text = chữ Việt gõ tay (tùy chọn) → bỏ qua OCR/dịch, vẽ thẳng
         txt = str(r.get("text") or "").strip()
         if txt:
-            box["text"] = txt[:300]
+            box["text"] = txt[:2000]
+        # erase_box = vùng gõ tay nhưng xoá CẢ KHUNG (thay vì chỉ nét) trước khi vẽ
+        # chữ — cho chữ SFX màu/viền mà mask theo nét tách không sạch.
+        if r.get("erase_box"):
+            box["erase_box"] = True
         # font = tên file font trong fonts/ (chỉ basename, chống path traversal);
         # font_size = cỡ chữ px (6..200, 0/None = tự canh). Chỉ có ý nghĩa khi có text.
         font_name = str(r.get("font") or "").strip().replace("\\", "/").split("/")[-1]

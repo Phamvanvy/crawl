@@ -2,10 +2,34 @@
 _render.py — Font loading, text wrapping, và rendering text lên ảnh PIL.
 """
 
+import os
 from pathlib import Path
 
 from ._ocr import has_chinese, has_english, _ZH_RE
 from ._utils import _bbox_xyxy
+
+
+def _line_gap(font, line_h: int) -> int:
+    """Khoảng HỞ giữa 2 dòng (px) cho vùng vẽ tay (renderer PIL).
+
+    line_h = chiều cao ink của mẫu ("Ắp"). Chữ HOA tiếng Việt có dấu chồng 2 tầng
+    (Ữ, Ộ, Ế…) vươn lên trên + chấm dưới (Ạ, Ộ) tụt dưới → dòng dưới đụng dòng trên
+    nếu hở quá hẹp. Đảm bảo BƯỚC DÒNG (line_h + gap) ≥ chiều cao dòng tự nhiên của
+    font (ascent + descent) để dấu không chồng, cộng đệm MIT_LINE_SPACING × line_h
+    (mặc định 0.30; dùng CHUNG env với renderer manga_translator). Sàn 3px."""
+    try:
+        frac = float(os.environ.get("MIT_LINE_SPACING", "") or 0.30)
+    except (TypeError, ValueError):
+        frac = 0.30
+    if frac < 0:
+        frac = 0.30
+    gap = int(round(line_h * min(frac, 1.0)))
+    try:
+        asc, desc = font.getmetrics()
+        gap = max(gap, (asc + desc) - line_h)  # ≥ line-height tự nhiên của font
+    except Exception:
+        pass
+    return max(3, gap)
 
 # ── Font cache ────────────────────────────────────────────────────────────────
 _font_cache: dict = {}
@@ -279,7 +303,7 @@ def render_text(img_pil, bbox, text: str, font_path: str | None,
         except Exception:
             best_lh = 8
 
-    line_spacing = max(2, best_lh // 5)
+    line_spacing = _line_gap(best_font, best_lh)
 
     # ── ĐẢM BẢO VỪA, KHÔNG cắt chữ (lựa chọn: "giữ trong box, đừng cắt") ──────────
     # TRƯỚC: nếu khối chữ cao hơn box thì cắt bớt dòng thừa + thêm "…" → MẤT nội
@@ -296,7 +320,7 @@ def render_text(img_pil, bbox, text: str, font_path: str | None,
             best_lh = bb[3] - bb[1] + 3
         except Exception:
             best_lh = cur_size + 3
-        line_spacing = max(2, best_lh // 5)
+        line_spacing = _line_gap(best_font, best_lh)
         best_lines = _wrap_text_px(draw, text, best_font, max(10, render_w),
                                    allow_hard_split=True) or [text]
 

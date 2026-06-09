@@ -203,6 +203,8 @@ function mitPreset(mode) {
     set('tMITFontMin',  '');
     set('tMITFontFixed','');
     set('tMITFontColor','');
+    setSel('tMITNarrowWide', '');
+    set('tMITNarrowFontCap', '');
   }
 }
 
@@ -265,6 +267,8 @@ async function tStart() {
   const mit_font_min     = $('tMITFontMin').value;
   const mit_font_fixed   = $('tMITFontFixed').value;
   const mit_font_color   = $('tMITFontColor').value;
+  const mit_narrow_wide  = getVal('tMITNarrowWide');
+  const mit_narrow_fcap  = $('tMITNarrowFontCap') ? $('tMITNarrowFontCap').value : '';
   const mit_verbose      = $('tMITVerbose').checked;
   const mit_skip_no_text = $('tMITSkipNoText').checked;
   const mit_overwrite    = $('tMITOverwrite').checked;
@@ -307,7 +311,7 @@ async function tStart() {
         mit_detector, mit_inpainter, mit_inpaint_size, mit_inpaint_prec, mit_upscale, mit_upscaler, mit_det_size,
         mit_mask_dil, mit_unclip, mit_box_thr, mit_text_thr,
         mit_det_gamma, mit_det_invert, mit_det_rotate, mit_det_auto_rotate, mit_ocr, mit_ocr_prob,
-        mit_font_ofs, mit_font_min, mit_font_fixed, mit_font_color,
+        mit_font_ofs, mit_font_min, mit_font_fixed, mit_font_color, mit_narrow_wide, mit_narrow_fcap,
         mit_custom_api_base, mit_custom_api_key,
         mit_verbose, mit_skip_no_text, mit_overwrite,
         inpainter, overwrite, font_scale, cpu_priority,
@@ -728,6 +732,7 @@ async function reSelectImage(im) {
   _reRegions = (data.regions || []).map(r => ({ x: +r.x, y: +r.y, w: +r.w, h: +r.h, text: r.text || '',
                                                 font: r.font || '', font_size: +r.font_size || 0,
                                                 inpaint_only: !!r.inpaint_only,
+                                                erase_box: !!r.erase_box,
                                                 mask_dilate: (r.mask_dilate != null ? +r.mask_dilate : null),
                                                 rotate: +r.rotate || 0 }));
   reSetMode(data.mode === 'replace' ? 'replace' : 'merge');
@@ -776,7 +781,8 @@ function reRedraw() {
     ctx.setLineDash([]);
     ctx.fillStyle = col;
     ctx.font = '12px sans-serif';
-    ctx.fillText((ipo ? '🧽 ' : (typed ? '✍ ' : '')) + String(i + 1), x + 3, y + 13);
+    const ebox = !ipo && !!r.erase_box;  // gõ tay + xoá cả khung
+    ctx.fillText((ipo ? '🧽 ' : (typed ? '✍ ' : '')) + (ebox ? '⬛ ' : '') + String(i + 1), x + 3, y + 13);
     if (typed) {
       ctx.fillStyle = 'rgba(0,0,0,.5)';
       ctx.fillRect(x, y + h - 16, w, 16);
@@ -790,11 +796,13 @@ function reRedraw() {
 // Đồng bộ ô nhập chữ + font + cỡ chữ + cờ "chỉ xoá" + siết mask + nghiêng với vùng đang chọn.
 function reSyncTextInput() {
   const inp = $('reText'), selF = $('reFont'), inpS = $('reFontSize'), ipo = $('reInpaintOnly');
-  const dil = $('reRegionDilate'), rot = $('reRotate');
+  const dil = $('reRegionDilate'), rot = $('reRotate'), ebox = $('reEraseBox');
   const has = (_reSel >= 0 && _reSel < _reRegions.length);
   const r = has ? _reRegions[_reSel] : null;
   const only = !!(has && r.inpaint_only);
   if (ipo)  { ipo.disabled  = !has; ipo.checked = only; }
+  // "Xoá khung": chỉ áp cho vùng gõ tay → tắt/disable khi đang "chỉ xoá" (đã xoá cả khung).
+  if (ebox) { ebox.disabled = !has || only; ebox.checked = !!(has && !only && r.erase_box); }
   // Khi "chỉ xoá": vô hiệu hoá ô chữ/font/cỡ/nghiêng (vùng này không vẽ chữ).
   if (inp)  { inp.disabled  = !has || only; inp.value  = has ? (r.text || '') : ''; }
   if (selF) { selF.disabled = !has || only; selF.value = has ? (r.font || '') : ''; }
@@ -809,6 +817,13 @@ function reOnInpaintOnlyChange(checked) {
     _reRegions[_reSel].inpaint_only = !!checked;
     if (checked) { _reRegions[_reSel].text = ''; }  // chỉ xoá → không giữ chữ
     reSyncTextInput();
+    reRedraw();
+  }
+}
+
+function reOnEraseBoxChange(checked) {
+  if (_reSel >= 0 && _reSel < _reRegions.length) {
+    _reRegions[_reSel].erase_box = !!checked;
     reRedraw();
   }
 }
@@ -894,7 +909,7 @@ function reInitCanvasEvents() {
         x: Math.min(_reDrag.x, p.x), y: Math.min(_reDrag.y, p.y),
         w: Math.abs(p.x - _reDrag.x), h: Math.abs(p.y - _reDrag.y),
       };
-      if (r.w > 0.005 && r.h > 0.005) { _reRegions.push({ ...r, text: '', font: '', font_size: 0, inpaint_only: false, mask_dilate: null, rotate: 0 }); _reSel = _reRegions.length - 1; }
+      if (r.w > 0.005 && r.h > 0.005) { _reRegions.push({ ...r, text: '', font: '', font_size: 0, inpaint_only: false, erase_box: false, mask_dilate: null, rotate: 0 }); _reSel = _reRegions.length - 1; }
     } else {
       _reSel = reHitTest(p);   // click → select / deselect
     }

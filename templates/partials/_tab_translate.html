@@ -472,6 +472,34 @@ Upscale giúp OCR nhận diện chữ nhỏ chính xác hơn nhưng tốn thêm 
                      <input type="number" id="tMITOcrProb" placeholder="0.2" min="0.1" max="0.95" step="0.05" value="0.5"
                       class="sm" />
                   </div>
+                  <div class="field" style="margin-bottom:0">
+                    <label><span class="tt-wrap">Nới ngang vùng hẹp<span class="tt-icon">?</span><span class="tt-box">Cột chữ DỌC hẹp (vd chữ Trung dọc) khiến câu Việt bị nhồi thành cột mảnh, chữ tí.
+Khi bật, vùng cao-hẹp (cao ≥ 1.3× rộng) được ÉP RENDER NGANG và cho bề rộng nới rộng ra → chữ Việt chạy thành KHỐI NGANG dễ đọc.
+
+• Tắt — giữ nguyên hướng/tỉ lệ cột gốc (mặc định)
+• ×2 — cho khối chữ rộng gấp ~2× cột gốc
+• ×3 / ×4 — rộng hơn nữa (câu rất dài / cột rất hẹp)
+
+⚠ Chỉ tác động vùng chữ DỌC hẹp; vùng ngang/bong bóng không đổi. Nới quá tay có thể lấn sang vùng kế bên.</span></span></label>
+                     <select id="tMITNarrowWide" class="field select sm">
+                       <option value="" selected>Tắt</option>
+                       <option value="1.1">×1.1 rộng</option>
+                       <option value="1.2">×1.2 rộng</option>
+                       <option value="1.5">×1.5 rộng</option>
+                       <option value="2">×2 rộng</option>
+                       <option value="3">×3 rộng</option>
+                       <option value="4">×4 rộng</option>
+                     </select>
+                     <label style="margin-top:6px"><span class="tt-wrap">Trần cỡ chữ (px)<span class="tt-icon">?</span><span class="tt-box">CHỈ áp cho vùng dọc hẹp ĐÃ bật "Nới ngang" ở trên. Ghìm cỡ chữ ≤ trần này → khối vẫn NGANG (dễ đọc) nhưng chữ NHỎ lại, wrap nhiều dòng hơn, không choán cả panel.
+
+• Để trống — giữ cỡ tự nhiên (mặc định)
+• 48 — chữ vừa, hợp đa số bóng thoại ★
+• 36–40 — chữ nhỏ hơn nữa (câu rất dài)
+
+Không ảnh hưởng vùng ngang/bong bóng thường.</span></span></label>
+                     <input type="number" id="tMITNarrowFontCap" placeholder="(tự nhiên)" min="12" max="200" step="1"
+                      class="sm" />
+                  </div>
                 </div>
 
                 <!-- Row 2: Detection size / Mask dilation / Unclip / Font options -->
@@ -693,13 +721,18 @@ Nếu còn chữ mà không detect nổi, thử 0.45 kèm Detector=ctd và Gamma
       </div>
       <div class="re-textbar" style="display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid var(--border)">
         <span class="re-pill" style="flex:0 0 auto">✍ Chữ Việt:</span>
-        <input id="reText" type="text" placeholder="Chọn 1 vùng rồi gõ chữ Việt vào đây (để trống = để OCR tự đọc)…"
-          style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:5px 9px;font-size:.84rem"
-          oninput="reOnTextInput(this.value)" disabled />
+        <textarea id="reText" rows="2" placeholder="Chọn 1 vùng rồi gõ chữ Việt vào đây (Enter = xuống dòng, để trống = để OCR tự đọc)…"
+          style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:5px 9px;font-size:.84rem;resize:vertical;min-height:32px;line-height:1.35;font-family:inherit"
+          oninput="reOnTextInput(this.value)" disabled></textarea>
         <label class="re-pill" style="flex:0 0 auto;display:flex;align-items:center;gap:4px;cursor:pointer"
           title="Chỉ xoá sạch cả khung (inpaint), không OCR/dịch/vẽ chữ. Dùng để dọn lại vùng còn chữ/nhiễu sót.">
           <input id="reInpaintOnly" type="checkbox" disabled onchange="reOnInpaintOnlyChange(this.checked)" />
           🧽 Chỉ xoá
+        </label>
+        <label class="re-pill" style="flex:0 0 auto;display:flex;align-items:center;gap:4px;cursor:pointer"
+          title="Vùng gõ tay: xoá CẢ KHUNG (như Chỉ xoá) trước khi vẽ chữ, thay vì chỉ xoá theo nét. Bật cho chữ SFX màu/viền/gradient mà xoá theo nét hay sót viền. Tắt (mặc định) để giữ halftone/nền dưới chữ.">
+          <input id="reEraseBox" type="checkbox" disabled onchange="reOnEraseBoxChange(this.checked)" />
+            Xoá khung
         </label>
         <span class="re-pill" style="flex:0 0 auto" title="Font cho vùng gõ tay đang chọn (chỉ áp khi vùng có chữ).">Font:</span>
         <select id="reFont" disabled onchange="reOnFontChange(this.value)"
