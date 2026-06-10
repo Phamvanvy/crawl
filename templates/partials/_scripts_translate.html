@@ -278,6 +278,7 @@ async function tStart() {
   const inpainter        = getVal('tInpainter') || 'opencv';
   const overwrite        = $('tOverwrite') ? $('tOverwrite').checked : false;
   const font_scale       = parseFloat($('tFontScale') ? $('tFontScale').value : '0.75') || 0.75;
+  const image_quality    = parseInt($('tImageQuality') ? $('tImageQuality').value : '95', 10) || 95;
   const model            = (backend === 'mit' && getVal('tMITTranslator') === 'custom_openai' && _mitOllamaModel)
                            ? _mitOllamaModel
                            : (getVal('tModel').trim() || 'qwen3:8b');
@@ -314,7 +315,7 @@ async function tStart() {
         mit_font_ofs, mit_font_min, mit_font_fixed, mit_font_color, mit_narrow_wide, mit_narrow_fcap,
         mit_custom_api_base, mit_custom_api_key,
         mit_verbose, mit_skip_no_text, mit_overwrite,
-        inpainter, overwrite, font_scale, cpu_priority,
+        inpainter, overwrite, font_scale, image_quality, cpu_priority,
       }),
     });
     json = await res.json();
@@ -708,6 +709,90 @@ function reSelectAllTranslate(on) {
   reRenderSide();
 }
 
+// Chọn tất cả ảnh đã có vùng sửa thủ công (im.count > 0 — ảnh có badge số).
+function reSelectEdited() {
+  _tSelImages = new Set(_reImages.filter(i => i.count).map(i => i.name));
+  reRenderSide();
+}
+
+// ── Crop hàng loạt ───────────────────────────────────────────────────────────
+// Gọi /api/images/crop cho các ảnh đã tích (không tích = cả thư mục).
+// rect = khung chuẩn hoá 0..1 (vẽ trong editor), hoặc auto = tự dò viền đồng màu.
+async function _reCropRun(payload, scopeLabel) {
+  const dst = prompt(
+    `${scopeLabel}\nThư mục lưu ảnh đã crop (nhập TRÙNG thư mục nguồn để GHI ĐÈ tại chỗ — vùng thủ công đã lưu sẽ bị lệch):`,
+    _reDir + '_crop');
+  if (dst === null) return;
+  let data;
+  try {
+    const res = await fetch('/api/images/crop', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ src: _reDir, dst: dst.trim(), names: [..._tSelImages], ...payload }),
+    });
+    data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'lỗi');
+  } catch (e) {
+    alert('Crop thất bại: ' + (e.message || e)); return;
+  }
+  let msg = `✂ Đã crop ${data.cropped} ảnh → ${data.dst}`;
+  if (data.skipped) msg += ` (bỏ qua ${data.skipped})`;
+  if (data.ignored_count) msg += ` (loại ${data.ignored_count})`;
+  if (data.fail_count) msg += ` — LỖI ${data.fail_count}`;
+  tAddLog(msg, data.fail_count ? 'err' : 'ok');
+  // Chi tiết từng ảnh — để biết TẠI SAO bị bỏ qua/loại/lỗi (trước đây không có log).
+  (data.failed || []).forEach(d => tAddLog('   - lỗi: ' + d, 'err'));
+  (data.ignored || []).forEach(d => tAddLog('   - loại: ' + d, 'err'));
+  (data.skipped_detail || []).forEach(d => tAddLog('   · bỏ qua: ' + d));
+  alert(msg + (data.fail_count || data.ignored_count
+    ? '\n\nXem chi tiết lý do ở khung log bên dưới.' : ''));
+  if (data.in_place) { _reName = ''; await reLoadList(); }  // nạp lại thumb + ảnh đang mở
+}
+
+async function reCropByRegion() {
+  if (!(_reSel >= 0 && _reSel < _reRegions.length)) {
+    alert('Vẽ/chọn 1 khung trùm phần ảnh muốn GIỮ trước (phần ngoài khung sẽ bị cắt bỏ).');
+    return;
+  }
+  const r = _reRegions[_reSel];
+  const scope = _tSelImages.size ? `${_tSelImages.size} ảnh đã tích` : 'TẤT CẢ ảnh trong thư mục';
+  await _reCropRun({ rect: { x: r.x, y: r.y, w: r.w, h: r.h } },
+                   `Crop ${scope} theo khung vùng đang chọn.`);
+}
+
+async function reAutoTrim() {
+  const scope = _tSelImages.size ? `${_tSelImages.size} ảnh đã tích` : 'TẤT CẢ ảnh trong thư mục';
+  await _reCropRun({ auto: true }, `Tự cắt viền đồng màu cho ${scope}.`);
+}
+
+// Nén NGAY ảnh có sẵn (không dịch lại) theo mức slider 'Dung lượng'.
+async function reCompress() {
+  const q = parseInt($('tImageQuality') ? $('tImageQuality').value : '80', 10) || 80;
+  if (q >= 100) { alert('Kéo thanh "Dung lượng" xuống dưới 100 trước (thấp = nhẹ hơn), rồi bấm lại.'); return; }
+  const scope = _tSelImages.size ? `${_tSelImages.size} ảnh đã tích` : 'TẤT CẢ ảnh trong thư mục';
+  const dst = prompt(
+    `Giảm dung lượng ${scope} ở mức ${q}.\nThư mục lưu (để TRỐNG = ghi đè tại chỗ trong thư mục nguồn; PNG sẽ thành .jpg):`,
+    '');
+  if (dst === null) return;
+  let data;
+  try {
+    const res = await fetch('/api/images/compress', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ src: _reDir, dst: dst.trim(), names: [..._tSelImages], quality: q }),
+    });
+    data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'lỗi');
+  } catch (e) {
+    alert('Giảm dung lượng thất bại: ' + (e.message || e)); return;
+  }
+  let msg = `🗜 Nén ${data.done} ảnh: ${data.mb_before}MB → ${data.mb_after}MB (giảm ${data.saved_pct}%)`;
+  if (data.fail_count) msg += ` — LỖI ${data.fail_count}`;
+  if (data.ignored_count) msg += ` (loại ${data.ignored_count})`;
+  tAddLog(msg, data.fail_count ? 'err' : 'ok');
+  (data.failed || []).forEach(d => tAddLog('   - lỗi: ' + d, 'err'));
+  alert(msg);
+  if (data.in_place) { _reName = ''; await reLoadList(); }  // nạp lại thumb + ảnh đang mở
+}
+
 // Dịch ngay các ảnh đã tích, không cần ra màn chính. Tự lưu vùng của ảnh đang mở.
 async function reTranslateSelected() {
   if (!_tSelImages.size) { alert('Hãy tích ít nhất 1 ảnh để dịch.'); return; }
@@ -733,6 +818,8 @@ async function reSelectImage(im) {
                                                 font: r.font || '', font_size: +r.font_size || 0,
                                                 inpaint_only: !!r.inpaint_only,
                                                 erase_box: !!r.erase_box,
+                                                erase_flat: !!r.erase_flat,
+                                                flat_color: (typeof r.flat_color === 'string' ? r.flat_color : ''),
                                                 mask_dilate: (r.mask_dilate != null ? +r.mask_dilate : null),
                                                 rotate: +r.rotate || 0 }));
   reSetMode(data.mode === 'replace' ? 'replace' : 'merge');
@@ -782,7 +869,8 @@ function reRedraw() {
     ctx.fillStyle = col;
     ctx.font = '12px sans-serif';
     const ebox = !ipo && !!r.erase_box;  // gõ tay + xoá cả khung
-    ctx.fillText((ipo ? '🧽 ' : (typed ? '✍ ' : '')) + (ebox ? '⬛ ' : '') + String(i + 1), x + 3, y + 13);
+    const eflat = !!r.erase_flat;        // lấp khung bằng màu nền panel
+    ctx.fillText((ipo ? '🧽 ' : (typed ? '✍ ' : '')) + (ebox ? '⬛ ' : '') + (eflat ? '▭ ' : '') + String(i + 1), x + 3, y + 13);
     if (typed) {
       ctx.fillStyle = 'rgba(0,0,0,.5)';
       ctx.fillRect(x, y + h - 16, w, 16);
@@ -796,13 +884,22 @@ function reRedraw() {
 // Đồng bộ ô nhập chữ + font + cỡ chữ + cờ "chỉ xoá" + siết mask + nghiêng với vùng đang chọn.
 function reSyncTextInput() {
   const inp = $('reText'), selF = $('reFont'), inpS = $('reFontSize'), ipo = $('reInpaintOnly');
-  const dil = $('reRegionDilate'), rot = $('reRotate'), ebox = $('reEraseBox');
+  const dil = $('reRegionDilate'), rot = $('reRotate'), ebox = $('reEraseBox'), eflat = $('reEraseFlat');
   const has = (_reSel >= 0 && _reSel < _reRegions.length);
   const r = has ? _reRegions[_reSel] : null;
   const only = !!(has && r.inpaint_only);
   if (ipo)  { ipo.disabled  = !has; ipo.checked = only; }
   // "Xoá khung": chỉ áp cho vùng gõ tay → tắt/disable khi đang "chỉ xoá" (đã xoá cả khung).
   if (ebox) { ebox.disabled = !has || only; ebox.checked = !!(has && !only && r.erase_box); }
+  // "Xoá phẳng": áp cho cả vùng gõ tay lẫn "chỉ xoá" (lấp khung bằng màu nền panel).
+  if (eflat) { eflat.disabled = !has; eflat.checked = !!(has && r.erase_flat); }
+  // Màu lấp khung: Auto (vành ngoài box) hay tự chọn — chỉ bật khi vùng đang "Xoá phẳng".
+  const fauto = $('reFlatAuto'), fcol = $('reFlatColor'), fpick = $('reFlatPick');
+  const flatOn = !!(has && r.erase_flat);
+  const manualCol = flatOn && !!r.flat_color;
+  if (fauto) { fauto.disabled = !flatOn; fauto.checked = !manualCol; }
+  if (fcol)  { fcol.disabled  = !flatOn; if (manualCol) fcol.value = r.flat_color; }
+  if (fpick) { fpick.disabled = !flatOn; }
   // Khi "chỉ xoá": vô hiệu hoá ô chữ/font/cỡ/nghiêng (vùng này không vẽ chữ).
   if (inp)  { inp.disabled  = !has || only; inp.value  = has ? (r.text || '') : ''; }
   if (selF) { selF.disabled = !has || only; selF.value = has ? (r.font || '') : ''; }
@@ -824,8 +921,47 @@ function reOnInpaintOnlyChange(checked) {
 function reOnEraseBoxChange(checked) {
   if (_reSel >= 0 && _reSel < _reRegions.length) {
     _reRegions[_reSel].erase_box = !!checked;
+    if (checked) { _reRegions[_reSel].erase_flat = false; }  // 2 kiểu xoá khung loại trừ nhau
+    reSyncTextInput();
     reRedraw();
   }
+}
+
+function reOnEraseFlatChange(checked) {
+  if (_reSel >= 0 && _reSel < _reRegions.length) {
+    _reRegions[_reSel].erase_flat = !!checked;
+    if (checked) { _reRegions[_reSel].erase_box = false; }  // 2 kiểu xoá khung loại trừ nhau
+    reSyncTextInput();
+    reRedraw();
+  }
+}
+
+// Màu lấp khung cho "Xoá phẳng": '' = auto (vành ngoài box), '#rrggbb' = tự chọn.
+function reOnFlatColorChange(val) {
+  if (_reSel >= 0 && _reSel < _reRegions.length && _reRegions[_reSel].erase_flat) {
+    _reRegions[_reSel].flat_color = String(val || '');
+    reSyncTextInput();  // bỏ tích "Màu auto"
+  }
+}
+
+function reOnFlatAutoChange(checked) {
+  if (_reSel >= 0 && _reSel < _reRegions.length && _reRegions[_reSel].erase_flat) {
+    _reRegions[_reSel].flat_color = checked ? '' : ($('reFlatColor').value || '#222222');
+    reSyncTextInput();
+  }
+}
+
+// Hút màu trực tiếp từ ảnh bằng EyeDropper API (Chrome/Edge ≥ 95).
+async function reFlatPickColor() {
+  if (!(_reSel >= 0 && _reSel < _reRegions.length && _reRegions[_reSel].erase_flat)) return;
+  if (!window.EyeDropper) { alert('Trình duyệt không hỗ trợ EyeDropper — hãy chọn màu bằng ô màu bên cạnh.'); return; }
+  try {
+    const res = await new window.EyeDropper().open();
+    if (res && res.sRGBHex) {
+      _reRegions[_reSel].flat_color = res.sRGBHex;
+      reSyncTextInput();
+    }
+  } catch {}  // người dùng bấm Esc — bỏ qua
 }
 
 function reOnRegionDilateChange(val) {
@@ -909,7 +1045,7 @@ function reInitCanvasEvents() {
         x: Math.min(_reDrag.x, p.x), y: Math.min(_reDrag.y, p.y),
         w: Math.abs(p.x - _reDrag.x), h: Math.abs(p.y - _reDrag.y),
       };
-      if (r.w > 0.005 && r.h > 0.005) { _reRegions.push({ ...r, text: '', font: '', font_size: 0, inpaint_only: false, erase_box: false, mask_dilate: null, rotate: 0 }); _reSel = _reRegions.length - 1; }
+      if (r.w > 0.005 && r.h > 0.005) { _reRegions.push({ ...r, text: '', font: '', font_size: 0, inpaint_only: false, erase_box: false, erase_flat: false, flat_color: '', mask_dilate: null, rotate: 0 }); _reSel = _reRegions.length - 1; }
     } else {
       _reSel = reHitTest(p);   // click → select / deselect
     }

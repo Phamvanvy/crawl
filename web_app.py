@@ -561,6 +561,11 @@ def api_translate_start():
         font_scale = max(0.3, min(2.0, font_scale))
     except (TypeError, ValueError):
         font_scale = 0.60
+    try:
+        image_quality = int(data.get("image_quality", 95))
+        image_quality = max(40, min(100, image_quality))
+    except (TypeError, ValueError):
+        image_quality = 95
     if inpainter not in ("opencv", "lama"):
         inpainter = "opencv"
     if src_lang not in ("zh", "en", "ja"):
@@ -646,6 +651,7 @@ def api_translate_start():
                     overwrite=mit_overwrite,
                     cpu_priority=cpu_priority,
                     gpt_style=translation_style,
+                    image_quality=image_quality,
                     on_log=on_log,
                     on_progress=on_progress,
                 )
@@ -664,6 +670,7 @@ def api_translate_start():
                     translation_style=translation_style,
                     llm_base_url=llm_base_url,
                     llm_api_type=llm_api_type,
+                    image_quality=image_quality,
                     on_log=on_log,
                     on_progress=on_progress,
                 )
@@ -746,6 +753,11 @@ def api_translate_retry_failed():
         font_scale = max(0.3, min(2.0, font_scale))
     except (TypeError, ValueError):
         font_scale = 0.60
+    try:
+        image_quality = int(data.get("image_quality", 95))
+        image_quality = max(40, min(100, image_quality))
+    except (TypeError, ValueError):
+        image_quality = 95
 
     _t_reset()
 
@@ -769,6 +781,7 @@ def api_translate_retry_failed():
                 overwrite=True,
                 font_scale=font_scale,
                 cpu_priority=cpu_priority,
+                image_quality=image_quality,
                 on_log=on_log,
                 on_progress=on_progress,
             )
@@ -1064,7 +1077,7 @@ def api_regions_get():
             mode = "merge"
         regions = [r for r in (data.get("regions") or []) if isinstance(r, dict)]
         try:
-            mask_dilate = max(0, min(6, int(data.get("mask_dilate", 1))))
+            mask_dilate = max(0, min(10, int(data.get("mask_dilate", 1))))
         except (TypeError, ValueError):
             mask_dilate = 1
         return jsonify({"mode": mode, "regions": regions, "mask_dilate": mask_dilate})
@@ -1105,6 +1118,14 @@ def api_regions_save():
         box = {"x": round(x, 5), "y": round(y, 5), "w": round(w, 5), "h": round(h, 5)}
         # inpaint_only = chỉ xoá sạch cả khung (không OCR/dịch/vẽ chữ). Ưu tiên cao
         # nhất: bỏ qua text/font nếu có.
+        # erase_flat = lấp CẢ KHUNG bằng màu nền (không inpaint) — cho chữ trên chat
+        # box/panel màu phẳng. Áp cho cả vùng chỉ-xoá lẫn gõ tay. flat_color =
+        # '#rrggbb' người dùng tự chọn; vắng = auto (trung vị vành ngoài box).
+        if r.get("erase_flat"):
+            box["erase_flat"] = True
+            fc = str(r.get("flat_color") or "").strip().lstrip("#")
+            if re.fullmatch(r"[0-9a-fA-F]{6}", fc):
+                box["flat_color"] = "#" + fc.lower()
         if r.get("inpaint_only"):
             box["inpaint_only"] = True
             clean.append(box)
@@ -1128,10 +1149,10 @@ def api_regions_save():
                 box["font_size"] = fsz
         except (TypeError, ValueError):
             pass
-        # mask_dilate riêng cho vùng (0..6); vắng = dùng mặc định của ảnh.
+        # mask_dilate riêng cho vùng (0..10); vắng = dùng mặc định của ảnh.
         try:
             mdl = int(r["mask_dilate"])
-            if 0 <= mdl <= 6:
+            if 0 <= mdl <= 10:
                 box["mask_dilate"] = mdl
         except (KeyError, TypeError, ValueError):
             pass
@@ -1145,7 +1166,7 @@ def api_regions_save():
         clean.append(box)
 
     try:
-        mask_dilate = max(0, min(6, int(data.get("mask_dilate", 1))))
+        mask_dilate = max(0, min(10, int(data.get("mask_dilate", 1))))
     except (TypeError, ValueError):
         mask_dilate = 1
 
@@ -1166,6 +1187,237 @@ def api_regions_save():
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
     return jsonify({"ok": True, "count": len(clean)})
+
+
+def _autotrim_bbox(arr, tol: int = 22, frac: float = 0.985, gap: int = 8):
+    """Bbox (x0,y0,x1,y1) sau khi gọt các DẢI viền đồng màu ở 4 cạnh, XÉT TỪNG CẠNH
+    ĐỘC LẬP. Mỗi cạnh dùng màu (trung vị) của chính mép đó làm chuẩn rồi gọt dần các
+    hàng/cột vào trong.
+
+    Một hàng/cột là viền khi ≥ `frac` pixel của nó nằm trong `tol` so với màu mép —
+    KHÔNG đòi một màu tuyệt đối, nên bỏ qua được vài pixel lạ (nhiễu JPEG, răng cưa).
+    Quét có DUNG SAI KHOẢNG TRỐNG `gap`: bỏ qua tối đa `gap` dòng-không-viền liên tiếp
+    rồi cắt tới dòng-viền SÂU NHẤT, chỉ dừng hẳn khi gặp nội dung thật (chuỗi dòng khác
+    màu dài hơn gap). Nhờ vậy một vệt mờ/chữ-ghost còn sót/đường kẻ nằm GIỮA dải viền
+    không làm trim dừng sớm và để sót phần viền phía sau.
+    Cũng xử lý được ảnh chỉ có viền trên/dưới (ảnh tràn hết chiều ngang).
+    Trả None nếu không có dải viền nào để cắt."""
+    import numpy as np
+    a = arr.astype(np.int16)
+    h, w = a.shape[:2]
+
+    def solid(line, ref):
+        # line: (n, ch). True nếu ĐA SỐ pixel của dòng trùng màu mép tham chiếu.
+        d = np.abs(line - ref).max(axis=1)  # sai khác kênh-lớn-nhất của từng pixel
+        return float((d <= tol).mean()) >= frac
+
+    def trim(line_at, n, ref):
+        # Quét i=0..n-1 từ mép vào; trả số dòng viền cần cắt = tới dòng-viền sâu nhất,
+        # bỏ qua các đứt quãng ≤ gap. 0 nghĩa là mép này không có viền.
+        last, run = -1, 0
+        for i in range(n):
+            if solid(line_at(i), ref):
+                last, run = i, 0
+            else:
+                run += 1
+                if run > gap:
+                    break
+        return last + 1
+
+    top = trim(lambda i: a[i], h, np.median(a[0], axis=0))
+    bot = trim(lambda i: a[h - 1 - i], h, np.median(a[-1], axis=0))
+    left = trim(lambda i: a[:, i], w, np.median(a[:, 0], axis=0))
+    right = trim(lambda i: a[:, w - 1 - i], w, np.median(a[:, -1], axis=0))
+    x0, y0, x1, y1 = left, top, w - right, h - bot
+
+    if (x0, y0, x1, y1) == (0, 0, w, h):
+        return None  # không gọt được cạnh nào
+    if x1 - x0 < 8 or y1 - y0 < 8:
+        return None  # gọt gần hết ảnh (ảnh đồng màu) — bỏ qua
+    return x0, y0, x1, y1
+
+
+@app.route("/api/images/crop", methods=["POST"])
+def api_images_crop():
+    """Crop hàng loạt ảnh trong thư mục — bỏ viền/khoảng trắng thừa.
+    Hai chế độ: rect = khung chữ nhật chuẩn hoá 0..1 (vẽ trong editor, áp cho mọi
+    ảnh bất kể kích thước), hoặc auto=true = tự dò viền đồng màu từng ảnh và cắt.
+    names rỗng = cả thư mục; dst rỗng = <nguồn>_crop; dst trùng nguồn = ghi đè."""
+    from PIL import Image
+    import numpy as np
+    data = request.get_json(silent=True) or {}
+    src_str = str(data.get("src", "")).strip()
+    src = Path(src_str)
+    if not src_str or not src.is_dir():
+        return jsonify({"error": "Thư mục nguồn không hợp lệ."}), 400
+    dst_str = str(data.get("dst", "")).strip()
+    dst = Path(dst_str) if dst_str else src.parent / (src.name + "_crop")
+    in_place = dst.resolve() == src.resolve()
+
+    auto = bool(data.get("auto"))
+    rect = data.get("rect") or {}
+    if not auto:
+        try:
+            rx = max(0.0, min(1.0, float(rect["x"]))); ry = max(0.0, min(1.0, float(rect["y"])))
+            rw = max(0.0, min(1.0 - rx, float(rect["w"]))); rh = max(0.0, min(1.0 - ry, float(rect["h"])))
+        except (KeyError, TypeError, ValueError):
+            return jsonify({"error": "Thiếu khung crop (rect) hợp lệ."}), 400
+        if rw < 0.01 or rh < 0.01:
+            return jsonify({"error": "Khung crop quá nhỏ."}), 400
+
+    # names = tên file (basename, chống path traversal); rỗng = mọi ảnh trong nguồn.
+    names = [Path(str(n)).name for n in (data.get("names") or []) if str(n).strip()]
+    if names:
+        candidates = [src / n for n in names]
+    else:
+        candidates = sorted(f for f in src.iterdir() if f.is_file())
+    files, ignored = [], []
+    for f in candidates:
+        if f.is_file() and f.suffix.lower() in te.IMAGE_EXTS:
+            files.append(f)
+        elif names:
+            # Chỉ báo file bị loại khi người dùng CHỈ ĐỊNH ảnh này (không phải quét cả thư
+            # mục) — nếu không sẽ nhiễu vì thư mục thường lẫn file không phải ảnh.
+            if not f.exists():
+                ignored.append(f"{f.name}: không tìm thấy file")
+            elif not f.is_file():
+                ignored.append(f"{f.name}: không phải file")
+            else:
+                ignored.append(f"{f.name}: đuôi {f.suffix or '(trống)'} không hỗ trợ "
+                               f"(chỉ {', '.join(sorted(te.IMAGE_EXTS))})")
+    mode_label = "auto-trim viền đồng màu" if auto else "theo khung vùng"
+    print(f"  ✂  Crop ({mode_label}): {len(files)} ảnh từ {src} → {dst}", flush=True)
+    for ig in ignored:
+        print(f"  ⚠  Crop bỏ qua {ig}", flush=True)
+    if not files:
+        return jsonify({"error": "Không có ảnh hợp lệ để crop.",
+                        "ignored": ignored[:20], "ignored_count": len(ignored)}), 400
+
+    try:
+        dst.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        print(f"  ⚠  Crop lỗi tạo thư mục đích {dst}: {exc}", flush=True)
+        return jsonify({"error": f"Không tạo được thư mục đích: {exc}"}), 500
+
+    cropped, skipped, failed = 0, [], []
+    for f in files:
+        try:
+            with Image.open(f) as im:
+                im.load()
+                w, h = im.size
+                if auto:
+                    arr = np.asarray(im.convert("RGB"))
+                    bbox = _autotrim_bbox(arr)
+                    if bbox is None:
+                        skipped.append(f"{f.name}: không có viền đồng màu để cắt")
+                        continue
+                    x0, y0, x1, y1 = bbox
+                    print(f"  ·  Crop {f.name}: cắt trên {y0} dưới {h - y1} "
+                          f"trái {x0} phải {w - x1}px", flush=True)
+                else:
+                    x0 = int(round(rx * w)); y0 = int(round(ry * h))
+                    x1 = int(round((rx + rw) * w)); y1 = int(round((ry + rh) * h))
+                if x1 - x0 < 8 or y1 - y0 < 8:
+                    skipped.append(f"{f.name}: vùng giữ lại quá nhỏ ({x1 - x0}×{y1 - y0}px)")
+                    continue
+                out = im.crop((x0, y0, x1, y1))
+                if out.mode in ("RGBA", "P") and f.suffix.lower() in (".jpg", ".jpeg"):
+                    out = out.convert("RGB")
+                save_kw = {"quality": 95} if f.suffix.lower() in (".jpg", ".jpeg", ".webp") else {}
+                out.save(dst / f.name, **save_kw)
+                cropped += 1
+        except Exception as exc:
+            msg = f"{f.name}: {type(exc).__name__}: {exc}"
+            failed.append(msg)
+            print(f"  ⚠  Crop lỗi {msg}", flush=True)
+    for sk in skipped:
+        print(f"  ·  Crop bỏ qua {sk}", flush=True)
+    print(f"  ✔  Crop xong: {cropped} cắt · {len(skipped)} bỏ qua · "
+          f"{len(failed)} lỗi · {len(ignored)} loại", flush=True)
+    return jsonify({
+        "ok": True, "cropped": cropped,
+        "skipped": len(skipped), "skipped_detail": skipped[:20],
+        "ignored": ignored[:20], "ignored_count": len(ignored),
+        "failed": failed[:20], "fail_count": len(failed),
+        "dst": str(dst), "in_place": in_place,
+    })
+
+
+@app.route("/api/images/compress", methods=["POST"])
+def api_images_compress():
+    """Giảm dung lượng ảnh hàng loạt — nén lại theo `quality` (40–100).
+    PNG/BMP được chuyển sang JPEG nén (đuôi đổi .jpg). names rỗng = cả thư mục;
+    dst rỗng = ghi đè TẠI CHỖ trong thư mục nguồn."""
+    from PIL import Image
+    data = request.get_json(silent=True) or {}
+    src_str = str(data.get("src", "")).strip()
+    src = Path(src_str)
+    if not src_str or not src.is_dir():
+        return jsonify({"error": "Thư mục nguồn không hợp lệ."}), 400
+    dst_str = str(data.get("dst", "")).strip()
+    dst = Path(dst_str) if dst_str else src
+    in_place = dst.resolve() == src.resolve()
+    try:
+        quality = max(40, min(100, int(data.get("quality", 80))))
+    except (TypeError, ValueError):
+        quality = 80
+    if quality >= 100:
+        return jsonify({"error": "Chất lượng 100 = giữ nguyên gốc, không giảm dung lượng. "
+                                 "Hãy chọn mức < 100."}), 400
+
+    names = [Path(str(n)).name for n in (data.get("names") or []) if str(n).strip()]
+    candidates = [src / n for n in names] if names else sorted(f for f in src.iterdir() if f.is_file())
+    files, ignored = [], []
+    for f in candidates:
+        if f.is_file() and f.suffix.lower() in te.IMAGE_EXTS:
+            files.append(f)
+        elif names and not f.is_file():
+            ignored.append(f"{f.name}: không tìm thấy file")
+    print(f"  🗜  Nén ảnh (q={quality}): {len(files)} ảnh từ {src} → {dst}", flush=True)
+    if not files:
+        return jsonify({"error": "Không có ảnh hợp lệ để nén.",
+                        "ignored": ignored[:20], "ignored_count": len(ignored)}), 400
+
+    try:
+        dst.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        return jsonify({"error": f"Không tạo được thư mục đích: {exc}"}), 500
+
+    done, failed = 0, []
+    bytes_before = bytes_after = 0
+    for f in files:
+        try:
+            before = f.stat().st_size
+            with Image.open(f) as im:
+                im.load()
+                written = te.save_image_compressed(im, dst / f.name, quality)
+            # PNG→JPEG đổi đuôi + ghi đè tại chỗ → xoá file gốc để không nhân đôi.
+            if in_place and written.resolve() != f.resolve() and f.exists():
+                try:
+                    f.unlink()
+                except OSError:
+                    pass
+            after = written.stat().st_size
+            bytes_before += before
+            bytes_after += after
+            done += 1
+        except Exception as exc:
+            msg = f"{f.name}: {type(exc).__name__}: {exc}"
+            failed.append(msg)
+            print(f"  ⚠  Nén lỗi {msg}", flush=True)
+    saved = bytes_before - bytes_after
+    pct = (saved / bytes_before * 100) if bytes_before else 0.0
+    print(f"  ✔  Nén xong: {done} ảnh · {bytes_before/1048576:.1f}MB → "
+          f"{bytes_after/1048576:.1f}MB (giảm {pct:.0f}%) · {len(failed)} lỗi", flush=True)
+    return jsonify({
+        "ok": True, "done": done,
+        "failed": failed[:20], "fail_count": len(failed),
+        "ignored": ignored[:20], "ignored_count": len(ignored),
+        "quality": quality, "in_place": in_place, "dst": str(dst),
+        "mb_before": round(bytes_before / 1048576, 2),
+        "mb_after": round(bytes_after / 1048576, 2),
+        "saved_pct": round(pct, 1),
+    })
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

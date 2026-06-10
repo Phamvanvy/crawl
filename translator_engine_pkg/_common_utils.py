@@ -397,5 +397,52 @@ def normalize_japanese_onomatopoeia(text: str) -> str:
     
     for jp, vn in _JAPANESE_ONOMATOPOEIA.items():
         text = text.replace(jp, vn)
-    
+
     return text
+
+
+# ── Lưu ảnh có nén (giảm dung lượng) ─────────────────────────────────────────
+
+def _save_jpeg(img_pil, dst: Path, quality: int) -> None:
+    """Lưu ảnh PIL thành JPEG nén. Chuyển sang RGB nếu cần (JPEG không có alpha)."""
+    im = img_pil
+    if im.mode not in ("RGB", "L"):
+        im = im.convert("RGB")
+    im.save(str(dst), "JPEG", quality=quality, optimize=True, progressive=True)
+
+
+def save_image_compressed(img_pil, dst, quality: int = 95) -> Path:
+    """Lưu ảnh PIL với mức nén `quality` (1–100) để giảm dung lượng file.
+
+    - quality >= 100 → giữ nguyên format gốc, lossless (PNG không nén mất dữ liệu,
+      JPEG/WEBP lưu chất lượng 95 như trước).
+    - quality <  100 → JPEG/WEBP nén theo `quality`; PNG/BMP/khác được chuyển sang
+      JPEG (đổi đuôi `.jpg`) để giảm dung lượng mạnh nhất.
+
+    Trả về `Path` thật sự đã ghi (có thể khác `dst` khi đổi đuôi PNG→JPEG).
+    """
+    dst = Path(dst)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    q = max(1, min(100, int(quality)))
+    ext = dst.suffix.lower()
+
+    if q >= 100:
+        if ext in (".jpg", ".jpeg"):
+            img_pil.save(str(dst), "JPEG", quality=95)
+        elif ext == ".webp":
+            img_pil.save(str(dst), "WEBP", quality=95)
+        else:
+            img_pil.save(str(dst))
+        return dst
+
+    if ext in (".jpg", ".jpeg"):
+        _save_jpeg(img_pil, dst, q)
+        return dst
+    if ext == ".webp":
+        img_pil.save(str(dst), "WEBP", quality=q, method=4)
+        return dst
+
+    # PNG / BMP / khác → JPEG nén (giảm dung lượng nhiều nhất cho ảnh không trong suốt).
+    new_dst = dst.with_suffix(".jpg")
+    _save_jpeg(img_pil, new_dst, q)
+    return new_dst

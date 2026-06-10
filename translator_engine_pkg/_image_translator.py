@@ -15,7 +15,7 @@ from ._translate import (
     translate_batch, post_process_translation,
     comprehensive_post_processing,
 )
-from ._common_utils import contains_chinese, contains_japanese, contains_cjk, JA_RE
+from ._common_utils import contains_chinese, contains_japanese, contains_cjk, JA_RE, save_image_compressed
 from ._utils import (
     _bbox_xyxy, _union_bboxes, _rect_expand, _rect_intersects, _expand_bbox,
     _looks_like_watermark,
@@ -40,6 +40,7 @@ class ImageTranslator:
         translation_style: str = "modern",
         llm_base_url: str = "",
         llm_api_type: str = "ollama",
+        image_quality: int = 95,
         on_log=None,
         on_progress=None,
     ):
@@ -54,6 +55,11 @@ class ImageTranslator:
         self.llm_base_url = llm_base_url or ""
         self.llm_api_type = llm_api_type if llm_api_type in ("ollama", "openai_compat") else "ollama"
         self.cpu_priority = cpu_priority if cpu_priority in ("normal", "below_normal", "idle") else "below_normal"
+        # Mức nén ảnh đầu ra: 40–100. <100 = giảm dung lượng (PNG → JPEG nén).
+        try:
+            self.image_quality = max(40, min(100, int(image_quality)))
+        except (TypeError, ValueError):
+            self.image_quality = 95
         self.on_log       = on_log or print
         self.on_progress  = on_progress or (lambda d, t: None)
 
@@ -273,13 +279,9 @@ class ImageTranslator:
                                       font_scale=self.font_scale,
                                       bbox_index=grp_idx)
 
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            if src.suffix.lower() in (".jpg", ".jpeg"):
-                img_pil.save(str(dst), "JPEG", quality=95)
-            else:
-                img_pil.save(str(dst))
+            written = save_image_compressed(img_pil, dst, self.image_quality)
 
-            self._log(f"  [OK] → {dst.name}")
+            self._log(f"  [OK] → {written.name}")
             return True
 
         except Exception as exc:
@@ -321,7 +323,13 @@ class ImageTranslator:
                 self._log("⚠  Đã dừng theo yêu cầu.")
                 break
             dst = out / path.name
-            if not self.overwrite and dst.exists():
+            # Khi nén PNG→JPEG (quality<100) file đầu ra đổi đuôi .jpg → cũng tính là đã có.
+            already = dst.exists() or (
+                self.image_quality < 100
+                and path.suffix.lower() not in (".jpg", ".jpeg", ".webp")
+                and dst.with_suffix(".jpg").exists()
+            )
+            if not self.overwrite and already:
                 self._log(f"  [SKIP] Đã có: {path.name}")
                 ok += 1
                 self.on_progress(i, total)

@@ -724,6 +724,8 @@ Nếu còn chữ mà không detect nổi, thử 0.45 kèm Detector=ctd và Gamma
         <textarea id="reText" rows="2" placeholder="Chọn 1 vùng rồi gõ chữ Việt vào đây (Enter = xuống dòng, để trống = để OCR tự đọc)…"
           style="flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:5px 9px;font-size:.84rem;resize:vertical;min-height:32px;line-height:1.35;font-family:inherit"
           oninput="reOnTextInput(this.value)" disabled></textarea>
+      </div>
+      <div class="re-optbar" style="display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid var(--border);flex-wrap:wrap">
         <label class="re-pill" style="flex:0 0 auto;display:flex;align-items:center;gap:4px;cursor:pointer"
           title="Chỉ xoá sạch cả khung (inpaint), không OCR/dịch/vẽ chữ. Dùng để dọn lại vùng còn chữ/nhiễu sót.">
           <input id="reInpaintOnly" type="checkbox" disabled onchange="reOnInpaintOnlyChange(this.checked)" />
@@ -734,6 +736,23 @@ Nếu còn chữ mà không detect nổi, thử 0.45 kèm Detector=ctd và Gamma
           <input id="reEraseBox" type="checkbox" disabled onchange="reOnEraseBoxChange(this.checked)" />
             Xoá khung
         </label>
+        <label class="re-pill" style="flex:0 0 auto;display:flex;align-items:center;gap:4px;cursor:pointer"
+          title="Lấp CẢ KHUNG bằng MÀU NỀN (không inpaint). Dùng khi chữ nằm trên chat box/panel màu phẳng: 'Xoá khung' inpaint sẽ xoá mất cả panel, còn xoá theo nét thì sót vệt chữ. Màu: Auto = lấy từ vành ngoài box (vẽ box NẰM GỌN TRONG panel), hoặc bỏ Auto để tự chọn / hút màu từ ảnh. Áp được cho cả vùng gõ tay lẫn Chỉ xoá.">
+          <input id="reEraseFlat" type="checkbox" disabled onchange="reOnEraseFlatChange(this.checked)" />
+            Xoá phẳng
+        </label>
+        <label class="re-pill" style="flex:0 0 auto;display:flex;align-items:center;gap:4px;cursor:pointer"
+          title="Auto = lấy màu nền từ vành ngoài box. Bỏ tích để tự chọn màu bằng ô màu / nút hút màu bên cạnh.">
+          <input id="reFlatAuto" type="checkbox" checked disabled onchange="reOnFlatAutoChange(this.checked)" />
+          Màu auto
+        </label>
+        <input id="reFlatColor" type="color" value="#222222" disabled oninput="reOnFlatColorChange(this.value)"
+          title="Màu lấp khung (chỉ dùng khi bỏ 'Màu auto')"
+          style="flex:0 0 auto;width:34px;height:26px;padding:0 2px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;cursor:pointer" />
+        <button id="reFlatPick" class="btn btn-ghost" disabled onclick="reFlatPickColor()"
+          title="Hút màu trực tiếp từ ảnh (EyeDropper — cần Chrome/Edge)"
+          style="padding:3px 8px;font-size:.78rem;flex:0 0 auto">💉 Hút màu</button>
+        <span style="flex:0 0 auto;width:1px;align-self:stretch;background:var(--border)"></span>
         <span class="re-pill" style="flex:0 0 auto" title="Font cho vùng gõ tay đang chọn (chỉ áp khi vùng có chữ).">Font:</span>
         <select id="reFont" disabled onchange="reOnFontChange(this.value)"
           style="flex:0 0 auto;max-width:150px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:4px 6px;font-size:.8rem">
@@ -756,20 +775,37 @@ Nếu còn chữ mà không detect nổi, thử 0.45 kèm Detector=ctd và Gamma
         <input id="reRotate" type="number" min="-180" max="180" step="1" placeholder="0" disabled
           onchange="reOnRotateChange(this.value)"
           style="width:56px;flex:0 0 auto;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:4px 6px;font-size:.82rem" />
-        <span class="re-pill" style="flex:0 0 auto" title="Siết mask RIÊNG cho vùng đang chọn (0–6). Để trống = dùng mặc định của ảnh ở ô bên phải.">Siết vùng:</span>
-        <input id="reRegionDilate" type="number" min="0" max="6" placeholder="auto" disabled
+        <span class="re-pill" style="flex:0 0 auto" title="Siết mask RIÊNG cho vùng đang chọn (0–10). Để trống = dùng mặc định của ảnh ở ô bên phải.">Siết vùng:</span>
+        <input id="reRegionDilate" type="number" min="0" max="10" placeholder="auto" disabled
           onchange="reOnRegionDilateChange(this.value)"
           style="width:54px;flex:0 0 auto;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:4px 6px;font-size:.82rem" />
-        <span class="re-pill" style="flex:0 0 auto" title="Số vòng dãn mask quanh nét chữ khi xoá (MẶC ĐỊNH cả ảnh). Thấp (0–1) = sát nét, ít loang trắng nhưng có thể sót viền. Cao (3–6) = xoá rộng/sạch hơn. Vùng có 'Siết vùng' riêng sẽ ghi đè giá trị này.">Siết mask:</span>
-        <input id="reMaskDilate" type="number" min="0" max="6" value="1"
+        <span class="re-pill" style="flex:0 0 auto" title="Số vòng dãn mask quanh nét chữ khi xoá (MẶC ĐỊNH cả ảnh). Thấp (0–1) = sát nét, ít loang trắng nhưng có thể sót viền. Cao (3–10) = xoá rộng/sạch hơn. Vùng có 'Siết vùng' riêng sẽ ghi đè giá trị này.">Siết mask:</span>
+        <input id="reMaskDilate" type="number" min="0" max="10" value="1"
           style="width:48px;flex:0 0 auto;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:4px 6px;font-size:.82rem" />
       </div>
       <div class="re-pickbar" style="display:flex;align-items:center;gap:8px;padding:6px 12px;border-bottom:1px solid var(--border);flex-wrap:wrap">
         <span class="re-pill" style="flex:0 0 auto">🖼 Chọn ảnh để dịch:</span>
         <button class="btn btn-ghost" style="padding:3px 10px;font-size:.74rem" onclick="reSelectAllTranslate(true)">☑ Tất cả</button>
         <button class="btn btn-ghost" style="padding:3px 10px;font-size:.74rem" onclick="reSelectAllTranslate(false)">☐ Bỏ tất</button>
+        <button class="btn btn-ghost" style="padding:3px 10px;font-size:.74rem" onclick="reSelectEdited()"
+          title="Chọn tất cả ảnh đã có vùng sửa thủ công (có badge số)">✏ Có sửa</button>
+        <span style="flex:0 0 auto;width:1px;align-self:stretch;background:var(--border)"></span>
+        <button class="btn btn-ghost" style="padding:3px 10px;font-size:.74rem" onclick="reCropByRegion()"
+          title="Cắt HÀNG LOẠT ảnh theo khung vùng ĐANG CHỌN (phần ảnh muốn GIỮ — vẽ 1 khung trùm phần nội dung, bỏ viền trắng thừa). Toạ độ chuẩn hoá nên áp được cho mọi ảnh dù khác kích thước. Ảnh áp dụng = ảnh đã tích (không tích = cả thư mục).">✂ Crop theo vùng chọn</button>
+        <button class="btn btn-ghost" style="padding:3px 10px;font-size:.74rem" onclick="reAutoTrim()"
+          title="Tự dò viền ĐỒNG MÀU (viền trắng thừa) của TỪNG ảnh và cắt bỏ — không cần vẽ khung. Ảnh áp dụng = ảnh đã tích (không tích = cả thư mục).">✂ Tự cắt viền</button>
         <span class="re-pill" id="rePickCount" style="flex:0 0 auto">Chưa chọn ảnh nào</span>
         <span style="margin-left:auto"></span>
+        <span class="re-pill" style="flex:0 0 auto;display:flex;align-items:center;gap:6px"
+          title="Chất lượng ảnh đầu ra. Thấp = nhẹ hơn (giảm dung lượng). 100 = giữ nguyên gốc (PNG không nén). PNG sẽ được lưu thành JPEG nén (đuôi đổi sang .jpg).">
+          🗜 Dung lượng:
+          <input id="tImageQuality" type="range" min="40" max="100" step="5" value="100"
+            style="width:110px;flex:0 0 auto;accent-color:var(--accent)"
+            oninput="document.getElementById('tImageQualityVal').textContent=(this.value>=100?'gốc':this.value)" />
+          <span id="tImageQualityVal" style="flex:0 0 auto;min-width:24px;text-align:right">100</span>
+        </span>
+        <button class="btn btn-ghost" style="padding:4px 10px;font-size:.76rem;flex:0 0 auto" onclick="reCompress()"
+          title="Nén NGAY các ảnh đã tích (không tích = cả thư mục) theo mức 'Dung lượng' bên cạnh — KHÔNG cần dịch lại. Kéo slider xuống dưới 100 trước. PNG sẽ thành JPEG nén. Mặc định ghi đè tại chỗ.">🗜 Giảm dung lượng</button>
         <button class="btn btn-primary" style="padding:4px 14px;font-size:.78rem" onclick="reTranslateSelected()"
           title="Dịch ngay các ảnh đã tích (tự 💾 lưu vùng của ảnh đang mở trước). Đóng editor và chạy ở màn chính.">▶ Dịch ảnh đã chọn</button>
       </div>

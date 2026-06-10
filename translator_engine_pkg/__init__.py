@@ -72,6 +72,8 @@ from ._render import (
     _group_nearby_regions,
 )
 
+from ._common_utils import save_image_compressed
+
 from ._image_translator import ImageTranslator, IMAGE_EXTS
 
 from ._mit_backend import (
@@ -98,6 +100,8 @@ __all__ = [
     "_normalize_newlines", "_normalize_vietnamese",
     # render
     "_load_font", "render_text", "_group_nearby_regions",
+    # image io
+    "save_image_compressed",
     # main classes
     "ImageTranslator", "IMAGE_EXTS",
     "MITImageTranslator", "check_mit", "_MIT_INSTALL_HINT", "REGIONS_DIRNAME",

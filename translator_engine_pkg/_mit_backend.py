@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 
 from ._translate import OLLAMA_BASE
+from ._common_utils import save_image_compressed
 
 _MIT_INSTALL_HINT = (
     "Cần Python 3.11 và venv riêng.\n"
@@ -254,6 +255,7 @@ class MITImageTranslator:
         overwrite: bool = False,
         cpu_priority: str = "below_normal",
         gpt_style: str = "",
+        image_quality: int = 95,
         on_log=None,
         on_progress=None,
     ):
@@ -292,6 +294,11 @@ class MITImageTranslator:
         self.overwrite             = overwrite
         self.gpt_style             = gpt_style if gpt_style in _GPT_STYLE_BLOCKS else "modern"
         self.cpu_priority = cpu_priority if cpu_priority in ("normal", "below_normal", "idle") else "below_normal"
+        # Mức nén ảnh đầu ra vùng thủ công: 40–100. <100 = giảm dung lượng (PNG → JPEG nén).
+        try:
+            self.image_quality = max(40, min(100, int(image_quality)))
+        except (TypeError, ValueError):
+            self.image_quality = 95
         self.on_log       = on_log or print
         self.on_progress  = on_progress or (lambda d, t: None)
 
@@ -733,8 +740,10 @@ class MITImageTranslator:
             regions = data.get("regions") or []
             inpaint_regions = [r for r in regions if r.get("inpaint_only")]
             _rest         = [r for r in regions if not r.get("inpaint_only")]
-            ocr_regions   = [r for r in _rest if not str(r.get("text") or "").strip()]
-            typed_regions = [r for r in _rest if str(r.get("text") or "").strip()]
+            # Vùng "Xoá phẳng" không gõ chữ cũng xử lý cục bộ (lấp màu nền) — KHÔNG
+            # đưa qua MIT: lama inpaint cả khung sẽ xoá mất panel mà người dùng muốn giữ.
+            ocr_regions   = [r for r in _rest if not str(r.get("text") or "").strip() and not r.get("erase_flat")]
+            typed_regions = [r for r in _rest if str(r.get("text") or "").strip() or r.get("erase_flat")]
             # Vùng gõ tay + vùng chỉ-xoá đều xử lý cục bộ (đọc/ghi ảnh 1 lần).
             render_regions = typed_regions + inpaint_regions
 
@@ -841,6 +850,57 @@ class MITImageTranslator:
         bg = _hx(parts[1]) if len(parts) > 1 and parts[1] else None
         return fg, bg
 
+    @staticmethod
+    def _ring_bg_color(roi):
+        """Màu nền (BGR uint8) ước lượng từ VÀNH ngoài box (~12% mỗi cạnh, trung vị
+        — robust với vài pixel chữ chạm mép). Dùng cho chế độ "Xoá phẳng": lấp cả
+        khung bằng màu của CHÍNH panel thay vì inpaint (inpaint cả khung sẽ vẽ lại
+        cảnh phía sau như không có panel)."""
+        import numpy as np
+        h, w = roi.shape[:2]
+        m = max(1, int(round(min(h, w) * 0.12)))
+        ring = np.ones((h, w), dtype=bool)
+        if h > 2 * m and w > 2 * m:
+            ring[m:h - m, m:w - m] = False
+        return np.median(roi[ring].reshape(-1, 3), axis=0).astype(np.uint8)
+
+    @staticmethod
+    def _stroke_mask(roi):
+        """Tách NÉT chữ khỏi nền bong bóng trong 1 box gõ tay → mask uint8 (255=nét).
+
+        Auto-dịch xoá sạch hơn vì mask bám nét chữ (text detector + CRF). Box gõ tay
+        KHÔNG qua detector nên trước đây dùng Otsu XÁM + 'lớp thiểu số' (nét = lớp ít
+        pixel hơn) — hỏng với SFX màu/viền: chữ pink trên bong bóng sáng có độ sáng
+        gần nhau → Otsu xám tách trượt, buộc người dùng bật 'Xoá khung' (xoá cả nền).
+
+        Cách mới: ước lượng MÀU NỀN từ VÀNH ngoài box (nơi ít chữ nhất) rồi lấy pixel
+        KHÁC XA nền theo khoảng cách màu Lab làm nét → bắt được chữ MÀU mà không cần
+        giả định thiểu số. Đơn sắc tối-trên-sáng vẫn đúng (Lab distance ~ luminance).
+        Có bảo hiểm: nếu nền ước lượng hỏng (nét ~cả box / gần rỗng) → fallback Otsu
+        xám cũ, nên không hồi quy các trường hợp đang chạy tốt."""
+        import cv2
+        import numpy as np
+        h, w = roi.shape[:2]
+        lab = cv2.cvtColor(roi, cv2.COLOR_BGR2LAB).astype(np.float32)
+        # Nền = trung vị màu của vành ngoài (~12% mỗi cạnh) — robust với vài pixel chữ
+        # chạm mép. Vành rỗng (box quá nhỏ) → lấy trung vị cả ROI.
+        m = max(1, int(round(min(h, w) * 0.12)))
+        ring = np.ones((h, w), dtype=bool)
+        if h > 2 * m and w > 2 * m:
+            ring[m:h - m, m:w - m] = False
+        bg = np.median(lab[ring], axis=0)
+        dist = np.linalg.norm(lab - bg[None, None, :], axis=2)
+        dn = cv2.normalize(dist, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+        _t, fg = cv2.threshold(dn, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        frac = float((fg > 0).mean())
+        if frac > 0.6 or frac < 0.004:
+            # Nền ước lượng không đáng tin → quay về Otsu xám + lớp thiểu số như cũ.
+            gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+            _t2, th = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+            dark_frac = float((th == 0).mean())
+            fg = ((th == 0) if dark_frac <= 0.5 else (th == 255)).astype(np.uint8) * 255
+        return fg
+
     def _render_typed_regions(self, image_path: Path, typed_regions: list, mask_dilate: int = 1):
         """Vẽ chữ Việt gõ tay lên ảnh + xoá các vùng "chỉ inpaint". Xoá theo MẶT NẠ
         NÉT CHỮ (chỉ những pixel nét SFX trong box) với vùng gõ tay, hoặc theo CẢ
@@ -882,7 +942,7 @@ class MITImageTranslator:
                 font_px = None
             # Siết mask riêng cho vùng (None = dùng mặc định của ảnh).
             try:
-                rdil = max(0, min(6, int(r["mask_dilate"])))
+                rdil = max(0, min(10, int(r["mask_dilate"])))
             except (KeyError, TypeError, ValueError):
                 rdil = int(mask_dilate)
             # Góc nghiêng chữ (độ); chỉ áp cho vùng gõ tay.
@@ -892,28 +952,41 @@ class MITImageTranslator:
                 rot = 0.0
             # erase_box: vùng gõ tay nhưng xoá CẢ KHUNG (như inpaint_only) thay vì
             # chỉ nét — dùng cho chữ SFX màu/viền mà Otsu tách không sạch.
+            # erase_flat: lấp CẢ KHUNG bằng màu nền (không inpaint) — cho chữ trên
+            # chat box/panel màu phẳng: inpaint cả khung xoá mất panel, xoá theo nét
+            # thì sót vệt (chữ ≈ màu nền). flat_color '#rrggbb' = màu người dùng tự
+            # chọn; None = auto (trung vị vành ngoài box).
+            fcol = None
+            fc = str(r.get("flat_color") or "").strip().lstrip("#")
+            if len(fc) == 6:
+                try:
+                    fcol = (int(fc[4:6], 16), int(fc[2:4], 16), int(fc[0:2], 16))  # BGR
+                except ValueError:
+                    fcol = None
             boxes.append((x0, y0, x1, y1, [[x0, y0], [x1, y0], [x1, y1], [x0, y1]],
                           str(r.get("text") or ""), font_name, font_px,
-                          bool(r.get("inpaint_only")), rdil, rot, bool(r.get("erase_box"))))
+                          bool(r.get("inpaint_only")), rdil, rot, bool(r.get("erase_box")),
+                          bool(r.get("erase_flat")), fcol))
         if not boxes:
             return
 
-        # 1) Mặt nạ xoá. Vùng gõ tay: tách lớp pixel THIỂU SỐ theo Otsu (nét SFX thường
-        #    chiếm ít diện tích hơn nền) → chỉ xoá nét đó, giữ nền/halftone. Vùng
-        #    inpaint_only: xoá CẢ KHUNG (người dùng chủ động muốn dọn sạch vùng này).
+        # 1) Mặt nạ xoá. Vùng gõ tay: tách NÉT chữ khỏi nền theo màu (_stroke_mask) →
+        #    chỉ xoá nét đó, giữ nền/halftone (bắt được cả chữ SFX màu). Vùng
+        #    inpaint_only / "Xoá khung": xoá CẢ KHUNG (người dùng chủ động dọn sạch).
         mask = np.zeros((h, w), dtype=np.uint8)
-        for (x0, y0, x1, y1, _bbox, _text, _font, _fpx, _ipo, _rdil, _rot, _ebox) in boxes:
+        for (x0, y0, x1, y1, _bbox, _text, _font, _fpx, _ipo, _rdil, _rot, _ebox, _eflat, _fcol) in boxes:
             roi = img[y0:y1, x0:x1]
             if roi.size == 0:
+                continue
+            if _eflat:
+                # Xoá PHẲNG: lấp cả khung bằng màu người dùng chọn, hoặc màu nền của
+                # chính panel (vành ngoài box) — KHÔNG inpaint, panel giữ nguyên.
+                img[y0:y1, x0:x1] = np.array(_fcol, dtype=np.uint8) if _fcol else self._ring_bg_color(roi)
                 continue
             if _ipo or _ebox:
                 mask[y0:y1, x0:x1] = 255  # cả khung (chỉ-xoá, hoặc gõ tay bật "xoá cả khung")
                 continue
-            gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
-            _t, th = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-            dark_frac = float((th == 0).mean())
-            strokes = (th == 0) if dark_frac <= 0.5 else (th == 255)  # nét = lớp thiểu số
-            sm = (strokes.astype(np.uint8)) * 255
+            sm = self._stroke_mask(roi)
             # Dãn mask quanh nét: ít vòng = sát nét, đỡ "lỗ" lama phải đoán → bớt
             # loang sáng; nhiều vòng = xoá rộng/sạch hơn (siết mask riêng từng vùng).
             if _rdil > 0:
@@ -941,20 +1014,20 @@ class MITImageTranslator:
 
         fg_col, bg_col = self._parse_font_color()
         img_pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-        for i, (_x0, _y0, _x1, _y1, bbox, text, font_name, font_px, _ipo, _rdil, _rot, _ebox) in enumerate(boxes):
+        for i, (_x0, _y0, _x1, _y1, bbox, text, font_name, font_px, _ipo, _rdil, _rot, _ebox, _eflat, _fcol) in enumerate(boxes):
             if text.strip() and not _ipo:
                 img_pil = render_text(img_pil, bbox, text, _resolve_typed_font(font_name),
                                       strict_clip=True, font_scale=1.0, bbox_index=i,
                                       text_color=fg_col, stroke_color=bg_col,
                                       font_px=font_px, rotate=_rot)
 
-        ext = image_path.suffix.lower()
-        if ext in (".jpg", ".jpeg"):
-            img_pil.save(str(image_path), "JPEG", quality=95)
-        elif ext == ".webp":
-            img_pil.save(str(image_path), "WEBP", quality=95)
-        else:
-            img_pil.save(str(image_path))
+        written = save_image_compressed(img_pil, image_path, self.image_quality)
+        # PNG→JPEG đổi đuôi → ghi đè in-place: xoá file gốc để không còn 2 bản (.png + .jpg).
+        if written != image_path and image_path.exists():
+            try:
+                image_path.unlink()
+            except OSError:
+                pass
         _n_typed = sum(1 for b in boxes if b[5].strip() and not b[8])
         _n_ipo = sum(1 for b in boxes if b[8])
-        self._log(f"  [MANUAL] Đã xử lý {_n_typed} vùng chữ tay, {_n_ipo} vùng chỉ xoá vào {image_path.name}.")
+        self._log(f"  [MANUAL] Đã xử lý {_n_typed} vùng chữ tay, {_n_ipo} vùng chỉ xoá vào {written.name}.")
