@@ -1,0 +1,10 @@
+# Nhật ký crawl — đè mỗi action mới (start queue / retry ảnh lỗi).
+# Đọc file này để AI debug chi tiết — UI chỉ giữ số dòng có hạn.
+# Thời điểm : 2026-06-12 00:27:07
+#======================================================================
+
+▶ Bắt đầu queue mới: 1 URL
+────────────────────────────────────────────────────────────
+▶ Bắt đầu job queue: 1 URL
+  ▶ URL: https://mhxiaoshen.vip/fh8di-%e6%9f%b3%e7%9c%89-%e5%8d%83%e5%b9%bb%e6%b7%ab%e6%ac%b2%e9%81%93.html
+Đang tải trang: https://mhxiaoshen.vip/fh8di-%e6%9f%b3%e7%9c%89-%e5%8d%83%e5%b9%bb%e6%b7%ab%e6%ac%b2%e9%81%93.html
