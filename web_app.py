@@ -51,6 +51,58 @@ _state: dict = {
 _stop_event = threading.Event()   # ← signal dừng crawl
 MAX_LOG = 3000
 
+# ── Nhật ký file ─────────────────────────────────────────────────────────────
+# Mỗi journal (crawl / dịch) được mirror TOÀN BỘ ra một file riêng, ghi đè
+# (truncate) khi bắt đầu action mới. Nhật ký trên UI chỉ giữ MAX_LOG dòng gần
+# nhất, còn file luôn đầy đủ — để đọc lại / đưa AI phân tích & debug chi tiết.
+_CRAWL_LOG_PATH       = Path(__file__).parent / "crawl_log.txt"
+_TRANSLATION_LOG_PATH = Path(__file__).parent / "translation_log.txt"
+
+
+class _RunLogFile:
+    """Mirror nhật ký của MỘT action ra file, đè (truncate) nội dung lần trước.
+
+    `reopen()` được gọi khi bắt đầu action mới nên nhật ký cũ bị xoá. Mọi dòng
+    log được nối thêm và flush ngay để file luôn đầy đủ kể cả khi tiến trình bị
+    dừng giữa chừng. Mọi lỗi I/O đều nuốt im lặng — ghi log không bao giờ làm
+    hỏng việc crawl/dịch.
+    """
+
+    def __init__(self, path: Path):
+        self._path = path
+        self._lock = threading.Lock()
+        self._f = None
+
+    def reopen(self, header_lines: list[str] | None = None) -> None:
+        with self._lock:
+            if self._f is not None:
+                try:
+                    self._f.close()
+                except Exception:
+                    pass
+                self._f = None
+            try:
+                self._f = open(self._path, "w", encoding="utf-8")
+                if header_lines:
+                    self._f.write("\n".join(header_lines) + "\n")
+                self._f.flush()
+            except Exception:
+                self._f = None
+
+    def write(self, msg: str) -> None:
+        with self._lock:
+            if self._f is None:
+                return
+            try:
+                self._f.write(str(msg) + "\n")
+                self._f.flush()
+            except Exception:
+                pass
+
+
+_crawl_logfile = _RunLogFile(_CRAWL_LOG_PATH)
+_t_logfile     = _RunLogFile(_TRANSLATION_LOG_PATH)
+
 
 def _push(entry: dict) -> None:
     """Thêm entry vào circular buffer (thread-safe, xoay vòng khi full)."""
@@ -60,6 +112,8 @@ def _push(entry: dict) -> None:
             _logs.popleft()  # bỏ entry cũ nhất
         _logs.append(entry)
         _log_total += 1
+        if entry.get("type") == "log":
+            _crawl_logfile.write(entry.get("msg", ""))
 
 
 def _enqueue_job(job: dict) -> None:
@@ -92,6 +146,7 @@ def _crawl_queue_worker() -> None:
             workers = job["workers"]
             timeout = job["timeout"]
             retries = job["retries"]
+            skip_existing = job.get("skip_existing", True)
 
             _push({"type": "log", "msg": "─" * 60})
             _push({"type": "log", "msg": f"▶ Bắt đầu job queue: {len(urls)} URL"})
@@ -123,6 +178,7 @@ def _crawl_queue_worker() -> None:
                     on_progress=on_progress,
                     on_log=lambda msg: _push({"type": "log", "msg": str(msg)}),
                     stop_event=_stop_event,
+                    skip_existing=skip_existing,
                 )
 
                 cumulative_done += job_total
@@ -169,6 +225,7 @@ def api_start():
         "workers": workers,
         "timeout": timeout,
         "retries": retries,
+        "skip_existing": bool(data.get("skip_existing", True)),
     }
 
     # Quyết định khởi động worker + claim `running` trong CÙNG một lock để tránh
@@ -206,6 +263,13 @@ def _reset_locked() -> None:
         success=0, failed=0, queue=0,
         status="running", failed_items=[],
     )
+    _crawl_logfile.reopen([
+        "# Nhật ký crawl — đè mỗi action mới (start queue / retry ảnh lỗi).",
+        "# Đọc file này để AI debug chi tiết — UI chỉ giữ số dòng có hạn.",
+        f"# Thời điểm : {time.strftime('%Y-%m-%d %H:%M:%S')}",
+        "#" + "=" * 70,
+        "",
+    ])
 
 
 def _reset() -> None:
@@ -407,7 +471,6 @@ _t_state: dict = {
 }
 _t_stop = threading.Event()
 
-
 def _find_font() -> str | None:
     # Ưu tiên MTO Astro City cho dịch tiếng Việt, sau đến các font khác
     candidates = [
@@ -430,6 +493,8 @@ def _t_push(entry: dict) -> None:
             _t_logs.popleft()
         _t_logs.append(entry)
         _t_log_total += 1
+        if entry.get("type") == "log":
+            _t_logfile.write(entry.get("msg", ""))
 
 
 def _t_reset() -> None:
@@ -595,6 +660,34 @@ def api_translate_start():
     _t_reset()
 
     def run() -> None:
+        # Nhật ký file của lần dịch này (đè lần trước). Header ghi đủ cấu hình để
+        # sau này đọc lại / nhờ AI cải thiện mà không cần copy tay từ console.
+        # Mọi dòng đẩy vào Nhật ký UI đều được _t_push mirror tự động vào file.
+        _t_logfile.reopen([
+            "# Nhật ký dịch ảnh (translation log) — đè mỗi lần dịch mới.",
+            "# Đọc file này để AI phân tích & cải thiện prompt/cấu hình.",
+            f"# Thời điểm : {time.strftime('%Y-%m-%d %H:%M:%S')}",
+            f"# Nguồn     : {input_dir}",
+            f"# Xuất      : {output_dir}",
+            f"# Backend   : {backend}",
+            f"# Ảnh chọn  : {len(images_override) if images_override else 'toàn bộ thư mục'}",
+            (f"# MIT       : translator={mit_translator} target={mit_target_lang} "
+             f"style={translation_style} model={model} detector={mit_detector or 'auto'} "
+             f"inpainter={mit_inpainter} ocr={mit_ocr or 'auto'} ocr_prob={mit_ocr_prob or '-'} "
+             f"upscale={mit_upscale or '-'} det_size={mit_det_size or '-'} "
+             f"mask_dil={mit_mask_dil or '-'} unclip={mit_unclip or '-'} "
+             f"box_thr={mit_box_thr or '-'} text_thr={mit_text_thr or '-'} "
+             f"font_ofs={mit_font_ofs or '-'} font_min={mit_font_min or '-'} "
+             f"font_fixed={mit_font_fixed or '-'} font_color={mit_font_color or '-'} "
+             f"narrow_wide={mit_narrow_wide or '-'} narrow_fcap={mit_narrow_fcap or '-'} "
+             f"verbose={mit_verbose} gpu={use_gpu}")
+            if backend == "mit"
+            else (f"# Default   : lang={src_lang} model={model} inpainter={inpainter} "
+                  f"style={translation_style} font_scale={font_scale} gpu={use_gpu}"),
+            f"# image_quality={image_quality} cpu_priority={cpu_priority}",
+            "#" + "=" * 70,
+            "",
+        ])
         try:
             def on_log(msg: str):
                 _t_push({"type": "log", "msg": str(msg)})
@@ -762,6 +855,19 @@ def api_translate_retry_failed():
     _t_reset()
 
     def run() -> None:
+        _t_logfile.reopen([
+            "# Nhật ký dịch ảnh (retry ảnh lỗi) — đè mỗi lần dịch mới.",
+            "# Đọc file này để AI phân tích & cải thiện prompt/cấu hình.",
+            f"# Thời điểm : {time.strftime('%Y-%m-%d %H:%M:%S')}",
+            f"# Nguồn     : {input_dir}",
+            f"# Xuất      : {output_dir}",
+            f"# Retry     : {len(failed_images)} ảnh lỗi",
+            (f"# Default   : lang={src_lang} model={model} inpainter={inpainter} "
+             f"font_scale={font_scale} gpu={use_gpu} image_quality={image_quality} "
+             f"cpu_priority={cpu_priority}"),
+            "#" + "=" * 70,
+            "",
+        ])
         try:
             def on_log(msg: str):
                 _t_push({"type": "log", "msg": str(msg)})

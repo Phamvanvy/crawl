@@ -16,14 +16,115 @@ from .keys import CUSTOM_OPENAI_API_KEY, CUSTOM_OPENAI_API_BASE, CUSTOM_OPENAI_M
 
 _CHINESE_RE = re.compile(r"[\u4e00-\u9fff\u3400-\u4dbf]")
 
+# C\u00f3 B\u1ea4T K\u1ef2 ch\u1eef CJK n\u00e0o kh\u00f4ng: H\u00e1n (k\u1ec3 c\u1ea3 m\u1edf r\u1ed9ng/compat), kana, hangul. V\u00f9ng OCR
+# m\u00e0 ngu\u1ed3n KH\u00d4NG d\u00ednh k\u00fd t\u1ef1 n\u00e0o trong nh\u00f3m n\u00e0y (to\u00e0n Latin/s\u1ed1: "ALENCIAGA",
+# "2ENag"\u2026) l\u00e0 ch\u1eef TRANG TR\u00cd in tr\u00ean artwork (brand print, tem, s\u1ed1 \u0111o) \u2014 kh\u00f4ng
+# ph\u1ea3i tho\u1ea1i, kh\u00f4ng c\u1ea7n d\u1ecbch v\u00e0 kh\u00f4ng \u0111\u01b0\u1ee3c xo\u00e1 kh\u1ecfi \u1ea3nh.
+_CJK_ANY_RE = re.compile(
+    r"[\u3041-\u30ff\u31f0-\u31ff"   # hiragana + katakana (+ phonetic ext)
+    r"\u3400-\u4dbf\u4e00-\u9fff"    # H\u00e1n ideographs (ext-A + URO)
+    r"\uf900-\ufaff\uff66-\uff9f"    # CJK compat + halfwidth katakana
+    r"\uac00-\ud7af\u3131-\u318e]"   # hangul syllables + jamo
+)
+
+
+def _is_decor_source(src: str) -> bool:
+    """True n\u1ebfu v\u00f9ng ngu\u1ed3n l\u00e0 ch\u1eef trang tr\u00ed Latin-only in s\u1eb5n tr\u00ean artwork
+    (brand print "BALENCIAGA" tr\u00ean qu\u1ea7n \u00e1o, m\u00e3 hi\u1ec7u\u2026) \u2014 KH\u00d4NG c\u00f3 k\u00fd t\u1ef1 CJK n\u00e0o.
+    Watermark scanlation do _contains_watermark_text x\u1eed l\u00fd ri\u00eang (b\u1ecb XO\u00c1);
+    decor th\u00ec ng\u01b0\u1ee3c l\u1ea1i: GI\u1eee NGUY\u00caN tr\u00ean \u1ea3nh, kh\u00f4ng d\u1ecbch, kh\u00f4ng inpaint."""
+    s = (src or "").strip()
+    if not s:
+        return False
+    return not _CJK_ANY_RE.search(s) and not _contains_watermark_text(s)
+
 # Nh\u00e3n lo\u1ea1i tho\u1ea1i do model g\u00e1n \u1edf \u0111\u1ea7u m\u1ed7i \u0111o\u1ea1n: "[thought] ...". B\u00f3c ra \u0111\u1ec3 (a) kh\u00f4ng
 # l\u1ecdt v\u00e0o b\u1ea3n d\u1ecbch hi\u1ec3n th\u1ecb, (b) kh\u00f4ng b\u1ecb b\u1ed9 check ti\u1ebfng Vi\u1ec7t t\u01b0\u1edfng l\u00e0 ti\u1ebfng Anh.
-_TYPE_TAG_RE = re.compile(r"^\s*\[\s*(speech|thought|moan|shout|narration|sfx|anger|fear)\s*\]\s*", re.IGNORECASE)
+_TYPE_TAG_RE = re.compile(r"^\s*\[\s*(speech|thought|moan|shout|narration|sfx|anger|fear|title)\s*\]\s*", re.IGNORECASE)
 
 # Nhãn [cont]: segment là PHẦN SAU của một câu nguồn bị detector cắt thành nhiều
-# vùng — bản dịch TRỌN câu nằm ở segment anchor phía trước (rule 6c system prompt).
-# Bắt cả biến thể [continuation]/[continued]/[cont.].
+# vùng — bản dịch TRỌN câu nằm ở segment anchor phía trước. Giờ chỉ là LƯỚI AN TOÀN
+# (model tự phát ra thì vẫn xử lý đúng); việc gộp câu chính thức do pre-pass
+# _plan_sentence_merges đảm nhiệm. Bắt cả biến thể [continuation]/[continued]/[cont.].
 _CONT_TAG_RE = re.compile(r"^\s*\[\s*cont[\w.]*\s*\]\s*", re.IGNORECASE)
+
+# Dấu KẾT câu CJK/Latin: segment kết thúc bằng những dấu này coi như TRỌN câu —
+# KHÔNG phải ứng viên "bị cắt giữa chừng" cho pre-pass gộp câu.
+_CJK_TERMINAL_PUNCT = set('。．.!！?？…⋯~～—–-"\'”’」』】)）]')
+
+# Cảnh giới tu tiên: map zh→vn để ENFORCE sau dịch. Model hay trượt (vd 结丹初期 →
+# "Trúc Cơ sơ kỳ") vì story context các trang trước nhắc "Trúc Cơ" liên tục — prompt
+# không đủ giữ. Vocabulary đóng nên sửa deterministic được.
+_REALM_MAP = [
+    ('炼气', 'Luyện Khí'), ('练气', 'Luyện Khí'),
+    ('筑基', 'Trúc Cơ'),
+    ('结丹', 'Kết Đan'), ('結丹', 'Kết Đan'),
+    ('金丹', 'Kim Đan'),
+    ('元婴', 'Nguyên Anh'), ('元嬰', 'Nguyên Anh'),
+    ('化神', 'Hóa Thần'),
+    ('炼虚', 'Luyện Hư'), ('煉虛', 'Luyện Hư'),
+    ('合体', 'Hợp Thể'), ('合體', 'Hợp Thể'),
+    ('大乘', 'Đại Thừa'),
+    ('渡劫', 'Độ Kiếp'),
+]
+
+
+# Lỗi OCR phổ biến ở THUẬT NGỮ tu tiên: chuỗi bên trái KHÔNG phải từ thật trong
+# tiếng Trung — chỉ có thể là OCR nhầm glyph (丹→母…). Sửa trong BẢN GỬI LLM để
+# model dịch đúng ngay (key store/region.text vẫn dùng nguyên văn OCR gốc).
+_OCR_SOURCE_FIX = [
+    ('结母', '结丹'), ('結母', '結丹'),
+]
+
+# OCR đọc dấu lửng "……" thành chuỗi chữ 'o' (vd "非常好oooo那" / "夫人吧oo"):
+# run [oO0]{2,} dính liền chữ Hán KHÔNG bao giờ là từ thật → thay bằng "……" để
+# model dịch ra "…" thay vì bê nguyên "oooo" vào bản dịch ("tốtoooo", "đi oo.").
+# Điều kiện kẹp CJK giữ an toàn cho watermark/từ Latin thật ("gxracg.com", "cool"):
+#   - đứng SAU chữ Hán và KHÔNG nối tiếp bằng chữ/số Latin (cuối chuỗi, trước CJK
+#     hay trước dấu câu đều khớp), HOẶC
+#   - mở ĐẦU chuỗi và nối thẳng vào chữ Hán.
+_CJK_CLASS = r'一-鿿㐀-䶿'
+_OCR_ELLIPSIS_RE = re.compile(
+    rf'(?<=[{_CJK_CLASS}])[oO0]{{2,}}(?![A-Za-z0-9])'
+    rf'|^[oO0]{{2,}}(?=[{_CJK_CLASS}])'
+)
+
+
+def _fix_ocr_source(q: str) -> str:
+    if not isinstance(q, str) or not q:
+        return q
+    for wrong, right in _OCR_SOURCE_FIX:
+        if wrong in q:
+            q = q.replace(wrong, right)
+    q = _OCR_ELLIPSIS_RE.sub('……', q)
+    return q
+
+
+def _fix_realm_terms(src: str, trans: str, logger=None) -> str:
+    """Sửa tên CẢNH GIỚI dịch sai: nguồn có cảnh giới X mà bản dịch (a) THIẾU tên
+    đúng của X và (b) lại chứa tên cảnh giới KHÁC không hề có trong nguồn → thay
+    tên sai bằng tên đúng. Chỉ đụng khi cả 2 điều kiện cùng thoả → an toàn với các
+    câu nhắc nhiều cảnh giới thật (vd thuốc 筑基丹 trong câu nói về 结丹)."""
+    if not src or not trans or not isinstance(trans, str):
+        return trans
+    src_pairs = [(zh, vn) for zh, vn in _REALM_MAP if zh in src]
+    if not src_pairs:
+        return trans
+    src_vn_names = {vn for _, vn in src_pairs}
+    out = trans
+    for zh, vn in src_pairs:
+        if vn.lower() in out.lower():
+            continue  # bản dịch đã có tên đúng
+        for _, wrong_vn in _REALM_MAP:
+            if wrong_vn in src_vn_names:
+                continue  # tên này hợp lệ (nguồn có cảnh giới đó)
+            m = re.search(re.escape(wrong_vn), out, re.IGNORECASE)
+            if m:
+                out = out[:m.start()] + vn + out[m.end():]
+                if logger:
+                    logger.info(f'[realm-fix] "{wrong_vn}" → "{vn}" (nguồn có {zh}).')
+                break
+    return out
 
 
 def _region_type_store() -> dict:
@@ -47,6 +148,48 @@ def _region_merge_store() -> dict:
         d = {}
         _mt._VI_REGION_MERGES = d
     return d
+
+
+def _expand_merged_translations(orig_queries: List[str], groups: List[List[int]],
+                                translations: List[str], logger) -> List[str]:
+    """Trải bản dịch của các nhóm ĐÃ GỘP (pre-pass merge) về đúng slot vùng gốc.
+
+    Anchor (segment đầu nhóm) nhận bản dịch trọn câu; các segment sau nhận ZWJ
+    (vô hình — vùng vẫn được inpaint, không render) + ghi map cont→anchor để
+    renderer UNION box. Nhãn loại thoại được lưu theo text GỘP trong lúc dịch →
+    copy về key text gốc của anchor (renderer tra theo region.text vùng gốc)."""
+    if len(translations) < len(groups):
+        translations = translations + [''] * (len(groups) - len(translations))
+    _merges = _region_merge_store()
+    _types = _region_type_store()
+    expanded = ['‍'] * len(orig_queries)
+    for g, tr in zip(groups, translations):
+        a = g[0]
+        anchor_key = (orig_queries[a] or '').strip()
+        if len(g) > 1:
+            merged_key = ''.join((orig_queries[j] or '').strip() for j in g)
+            if (tr or '').strip() == merged_key:
+                # Fallback "giữ nguyên gốc" ([title] nghi nhầm / không dịch được):
+                # trả MỖI vùng đúng text gốc CỦA NÓ → MIT thấy dịch == gốc, bỏ qua
+                # inpaint, chữ thư pháp gốc còn nguyên. KHÔNG ghi map merge — nếu
+                # ghi, anchor nhận chuỗi GỘP (≠ text vùng) sẽ bị inpaint rồi render
+                # lại chữ Hán bằng font Việt, còn vùng cont bị xoá trắng.
+                for j in g:
+                    expanded[j] = orig_queries[j]
+                logger.info(f'[merge-llm] segments {[k + 1 for k in g]} giữ nguyên '
+                            f'chữ gốc (không dịch) — bỏ union, không inpaint.')
+                continue
+        expanded[a] = tr
+        if len(g) > 1:
+            if anchor_key and merged_key in _types:
+                _types[anchor_key] = _types[merged_key]
+            for j in g[1:]:
+                ck = (orig_queries[j] or '').strip()
+                if ck and anchor_key and ck != anchor_key:
+                    _merges[ck] = anchor_key
+            logger.info(f'[merge-llm] segments {[k + 1 for k in g]} là MỘT câu — '
+                        f'dịch gộp, union box khi render.')
+    return expanded
 # Vietnamese has unique diacritical marks — their presence confirms Vietnamese output
 _VI_DIACRITIC_RE = re.compile(
     r"[àáâãèéêìíòóôõùúăđơưạảấầẩẫậắằẳẵặẹẻẽếềểễệỉịọỏốồổỗộớờởỡợụủứừửữựỳỵỷỹ]",
@@ -179,6 +322,29 @@ def _clean_watermark_fragments(text: str) -> str:
     if _contains_watermark_text(text):
         return ""
     return _strip_generation_artifacts(text)
+
+
+# Dấu hiệu TIÊU ĐỀ/TRANG TRÍ thật: Latin/số (cả fullwidth), ngoặc, marker chương
+# (第/章/话/回/卷/期). Chuỗi Hán THUẦN không có các dấu hiệu này có thể là LỜI DẪN
+# viết thư pháp bị model dán nhầm nhãn [title] — không được phép xoá.
+_TITLE_DECOR_RE = re.compile(
+    r"[A-Za-z0-9０-９Ａ-Ｚａ-ｚ()（）\[\]【】"
+    r"《》〈〉#＃*＊·•:：]"
+    r"|第|章|话|話|回|卷|期"
+)
+
+
+def _title_safe_to_erase(text: str) -> bool:
+    """[title] chỉ CHẮC CHẮN là trang trí (được xoá khỏi ảnh) khi nguồn mang dấu
+    hiệu tiêu đề: Latin/số/ngoặc/số chương, hoặc chuỗi rác OCR rất dài. Câu Hán
+    thuần ngắn (vd "于逆星之下举起义旗") có thể là lời dẫn cảnh bị phân loại nhầm
+    → trả False: GIỮ NGUYÊN chữ gốc thay vì xoá mất nội dung truyện."""
+    t = (text or "").strip()
+    if not t:
+        return True
+    if len(t) >= 16:  # chuỗi rác OCR dài — lời dẫn thật hiếm khi dài cỡ này mà bị gán [title]
+        return True
+    return bool(_TITLE_DECOR_RE.search(t))
 
 
 def _target_is_vietnamese(to_lang: str) -> bool:
@@ -365,7 +531,7 @@ class CustomOpenAiTranslator(ConfigGPT, CommonTranslator):
 
         i_offset = 0
         for i, query in enumerate(queries):
-            prompt += f'\n<|{i + 1 - i_offset}|>{query}'
+            prompt += f'\n<|{i + 1 - i_offset}|>{_fix_ocr_source(query)}'
 
             # If prompt is growing too large and there's still a lot of text left
             # split off the rest of the queries into new prompts.
@@ -408,7 +574,23 @@ class CustomOpenAiTranslator(ConfigGPT, CommonTranslator):
         translations = []
         self._active_to_lang = to_lang
         _region_type_store().clear()   # nhãn loại thoại chỉ cho trang hiện tại
-        _region_merge_store().clear()  # map gộp [cont] cũng chỉ cho trang hiện tại
+        _region_merge_store().clear()  # map gộp câu cũng chỉ cho trang hiện tại
+
+        # ── Pre-pass GỘP CÂU bằng LLM (semantic) ────────────────────────────────
+        # Các segment là MỘT câu bị detector cắt giữa chừng được GỘP TRƯỚC khi dịch
+        # → model dịch trọn câu một lần (slot anchor), các slot sau nhận ZWJ + map
+        # cho renderer union box. Thay cho contract [cont] in-band: model yếu hay
+        # echo ví dụ trong rule / bỏ qua nhãn, còn task YES/NO riêng thì trả ổn.
+        orig_queries = list(queries)
+        groups = [[i] for i in range(len(queries))]
+        try:
+            groups = await asyncio.wait_for(self._plan_sentence_merges(queries), timeout=45)
+        except Exception as e:
+            self.logger.warning(f'[merge-llm] pre-pass lỗi/timeout ({e}) — dịch từng segment như cũ.')
+            groups = [[i] for i in range(len(orig_queries))]
+        has_merge = any(len(g) > 1 for g in groups)
+        if has_merge:
+            queries = [''.join((orig_queries[j] or '').strip() for j in g) for g in groups]
         if self._DETERMINISTIC:
             self.logger.debug(f'Sampling: reproducible ({self._SAMPLING}, seed={self._SEED})')
         else:
@@ -419,6 +601,11 @@ class CustomOpenAiTranslator(ConfigGPT, CommonTranslator):
             # fallback values back to the correct index after retries.
             batch_offset = len(translations)
             batch_queries = queries[batch_offset:batch_offset + query_size]
+
+            # Vùng decor (Latin-only, không watermark): bản dịch sẽ bị ghi đè bằng
+            # nguyên văn nguồn ở fallback dưới → miễn check tiếng Việt cho các slot
+            # này (model trả gì cũng bỏ), khỏi tốn 10 lượt retry vô ích.
+            decor_idx = {i for i, q in enumerate(batch_queries) if _is_decor_source(q)}
 
             language_retry_attempt = 0
             request_prompt = prompt
@@ -553,7 +740,8 @@ class CustomOpenAiTranslator(ConfigGPT, CommonTranslator):
                         _anchor_i = _i
 
                 if _target_is_vietnamese(to_lang):
-                    non_vietnamese = [t for t in cleaned_translations if _needs_vietnamese_retry(t)]
+                    non_vietnamese = [t for _i, t in enumerate(cleaned_translations)
+                                      if _i not in decor_idx and _needs_vietnamese_retry(t)]
                     if non_vietnamese and language_retry_attempt < 10:
                         language_retry_attempt += 1
                         self.logger.warning(
@@ -592,6 +780,31 @@ class CustomOpenAiTranslator(ConfigGPT, CommonTranslator):
                     if _contains_watermark_text(src):
                         # Always erase watermarks regardless of what model returned.
                         cleaned_translations[i] = "\u200d"
+                    elif i in decor_idx:
+                        # Ch\u1eef trang tr\u00ed in tr\u00ean artwork (brand print "BALENCIAGA",
+                        # m\u00e3 hi\u1ec7u\u2026): ngu\u1ed3n KH\u00d4NG c\u00f3 k\u00fd t\u1ef1 CJK n\u00e0o \u2192 kh\u00f4ng ph\u1ea3i tho\u1ea1i.
+                        # Tr\u1ea3 NGUY\u00caN V\u0102N ngu\u1ed3n \u2192 MIT l\u1ecdc "Translation identical to
+                        # original" \u2192 v\u00f9ng KH\u00d4NG inpaint, KH\u00d4NG render, artwork g\u1ed1c
+                        # gi\u1eef nguy\u00ean (kh\u00e1c watermark: watermark b\u1ecb xo\u00e1 b\u1eb1ng ZWJ).
+                        self.logger.info(
+                            f'[decor] segment {i + 1} "{src.strip()[:24]}" to\u00e0n Latin, '
+                            f'kh\u00f4ng ph\u1ea3i tho\u1ea1i \u2014 gi\u1eef nguy\u00ean tr\u00ean \u1ea3nh, b\u1ecf d\u1ecbch.')
+                        cleaned_translations[i] = src
+                    elif _store.get(src.strip()) == "title":
+                        # [title] = ti\u00eau \u0111\u1ec1/ch\u1eef trang tr\u00ed/con d\u1ea5u \u2014 OCR c\u1ee7a ch\u1eef c\u00e1ch
+                        # \u0111i\u1ec7u th\u01b0\u1eddng l\u00e0 chu\u1ed7i r\u00e1c, "b\u1ea3n d\u1ecbch" ch\u1ec9 ra ch\u1eef to v\u00f4 ngh\u0129a
+                        # \u0111\u00e8 artwork \u2192 xo\u00e1 nh\u01b0 watermark, k\u1ec3 c\u1ea3 khi model l\u1ee1 k\u00e8m d\u1ecbch.
+                        # NH\u01afNG model hay d\u00e1n nh\u1ea7m [title] cho L\u1edcI D\u1eaaN vi\u1ebft th\u01b0 ph\u00e1p
+                        # (vd "\u4e8e\u9006\u661f\u4e4b\u4e0b\u4e3e\u8d77\u4e49\u65d7" b\u1ecb xo\u00e1 tr\u1eafng m\u1ea5t n\u1ed9i dung truy\u1ec7n).
+                        # Ngu\u1ed3n KH\u00d4NG c\u00f3 d\u1ea5u hi\u1ec7u ti\u00eau \u0111\u1ec1 \u2192 GI\u1eee NGUY\u00caN ch\u1eef g\u1ed1c tr\u00ean
+                        # \u1ea3nh (thi\u1ebfu b\u1ea3n d\u1ecbch v\u1eabn h\u01a1n xo\u00e1 m\u1ea5t ch\u1eef).
+                        if _title_safe_to_erase(src):
+                            cleaned_translations[i] = "\u200d"
+                        else:
+                            self.logger.warning(
+                                f'[title] cho segment {i} nh\u01b0ng ngu\u1ed3n "{src.strip()[:20]}" '
+                                f'tr\u00f4ng nh\u01b0 c\u00e2u c\u00f3 ngh\u0129a \u2014 gi\u1eef ch\u1eef g\u1ed1c, kh\u00f4ng xo\u00e1.')
+                            cleaned_translations[i] = src
                     elif _is_effectively_empty(cleaned_translations[i]):
                         # Model tr\u1ea3 r\u1ed7ng/ch\u1ec9-d\u1ea5u ("[]", "[.]", "\u3010\u3011"\u2026) \u2192 xo\u00e1 h\u1eb3n b\u1eb1ng ZWJ
                         # (v\u00f9ng \u0111\u01b0\u1ee3c inpaint, KH\u00d4NG render r\u00e1c). Tr\u00e1nh "[.]"\u2192"\u3010.\u3011" tr\u00ean \u1ea3nh.
@@ -608,8 +821,18 @@ class CustomOpenAiTranslator(ConfigGPT, CommonTranslator):
                         # Tho\u1ea1i (m\u1ecdi lo\u1ea1i TR\u1eea SFX t\u01b0\u1ee3ng thanh) ph\u1ea3i k\u1ebft th\u00fac b\u1eb1ng d\u1ea5u
                         # c\u00e2u. SFX (r\u1ea7m, b\u00f9m, v\u00fat\u2026) gi\u1eef nguy\u00ean \u2014 th\u00eam '.' s\u1ebd k\u1ef3 c\u1ee5c.
                         cleaned_translations[i] = _ensure_terminal_punct(cleaned_translations[i])
+                    # Enforce t\u00ean c\u1ea3nh gi\u1edbi kh\u1edbp ngu\u1ed3n (sau m\u1ecdi x\u1eed l\u00fd kh\u00e1c). Soi tr\u00ean
+                    # ngu\u1ed3n \u0110\u00c3 s\u1eeda l\u1ed7i OCR (\u7ed3\u6bcd\u2192\u7ed3\u4e39) \u2014 kh\u1edbp v\u1edbi b\u1ea3n model nh\u00ecn th\u1ea5y.
+                    if cleaned_translations[i] not in ("", "\u200d"):
+                        cleaned_translations[i] = _fix_realm_terms(
+                            _fix_ocr_source(src), cleaned_translations[i], self.logger)
 
             translations.extend(cleaned_translations)
+
+        # Trải kết quả các nhóm ĐÃ GỘP về đúng slot vùng gốc.
+        if has_merge:
+            translations = _expand_merged_translations(
+                orig_queries, groups, translations, self.logger)
 
         for t in translations:
             if "I'm sorry, but I can't assist with that request" in t:
@@ -630,6 +853,105 @@ class CustomOpenAiTranslator(ConfigGPT, CommonTranslator):
                 self._recent_context.append(page_vi)
 
         return translations
+
+    async def _plan_sentence_merges(self, queries: List[str]) -> List[List[int]]:
+        """Nhóm các segment nguồn là MỘT câu bị detector cắt giữa chừng (pre-pass).
+
+        Heuristic rẻ chọn ỨNG VIÊN: segment CJK (không phải watermark) kết thúc
+        KHÔNG có dấu kết câu + segment kế tiếp cũng là CJK thường. Rồi MỘT call
+        LLM riêng chỉ hỏi YES/NO từng cặp — task nhỏ, output ràng buộc nên model
+        yếu trả lời ổn định (khác với contract [cont] nhét trong lúc dịch: model
+        hay echo ví dụ hoặc bỏ qua nhãn). Mọi lỗi/không chắc → singleton (như cũ).
+
+        Trả về list nhóm chỉ số gốc, vd [[0],[1],[2,3],[4]] = segment 3+4 là một câu."""
+        n = len(queries)
+        singles = [[i] for i in range(n)]
+        if n < 2:
+            return singles
+        cands = []
+        for i in range(n - 1):
+            # Soi trên bản ĐÃ sửa lỗi OCR: "吧oo" (OCR của "吧……") phải được nhận
+            # diện là đã KẾT câu, không thành ứng viên gộp với segment sau.
+            a = _fix_ocr_source((queries[i] or '').strip())
+            b = _fix_ocr_source((queries[i + 1] or '').strip())
+            if not a or not b:
+                continue
+            if not _CHINESE_RE.search(a) or not _CHINESE_RE.search(b):
+                continue
+            if _contains_watermark_text(a) or _contains_watermark_text(b):
+                continue
+            if a[-1] in _CJK_TERMINAL_PUNCT:
+                continue
+            # Nhãn/danh xưng NGẮN (≤4 chữ CJK: 白面儒生, 精壮大汉, 结丹初期…) là
+            # caption độc lập đứng cạnh vùng khác — câu thật bị detector cắt hầu
+            # như luôn dài hơn. Loại khỏi ứng viên để LLM không có cơ hội gộp nhầm.
+            if sum(1 for c in a if _CHINESE_RE.match(c)) <= 4:
+                continue
+            cands.append(i)
+        if not cands:
+            return singles
+        qlines = []
+        for k, i in enumerate(cands, 1):
+            qlines.append(f'{k}. A=「{_fix_ocr_source((queries[i] or "").strip())}」'
+                          f' B=「{_fix_ocr_source((queries[i + 1] or "").strip())}」')
+        resp = await self._request_merge_plan('\n'.join(qlines))
+        confirmed = set()
+        for k, i in enumerate(cands, 1):
+            m = re.search(rf'^\s*{k}\s*[:.)\-]?\s*(YES|NO)\b', resp or '', re.IGNORECASE | re.MULTILINE)
+            if m and m.group(1).upper() == 'YES':
+                confirmed.add(i)
+        if not confirmed:
+            return singles
+        groups = []
+        i = 0
+        while i < n:
+            g = [i]
+            while g[-1] in confirmed:
+                g.append(g[-1] + 1)
+            groups.append(g)
+            i = g[-1] + 1
+        return groups
+
+    async def _request_merge_plan(self, pairs_block: str) -> str:
+        """Call LLM TỐI GIẢN (system riêng, không dính prompt dịch) trả YES/NO cho
+        từng cặp segment nghi là một câu bị cắt. Few-shot có cả ca NO (tên + chức
+        danh) để model không gộp bừa các cột caption đứng cạnh nhau."""
+        sys_content = (
+            "Bạn là bộ phân tích văn bản OCR truyện tranh Trung văn. Mỗi dòng có cặp "
+            "đoạn A và B (B đứng NGAY SAU A trên trang). Trả lời YES CHỈ KHI A bị CẮT "
+            "GIỮA CHỪNG (chưa trọn câu, ý đang dở, ngắt giữa cụm từ) và B nối thẳng "
+            "vào A thành một câu liền mạch. Trả lời NO nếu A và B là hai câu/cụm độc "
+            "lập. Đặc biệt LUÔN là NO khi: A là nhãn/danh xưng/miêu tả ngắn về nhân "
+            "vật (tên, chức danh, cảnh giới), HOẶC B tự nó đã là một câu hoàn chỉnh "
+            "đứng riêng được. Phân vân → NO.\n"
+            "CHỈ trả lời mỗi dòng dạng 'số: YES' hoặc 'số: NO'. Không giải thích."
+        )
+        messages = [
+            {'role': 'system', 'content': sys_content},
+            {'role': 'user', 'content': '1. A=「他拿起手中的」 B=「剑朝我刺来。」\n'
+                                        '2. A=「李雷」 B=「高级炼金术师」\n'
+                                        '3. A=「白面书生哥哥」 B=「圣女被困外海，正被两个修士追杀！」'},
+            {'role': 'assistant', 'content': '1: YES\n2: NO\n3: NO'},
+            {'role': 'user', 'content': pairs_block},
+        ]
+        extra_body = {"chat_template_kwargs": {"enable_thinking": False}}
+        response = await self.client.chat.completions.create(
+            model=self.model or CUSTOM_OPENAI_MODEL,
+            messages=messages,
+            max_tokens=256,
+            temperature=0,
+            top_p=1.0,
+            seed=self._SEED if self._DETERMINISTIC else None,
+            extra_body=extra_body,
+        )
+        try:
+            self.token_count += response.usage.total_tokens
+            self.token_count_last = response.usage.total_tokens
+        except Exception:
+            pass
+        out = response.choices[0].message.content or ''
+        self.logger.info(f'[merge-llm] plan ({pairs_block.count(chr(10)) + 1} cặp):\n{out.strip()}')
+        return out
 
     async def _request_translation(self, to_lang: str, prompt: str) -> str:
         sys_content = self.chat_system_template.format(to_lang=to_lang)

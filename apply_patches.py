@@ -35,6 +35,9 @@ Patches applied:
      - Uses <|n|> segment markers so multi-line translations are correctly mapped
        to their source segments (prevents text loss on long translations).
      - Watermark detection → ZWJ fallback for inpainting without rendering.
+     - Decor detection: vùng nguồn toàn Latin (không 1 ký tự CJK — brand print
+       "BALENCIAGA" in trên artwork…) → trả nguyên văn để MIT bỏ qua vùng đó
+       (không dịch, không inpaint, không render — giữ nguyên artwork gốc).
      - Retry up to 10 times when output is not Vietnamese.
 
   4. manga_translator/detection/ctd.py

@@ -86,6 +86,11 @@
           <button class="btn btn-ghost"    onclick="resetConfig()" title="Khôi phục mặc định"
                   data-i18n-title="btn.reset_config.title">↺</button>
         </div>
+        <label class="cb-item" style="margin-top:10px; gap:12px" data-i18n-title="crawl.skip_existing.title"
+               title="Ảnh đã có trên đĩa sẽ được bỏ qua — chạy lại chỉ tải phần còn thiếu">
+          <input type="checkbox" id="skipExistingChk" checked />
+          <span data-i18n="crawl.skip_existing.label">⏭ Bỏ qua ảnh đã có (chỉ tải phần thiếu)</span>
+        </label>
         <label class="cb-item" style="margin-top:10px; gap:12px" data-i18n-title="crawl.auto_retry.title">
           <input type="checkbox" id="autoRetryChk" onchange="onAutoRetryChkChange()" />
           <span data-i18n="crawl.auto_retry.label">↺ Tự động retry ảnh lỗi</span>&nbsp;
