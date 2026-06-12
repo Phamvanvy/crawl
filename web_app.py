@@ -146,6 +146,7 @@ def _crawl_queue_worker() -> None:
             workers = job["workers"]
             timeout = job["timeout"]
             retries = job["retries"]
+            skip_existing = job.get("skip_existing", True)
 
             _push({"type": "log", "msg": "─" * 60})
             _push({"type": "log", "msg": f"▶ Bắt đầu job queue: {len(urls)} URL"})
@@ -177,6 +178,7 @@ def _crawl_queue_worker() -> None:
                     on_progress=on_progress,
                     on_log=lambda msg: _push({"type": "log", "msg": str(msg)}),
                     stop_event=_stop_event,
+                    skip_existing=skip_existing,
                 )
 
                 cumulative_done += job_total
@@ -223,6 +225,7 @@ def api_start():
         "workers": workers,
         "timeout": timeout,
         "retries": retries,
+        "skip_existing": bool(data.get("skip_existing", True)),
     }
 
     # Quyết định khởi động worker + claim `running` trong CÙNG một lock để tránh

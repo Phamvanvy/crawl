@@ -110,13 +110,15 @@ class ImageDownloader:
                  max_workers: int = 4, timeout: int = 20,
                  max_retries: int = 3,
                  on_progress=None, on_log=None,
-                 stop_event: threading.Event | None = None):
+                 stop_event: threading.Event | None = None,
+                 skip_existing: bool = False):
         self.output_folder = Path(output_folder)
         self.output_folder.mkdir(parents=True, exist_ok=True)
         self.delay = delay
         self.max_workers = max_workers
         self.timeout = timeout
         self.max_retries = max(0, int(max_retries))
+        self.skip_existing = skip_existing
         self.failed_items: list[dict] = []  # {"url": str, "index": int}
         self.on_progress = on_progress or (lambda done, total: None)
         self.on_log = on_log or print
@@ -146,6 +148,15 @@ class ImageDownloader:
         if self.stop_event.is_set():
             return
         filename = url_to_filename(url, index)
+        if self.skip_existing:
+            existing = self.output_folder / filename
+            if existing.exists() and existing.stat().st_size > 0:
+                with self._lock:
+                    self.skipped += 1
+                    done = self.success + self.failed + self.skipped
+                    self.on_progress(done, total)
+                self.on_log(f"  [EXIST {index}/{total}] {filename} — đã có, bỏ qua")
+                return
         dest = self._claim_path(filename)  # thread-safe reservation
         last_exc: Exception | None = None
         for attempt in range(self.max_retries + 1):
@@ -361,7 +372,8 @@ def _crawl_single_page(url: str, output_folder: str, delay: float = 0.3,
                        max_retries: int = 3,
                        on_progress=None, on_log=None,
                        stop_event: threading.Event | None = None,
-                       session=None) -> tuple[int, int, list[dict]]:
+                       session=None,
+                       skip_existing: bool = False) -> tuple[int, int, list[dict]]:
     """
     Crawl ảnh từ một trang `url` → lưu vào `output_folder`.
     Trả về (số ảnh thành công, số ảnh lỗi, danh sách URL lỗi).
@@ -387,6 +399,7 @@ def _crawl_single_page(url: str, output_folder: str, delay: float = 0.3,
         on_progress=on_progress,
         on_log=log,
         stop_event=stop_event,
+        skip_existing=skip_existing,
     )
     return downloader.download_all(image_urls, referer=url)
 
@@ -527,6 +540,7 @@ def crawl_search_listing(
         max_workers: int = 4, timeout: int = 20, max_retries: int = 3,
         on_progress=None, on_log=None,
         stop_event: threading.Event | None = None,
+        skip_existing: bool = False,
 ) -> tuple[int, int, list[dict]]:
     """Crawl tất cả gallery từ trang tìm kiếm wnacg (tự động duyệt nhiều trang).
 
@@ -639,6 +653,7 @@ def crawl_search_listing(
                 on_log=log,
                 stop_event=stop,
                 session=session,
+                skip_existing=skip_existing,
             )
             total_ok += ok
             total_fail += fail
@@ -734,9 +749,13 @@ def _crawl_mhxs_article(url: str, output_folder: str, delay: float = 0.3,
                         max_retries: int = 3,
                         on_progress=None, on_log=None,
                         stop_event: threading.Event | None = None,
-                        session=None) -> tuple[int, int, list[dict]]:
+                        session=None,
+                        title_subfolder: bool = False,
+                        skip_existing: bool = False) -> tuple[int, int, list[dict]]:
     """Crawl ảnh từ một trang chương mhxiaoshen → lưu vào `output_folder`.
-    CDN (cdn.mmba.stream) yêu cầu Referer thuộc mhxiaoshen.vip nên referer = URL chương."""
+    CDN (cdn.mmba.stream) yêu cầu Referer thuộc mhxiaoshen.vip nên referer = URL chương.
+    `title_subfolder=True`: tự tạo subfolder theo tiêu đề bài viết (h1.post-title).
+    `skip_existing=True`: bỏ qua ảnh đã có trên đĩa (chỉ tải phần thiếu)."""
     log = on_log or print
     if session is None:
         session = make_session(referer=url)
@@ -748,6 +767,10 @@ def _crawl_mhxs_article(url: str, output_folder: str, delay: float = 0.3,
         log("Không tìm thấy ảnh nào trên trang này (có thể là nội dung VIP).")
         return 0, 0, []
 
+    if title_subfolder and title:
+        output_folder = str(Path(output_folder) / sanitize_filename(title))
+        log(f"Lưu vào: {output_folder}")
+
     log(f"Tìm thấy {len(image_urls)} ảnh{f' — {title}' if title else ''}. Bắt đầu tải xuống…")
     downloader = ImageDownloader(
         output_folder=output_folder,
@@ -758,6 +781,7 @@ def _crawl_mhxs_article(url: str, output_folder: str, delay: float = 0.3,
         on_progress=on_progress,
         on_log=log,
         stop_event=stop_event,
+        skip_existing=skip_existing,
     )
     return downloader.download_all(image_urls, referer=url)
 
@@ -767,13 +791,16 @@ def crawl_mhxs_listing(
         max_workers: int = 4, timeout: int = 20, max_retries: int = 3,
         on_progress=None, on_log=None,
         stop_event: threading.Event | None = None,
+        skip_existing: bool = False,
 ) -> tuple[int, int, list[dict]]:
     """Crawl tất cả bài viết từ trang tìm kiếm/danh mục mhxiaoshen (duyệt mọi trang).
 
     Thứ tự crawl giống wnacg: trang cao nhất → trang 1, trong mỗi trang từ dưới lên
     (kết quả mới nhất hiển thị trước nên cách này tải chương cũ trước, mới sau).
 
-    Cấu trúc thư mục output:  output_folder / <tiêu đề bài viết>
+    Cấu trúc thư mục output (giống wnacg):
+        output_folder / <tên series chung> / <phần riêng của mỗi bài viết>
+    Ví dụ:  D:\\Comic / [fh8di] 我在凡修当魔头 / 16
     """
     log = on_log or print
     stop = stop_event or threading.Event()
@@ -807,9 +834,25 @@ def crawl_mhxs_listing(
         log("Không tìm thấy bài viết nào.")
         return 0, 0, []
 
+    # ── Phase 2: tính series folder từ tiền tố chung (như wnacg) ─────────────
+    titles = [title for title, _ in all_items]
+    prefix = _titles_common_prefix(titles) if len(titles) > 1 else ""
+    if prefix and not prefix.endswith(" "):
+        # Lùi về ranh giới khoảng trắng để không cắt giữa từ/số ("…魔头 1" → "…魔头 ")
+        sp = prefix.rfind(" ")
+        if sp > 0:
+            prefix = prefix[:sp + 1]
+    series_name = sanitize_filename(prefix) if prefix.strip() else ""
+
+    if series_name:
+        series_folder = Path(output_folder) / series_name
+        log(f"Series folder: {series_folder}")
+    else:
+        series_folder = Path(output_folder)
+
     log(f"Tổng cộng {len(all_items)} bài viết.  Bắt đầu tải…")
 
-    # ── Phase 2: crawl từng bài viết vào subfolder riêng theo tiêu đề ─────────
+    # ── Phase 3: crawl từng bài viết vào subfolder riêng ─────────────────────
     total_ok = total_fail = 0
     all_failed: list[dict] = []
     cumulative_ok = 0
@@ -817,8 +860,9 @@ def crawl_mhxs_listing(
     for i, (title, art_url) in enumerate(all_items, start=1):
         if stop.is_set():
             break
-        sub = sanitize_filename(title) or f"article_{i}"
-        dest = str(Path(output_folder) / sub)
+        sub = title[len(prefix):].strip() if prefix else title
+        sub = sanitize_filename(sub) or sanitize_filename(title) or f"article_{i}"
+        dest = str(series_folder / sub)
         log(f"\n{'─' * 60}")
         log(f"▶ [{i}/{len(all_items)}] {title}")
 
@@ -837,6 +881,7 @@ def crawl_mhxs_listing(
             on_log=log,
             stop_event=stop,
             session=session,
+            skip_existing=skip_existing,
         )
         total_ok += ok
         total_fail += fail
@@ -852,10 +897,12 @@ def crawl(url: str, output_folder: str, delay: float = 0.3,
           max_workers: int = 4, timeout: int = 20,
           max_retries: int = 3,
           on_progress=None, on_log=None,
-          stop_event: threading.Event | None = None) -> tuple[int, int, list[dict]]:
+          stop_event: threading.Event | None = None,
+          skip_existing: bool = True) -> tuple[int, int, list[dict]]:
     """
     Entry point chính: crawl ảnh từ `url` → lưu vào `output_folder`.
     Tự động nhận diện URL tìm kiếm wnacg/mhxiaoshen và xử lý nhiều trang.
+    `skip_existing=True` (mặc định): ảnh đã có trên đĩa được bỏ qua, chỉ tải phần thiếu.
     Trả về (số ảnh thành công, số ảnh lỗi, danh sách URL lỗi).
     """
     if _is_mhxs_url(url):
@@ -864,17 +911,20 @@ def crawl(url: str, output_folder: str, delay: float = 0.3,
                 url=url, output_folder=output_folder, delay=delay,
                 max_workers=max_workers, timeout=timeout, max_retries=max_retries,
                 on_progress=on_progress, on_log=on_log, stop_event=stop_event,
+                skip_existing=skip_existing,
             )
         return _crawl_mhxs_article(
             url=url, output_folder=output_folder, delay=delay,
             max_workers=max_workers, timeout=timeout, max_retries=max_retries,
             on_progress=on_progress, on_log=on_log, stop_event=stop_event,
+            title_subfolder=True, skip_existing=skip_existing,
         )
     if _is_wnacg_search(url):
         return crawl_search_listing(
             url=url, output_folder=output_folder, delay=delay,
             max_workers=max_workers, timeout=timeout, max_retries=max_retries,
             on_progress=on_progress, on_log=on_log, stop_event=stop_event,
+            skip_existing=skip_existing,
         )
     # URL wnacg đơn lẻ (slide/index page) cũng cần curl_cffi
     _session = make_wnacg_session(url, timeout=timeout) if _is_wnacg_url(url) else None
@@ -883,6 +933,7 @@ def crawl(url: str, output_folder: str, delay: float = 0.3,
         max_workers=max_workers, timeout=timeout, max_retries=max_retries,
         on_progress=on_progress, on_log=on_log, stop_event=stop_event,
         session=_session,
+        skip_existing=skip_existing,
     )
 
 
@@ -900,6 +951,8 @@ def main():
                         help="Số luồng tải đồng thời (mặc định 4)")
     parser.add_argument("--timeout", type=int, default=20,
                         help="Timeout mỗi request (giây, mặc định 20)")
+    parser.add_argument("--redownload", action="store_true",
+                        help="Tải lại cả ảnh đã có trên đĩa (mặc định: bỏ qua ảnh đã có)")
     args = parser.parse_args()
 
     ok, fail, _ = crawl(
@@ -908,6 +961,7 @@ def main():
         delay=args.delay,
         max_workers=args.workers,
         timeout=args.timeout,
+        skip_existing=not args.redownload,
     )
     print(f"\nHoàn thành: {ok} thành công, {fail} thất bại.")
     print(f"Ảnh được lưu tại: {Path(args.output).resolve()}")

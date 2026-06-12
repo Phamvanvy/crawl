@@ -10,6 +10,7 @@ async function enqueueCrawl() {
   const workers = parseInt(getVal("workersInput"), 10);
   const timeout = parseInt(getVal("timeoutInput"), 10);
   const retries = parseInt(getVal("retriesInput"), 10);
+  const skip_existing = $("skipExistingChk").checked;
 
   if (!_crawling) {
     _cursor   = 0;
@@ -31,7 +32,7 @@ async function enqueueCrawl() {
     res  = await fetch("/api/start", {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ urls: validUrls, folder, delay, workers, timeout, retries }),
+      body:    JSON.stringify({ urls: validUrls, folder, delay, workers, timeout, retries, skip_existing }),
     });
     json = await res.json();
   } catch (e) {
@@ -73,6 +74,7 @@ function classifyLog(msg) {
   if (msg.includes("[FAIL"))          return "fail";
   if (msg.includes("[RETRY"))         return "warn";
   if (msg.includes("[skip]"))         return "skip";
+  if (msg.includes("[EXIST"))         return "skip";
   if (msg.includes("✘") || msg.includes("Lỗi")) return "fail";
   if (msg.includes("⚠"))             return "warn";
   if (msg.includes("✔") || msg.includes("Hoàn thành")) return "done";
@@ -199,6 +201,7 @@ async function startCrawl() {
   const workers = parseInt(getVal("workersInput"), 10);
   const timeout = parseInt(getVal("timeoutInput"), 10);
   const retries = parseInt(getVal("retriesInput"), 10);
+  const skip_existing = $("skipExistingChk").checked;
 
   _cursor   = 0;
   _crawling = true;
@@ -218,7 +221,7 @@ async function startCrawl() {
     res  = await fetch("/api/start", {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ urls: validUrls, folder, delay, workers, timeout, retries }),
+      body:    JSON.stringify({ urls: validUrls, folder, delay, workers, timeout, retries, skip_existing }),
     });
     json = await res.json();
   } catch (e) {

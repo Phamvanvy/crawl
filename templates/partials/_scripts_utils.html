@@ -28,6 +28,7 @@ function saveConfig() {
     retries:   getVal("retriesInput"),
     autoRetry:      $("autoRetryChk").checked,
     autoRetryTimes: getVal("autoRetryTimes"),
+    skipExisting:   $("skipExistingChk").checked,
   };
   localStorage.setItem("crawlerConfig", JSON.stringify(cfg));
   addLog(tr('alert.saved_config'), "info");
@@ -48,6 +49,7 @@ function loadConfig() {
     if (saved.retries != null) setVal("retriesInput", saved.retries);
     if (saved.autoRetry      != null) $("autoRetryChk").checked    = !!saved.autoRetry;
     if (saved.autoRetryTimes != null) setVal("autoRetryTimes", saved.autoRetryTimes);
+    if (saved.skipExisting   != null) $("skipExistingChk").checked = !!saved.skipExisting;
   } catch {}
 }
 
@@ -58,6 +60,7 @@ function resetConfig() {
   setVal("retriesInput", DEFAULT_CONFIG.retries);
   $("autoRetryChk").checked = false;
   setVal("autoRetryTimes", 3);
+  $("skipExistingChk").checked = true;
   setVal("folderInput",  DEFAULT_CONFIG.folder);
   addLog(tr('alert.reset_config'), "info");
 }
