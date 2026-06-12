@@ -302,6 +302,7 @@ class MITImageTranslator:
             self.image_quality = 95
         self.on_log       = on_log or print
         self.on_progress  = on_progress or (lambda d, t: None)
+        self._pre_dict_path: str | None = None
 
     def _log(self, msg: str):
         self.on_log(msg)
@@ -323,6 +324,18 @@ class MITImageTranslator:
         inp = Path(input_dir)
         out = Path(output_dir)
         out.mkdir(parents=True, exist_ok=True)
+
+        # Từ điển sửa NGUỒN per-truyện (MIT --pre-dict): áp lên text sau OCR,
+        # TRƯỚC khi dịch — chốt các lỗi OCR cố hữu của bộ (vd 阿访→阿诚 khi OCR
+        # đọc nhầm tên nhân vật). Đặt pre_dict.txt trong thư mục ảnh hoặc thư
+        # mục cha (gốc bộ truyện). Mỗi dòng: <regex_sai> <thay_bằng>, # = chú thích.
+        self._pre_dict_path = next(
+            (str(c) for c in (inp / "pre_dict.txt", inp.parent / "pre_dict.txt")
+             if c.is_file()),
+            None,
+        )
+        if self._pre_dict_path:
+            self._log(f"  [PRE-DICT] Từ điển sửa nguồn của bộ: {self._pre_dict_path}")
 
         # images_override = chỉ dịch các ảnh đã chọn (list đường dẫn đầy đủ),
         # None/rỗng = dịch cả thư mục như cũ. Sidecar vùng thủ công vẫn đọc từ
@@ -551,6 +564,8 @@ class MITImageTranslator:
             cmd.append("--use-gpu")
         if self.verbose:
             cmd.append("--verbose")
+        if self._pre_dict_path:
+            cmd += ["--pre-dict", self._pre_dict_path]
         cmd += ["local", "-i", str(scan_inp), "-o", str(out), "--config-file", cfg_path]
         if self.skip_no_text:
             cmd.append("--skip-no-text")
@@ -783,6 +798,8 @@ class MITImageTranslator:
                 cmd.append("--use-gpu")
             if self.verbose:
                 cmd.append("--verbose")
+            if getattr(self, "_pre_dict_path", None):
+                cmd += ["--pre-dict", self._pre_dict_path]
             cmd += ["local", "-i", tmp_in, "-o", str(out_dir),
                     "--config-file", manual_cfg_path, "--overwrite"]
             self._spawn_mit(cmd, stop_event=stop_event,

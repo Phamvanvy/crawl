@@ -1,4 +1,7 @@
 <script>
+// true = job dịch của tab này đang xếp hàng chờ job khác (vd tab khác) chạy xong.
+let _tQueuedWait = false;
+
 async function tPoll() {
   let data;
   try {
@@ -38,8 +41,15 @@ async function tPoll() {
   }
   _tCursor = data.total;
 
+  // Job của tab này từng phải xếp hàng → hàng đợi cạn nghĩa là nó đã tới lượt chạy.
+  if (_tQueuedWait && data.state.running && !(data.state.queue > 0)) {
+    _tQueuedWait = false;
+    tSetStatus(tr('status.t.running'), 'running');
+  }
+
   if (!data.state.running && _tRunning) {
     _tRunning = false;
+    _tQueuedWait = false;
     tSetCrawling(false);
     tStopPolling();
     const s = data.state.status;
@@ -328,8 +338,12 @@ async function tStart() {
     tAddLog(`⚠  ${json.error || 'Lỗi không xác định'}`, 'warn');
     tSetStatus(tr('status.t.error'), 'error');
     tSetCrawling(false); tStopPolling(); _tRunning = false;
-  } else if (json.output_dir) {
-    _tOutputDir = json.output_dir;
+  } else {
+    if (json.output_dir) _tOutputDir = json.output_dir;
+    if (json.queued) {           // server đang dịch job khác → job này chờ tới lượt
+      _tQueuedWait = true;
+      tSetStatus(tr('status.t.queued'), 'running');
+    }
   }
 }
 
@@ -401,8 +415,12 @@ async function tRetryFailed() {
     tAddLog(`⚠  ${json.error || 'Lỗi không xác định'}`, 'warn');
     tSetStatus(tr('status.t.error'), 'error');
     tSetCrawling(false); tStopPolling(); _tRunning = false;
-  } else if (json.output_dir) {
-    _tOutputDir = json.output_dir;
+  } else {
+    if (json.output_dir) _tOutputDir = json.output_dir;
+    if (json.queued) {           // server đang dịch job khác → retry này chờ tới lượt
+      _tQueuedWait = true;
+      tSetStatus(tr('status.t.queued'), 'running');
+    }
   }
 }
 

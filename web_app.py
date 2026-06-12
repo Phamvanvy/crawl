@@ -468,8 +468,10 @@ _t_state: dict = {
     "failed_images": [],   # list of src paths that failed
     "input_dir": "",
     "output_dir": "",
+    "queue": 0,            # số job dịch đang chờ trong hàng đợi
 }
 _t_stop = threading.Event()
+_t_queue: deque = deque()   # hàng đợi job dịch (mỗi job là một callable không tham số)
 
 def _find_font() -> str | None:
     # Ưu tiên MTO Astro City cho dịch tiếng Việt, sau đến các font khác
@@ -497,14 +499,66 @@ def _t_push(entry: dict) -> None:
             _t_logfile.write(entry.get("msg", ""))
 
 
-def _t_reset() -> None:
+def _t_reset_locked() -> None:
+    """Reset log + state dịch. Caller PHẢI đang giữ `_t_lock`."""
     global _t_log_total
+    _t_logs.clear()
+    _t_log_total = 0
+    _t_queue.clear()
+    _t_state.update(running=True, done=0, total=0, success=0, failed=0, status="running",
+                    failed_images=[], queue=0)
+
+
+def _t_enqueue_or_start(job_fn) -> tuple[bool, int]:
+    """Xếp job dịch vào hàng đợi (giống cơ chế queue của crawl).
+
+    Chưa có job nào chạy → reset state + spawn worker (job chạy ngay).
+    Đang dịch (vd: tab khác đã bấm Dịch) → job xếp hàng, tự chạy khi job trước xong.
+    Quyết định + claim `running` trong CÙNG một lock để 2 request đồng thời
+    không thể cùng spawn 2 worker.
+    Trả về (started, queue_length).
+    """
+    started = False
     with _t_lock:
-        _t_logs.clear()
-        _t_log_total = 0
-        _t_state.update(running=True, done=0, total=0, success=0, failed=0, status="running",
-                        failed_images=[])
-    _t_stop.clear()
+        if not _t_state["running"]:
+            _t_stop.clear()
+            _t_reset_locked()        # set running=True + clear log/queue
+            started = True
+        _t_queue.append(job_fn)
+        _t_state["queue"] = len(_t_queue)
+        queue_length = len(_t_queue)
+    if started:
+        threading.Thread(target=_t_queue_worker, daemon=True).start()
+    return started, queue_length
+
+
+def _t_queue_worker() -> None:
+    """Chạy tuần tự từng job dịch trong hàng đợi.
+
+    Mỗi thời điểm chỉ 1 job (OCR/inpaint/LLM chiếm GPU/VRAM — chạy song song
+    dễ tràn bộ nhớ). `running` giữ nguyên True cho tới khi hàng đợi cạn để
+    các tab đang poll không tưởng nhầm là đã xong khi còn job chờ.
+    """
+    while True:
+        with _t_lock:
+            if _t_stop.is_set() or not _t_queue:
+                break
+            job = _t_queue.popleft()
+            _t_state["queue"] = len(_t_queue)
+            _t_state.update(done=0, total=0, status="running")
+        try:
+            job()
+        except Exception as exc:
+            _t_push({"type": "log", "msg": f"✘  Lỗi job dịch: {exc}"})
+            with _t_lock:
+                _t_state["status"] = "error"
+    with _t_lock:
+        status = _t_state.get("status", "done")
+        if _t_stop.is_set():
+            status = "stopped"
+        elif status == "running":
+            status = "done"
+        _t_state.update(running=False, status=status)
 
 
 # ── Translate routes ──────────────────────────────────────────────────────────
@@ -561,10 +615,6 @@ def api_translate_check():
 
 @app.route("/api/translate/start", methods=["POST"])
 def api_translate_start():
-    with _t_lock:
-        if _t_state["running"]:
-            return jsonify({"error": "Đang dịch rồi. Vui lòng dừng trước."}), 409
-
     data           = request.get_json(silent=True) or {}
     input_dir      = str(data.get("input_dir",      "")).strip()
     output_dir     = str(data.get("output_dir",     "")).strip()
@@ -656,8 +706,6 @@ def api_translate_start():
             if _fp.is_file() and _fp.suffix.lower() in te.IMAGE_EXTS:
                 _picked.append(str(_fp))
         images_override = _picked or None
-
-    _t_reset()
 
     def run() -> None:
         # Nhật ký file của lần dịch này (đè lần trước). Header ghi đủ cấu hình để
@@ -776,18 +824,25 @@ def api_translate_start():
             )
             _t_push({"type": "log",  "msg": f"\n✔  Xong: {ok} OK, {fail} lỗi."})
             _t_push({"type": "done", "success": ok, "failed": fail, "output_dir": output_dir})
+            # KHÔNG đụng `running` ở đây — _t_queue_worker quản lý cờ đó để các
+            # job còn chờ trong hàng đợi được chạy tiếp.
             with _t_lock:
-                _t_state.update(running=False, success=ok, failed=fail, status="done",
+                _t_state.update(success=ok, failed=fail, status="done",
                                  failed_images=failed_images,
                                  input_dir=input_dir, output_dir=output_dir)
         except Exception as exc:
             _t_push({"type": "log",   "msg": f"✘  Lỗi: {exc}"})
             _t_push({"type": "error", "msg": str(exc)})
             with _t_lock:
-                _t_state.update(running=False, status="error")
+                _t_state.update(status="error")
 
-    threading.Thread(target=run, daemon=True).start()
-    return jsonify({"ok": True, "output_dir": output_dir})
+    started, queue_length = _t_enqueue_or_start(run)
+    if not started:
+        _t_push({"type": "log",
+                 "msg": f"⏳ Đang có job dịch chạy — đã xếp hàng job mới: {input_dir} "
+                        f"(vị trí {queue_length}). Sẽ tự chạy khi job trước xong."})
+    return jsonify({"ok": True, "queued": (not started), "queue_length": queue_length,
+                    "output_dir": output_dir})
 
 
 @app.route("/api/translate/stop", methods=["POST"])
@@ -795,9 +850,14 @@ def api_translate_stop():
     with _t_lock:
         if not _t_state["running"]:
             return jsonify({"ok": True})
-        _t_state.update(running=False, status="stopped")
+        dropped = len(_t_queue)
+        _t_queue.clear()
+        _t_state.update(running=False, status="stopped", queue=0)
     _t_stop.set()
-    _t_push({"type": "log", "msg": "⚠  Yêu cầu dừng đã gửi."})
+    msg = "⚠  Yêu cầu dừng đã gửi."
+    if dropped:
+        msg += f" Đã hủy {dropped} job đang chờ trong hàng đợi."
+    _t_push({"type": "log", "msg": msg})
     return jsonify({"ok": True})
 
 
@@ -814,11 +874,7 @@ def api_translate_failed():
 
 @app.route("/api/translate/retry_failed", methods=["POST"])
 def api_translate_retry_failed():
-    """Retry chỉ các ảnh dịch bị lỗi."""
-    with _t_lock:
-        if _t_state["running"]:
-            return jsonify({"error": "Đang dịch rồi. Vui lòng dừng trước."}), 409
-
+    """Retry chỉ các ảnh dịch bị lỗi (xếp hàng nếu đang có job dịch chạy)."""
     with _t_lock:
         failed_images = list(_t_state.get("failed_images", []))
         input_dir     = _t_state.get("input_dir", "")
@@ -851,8 +907,6 @@ def api_translate_retry_failed():
         image_quality = max(40, min(100, image_quality))
     except (TypeError, ValueError):
         image_quality = 95
-
-    _t_reset()
 
     def run() -> None:
         _t_logfile.reopen([
@@ -900,18 +954,24 @@ def api_translate_retry_failed():
             )
             _t_push({"type": "log",  "msg": f"\n✔  Retry xong: {ok} OK, {fail} lỗi."})
             _t_push({"type": "done", "success": ok, "failed": fail, "output_dir": output_dir})
+            # KHÔNG đụng `running` — _t_queue_worker quản lý cờ đó.
             with _t_lock:
-                _t_state.update(running=False, success=ok, failed=fail, status="done",
+                _t_state.update(success=ok, failed=fail, status="done",
                                  failed_images=new_failed,
                                  input_dir=input_dir, output_dir=output_dir)
         except Exception as exc:
             _t_push({"type": "log",   "msg": f"✘  Lỗi: {exc}"})
             _t_push({"type": "error", "msg": str(exc)})
             with _t_lock:
-                _t_state.update(running=False, status="error")
+                _t_state.update(status="error")
 
-    threading.Thread(target=run, daemon=True).start()
-    return jsonify({"ok": True, "output_dir": output_dir})
+    started, queue_length = _t_enqueue_or_start(run)
+    if not started:
+        _t_push({"type": "log",
+                 "msg": f"⏳ Đang có job dịch chạy — retry {len(failed_images)} ảnh lỗi đã xếp hàng "
+                        f"(vị trí {queue_length}). Sẽ tự chạy khi job trước xong."})
+    return jsonify({"ok": True, "queued": (not started), "queue_length": queue_length,
+                    "output_dir": output_dir})
 
 
 @app.route("/api/viewer/delete", methods=["POST"])
