@@ -5,7 +5,7 @@ Usage:
     python apply_patches.py
 
 Run this once after:
-    - Cloning tmp_repo (git clone https://github.com/zyddnys/manga-image-translator.git tmp_repo)
+    - Cloning tmp_repo (git clone https://github.com/Phamvanvy/manga-image-translator.git tmp_repo)
     - pip install -e tmp_repo
     - Re-creating mit_venv
     - Modifying any file in patches/

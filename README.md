@@ -92,6 +92,8 @@ ollama pull qwen2.5:32b-q4_K_M  # ~20 GB, chất lượng tốt nhất
 
 ### Bước 3 — Cài manga-image-translator (MIT backend)
 
+> 📌 **Dùng bản fork [Phamvanvy/manga-image-translator](https://github.com/Phamvanvy/manga-image-translator)** thay vì repo gốc — bản fork đã được tối ưu riêng cho project này (dịch tiếng Việt). Các lệnh bên dưới đều clone từ fork.
+
 #### Cách A — Tự động (Windows, khuyên dùng)
 
 Double-click **`setup_mit.bat`** — script tự kiểm tra Python 3.11, tạo `mit_venv`, cài PyTorch + MIT và kiểm tra import. Sau khi xong, chạy thêm:
@@ -119,8 +121,8 @@ py -3.11 -m venv mit_venv
 # Không có GPU:
 # .\mit_venv\Scripts\python.exe -m pip install torch torchvision
 
-# 4. Clone source manga-image-translator (PHẢI clone, không pip install git+)
-git clone https://github.com/zyddnys/manga-image-translator.git tmp_repo
+# 4. Clone bản fork đã tối ưu (PHẢI clone, không pip install git+)
+git clone https://github.com/Phamvanvy/manga-image-translator.git tmp_repo
 
 # 5. Cài dependencies từ repo
 .\mit_venv\Scripts\python.exe -m pip install -r tmp_repo\requirements.txt

@@ -115,7 +115,7 @@ echo   Clone manga-image-translator tu GitHub...
 
 if exist "_mit_tmp" rmdir /s /q "_mit_tmp"
 
-git clone --depth=1 https://github.com/zyddnys/manga-image-translator.git _mit_tmp
+git clone --depth=1 https://github.com/Phamvanvy/manga-image-translator.git _mit_tmp
 
 if errorlevel 1 goto errclone
 
