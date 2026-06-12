@@ -4,7 +4,7 @@
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)
 
-> **Image Crawler** — Công cụ tải ảnh từ web + dịch manga (Trung/Anh → Việt) với OCR và model AI.
+> **Image Crawler** — Công cụ tải ảnh từ web + dịch manga (Trung/Anh → Việt) với OCR và model AI chạy local.
 
 Một ứng dụng web Python kết hợp 4 chức năng chính:
 1. 🕷️ **Crawl ảnh từ web** — Tự động phát hiện và tải ảnh từ bất kỳ trang web nào
@@ -12,14 +12,20 @@ Một ứng dụng web Python kết hợp 4 chức năng chính:
 3. 🌐 **Dịch manga** — Dịch text Trung/Anh → Việt trong ảnh với OCR + Ollama hoặc `manga-image-translator`
 4. 👁️ **Xem ảnh** — Lightbox viewer trực tiếp trên trình duyệt
 
+![Giao diện ứng dụng](image.png)
+
 ---
 
 ## Yêu cầu hệ thống
 
-- Python **3.10–3.12** (khuyên dùng 3.12 cho web app)
-- Python **3.11** riêng để chạy `manga-image-translator` (nếu dùng MIT backend)
+- Python **3.10–3.12** cho web app (khuyên dùng 3.12)
+- Python **3.11** riêng để chạy `manga-image-translator` (chỉ khi dùng MIT backend)
+- Git (để clone MIT backend)
 - Windows / Linux / macOS
 - *(Tuỳ chọn)* GPU NVIDIA — tăng tốc OCR ~5×, bắt buộc cho LAMA inpainting
+
+> 💡 Chỉ cần **crawl + xem ảnh** thì làm theo [Cài đặt nhanh](#cài-đặt-nhanh) là đủ.
+> Muốn **dịch manga** thì cài thêm theo [Cài đặt tính năng dịch](#cài-đặt-tính-năng-dịch).
 
 ---
 
@@ -39,23 +45,27 @@ python web_app.py
 # hoặc double-click start.bat (Windows)
 ```
 
-Trình duyệt sẽ tự mở tại `http://127.0.0.1:5000`.
+Trình duyệt sẽ tự mở tại `http://127.0.0.1:5000` (đổi port bằng biến môi trường `PORT`).
+
+> Ngoài web app, có thể chạy `python app.py` để dùng **GUI desktop (Tkinter)** — chỉ có chức năng crawl ảnh, nhẹ và không cần trình duyệt.
 
 ---
 
-## Cài đặt đầy đủ (tất cả tính năng)
+## Cài đặt tính năng dịch
 
-### Bước 1 — Cài web app và OCR + Ollama backend
+Có 2 backend dịch, cài 1 hoặc cả 2:
+
+| Backend | Chất lượng | Cần cài |
+|---|---|---|
+| **OCR + Ollama** | Khá | Bước 1 + Bước 2 |
+| **manga-image-translator (MIT)** | Tốt hơn (khuyên dùng) | Bước 2 + Bước 3 |
+
+### Bước 1 — Cài OCR cho backend Ollama
 
 ```powershell
-# Tạo và kích hoạt venv (Python 3.12 hoặc 3.11)
-python -m venv .venv
-.venv\Scripts\activate
-
-# Cài tất cả dependencies bao gồm PyTorch, OCR, Flask
+# Trong .venv của web app
 python setup_translator.py
 # Hoặc thủ công:
-pip install -r requirements.txt
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
 pip install easyocr paddlepaddle paddleocr opencv-python
 ```
@@ -63,7 +73,7 @@ pip install easyocr paddlepaddle paddleocr opencv-python
 ### Bước 2 — Cài Ollama
 
 1. Tải và cài Ollama từ [ollama.com](https://ollama.com)
-2. Kéo model về (chọn 1):
+2. Kéo model về (chọn 1 theo VRAM của máy):
 
 ```powershell
 ollama pull qwen2.5:7b          # ~4.7 GB, cân bằng tốt/nhanh
@@ -73,17 +83,32 @@ ollama pull qwen2.5:32b-q4_K_M  # ~20 GB, chất lượng tốt nhất
 
 3. Đảm bảo Ollama đang chạy (tray icon hoặc `ollama serve`)
 
-### Bước 3 — Cài manga-image-translator backend (tuỳ chọn, chất lượng cao hơn)
+> 💡 Model mà MIT backend dùng để dịch được chọn qua biến môi trường trong [start.bat](start.bat):
+> ```bat
+> set CUSTOM_OPENAI_API_BASE=http://localhost:11434/v1
+> set CUSTOM_OPENAI_MODEL=qwen3-14b-nothink
+> ```
+> Sửa `CUSTOM_OPENAI_MODEL` thành tên model bạn đã pull trong Ollama.
 
-Backend này yêu cầu **Python 3.11** riêng và phải cài vào `mit_venv` riêng biệt.
+### Bước 3 — Cài manga-image-translator (MIT backend)
 
-> ⚠️ **KHÔNG dùng `pip install git+https://...`** — lệnh đó bỏ sót toàn bộ subpackages (`rendering/`, `translators/`...).  
-> Phải clone repo rồi cài editable (`-e`).
+#### Cách A — Tự động (Windows, khuyên dùng)
 
-Chạy từng lệnh từ thư mục gốc project (`e:\repos\crawl`):
+Double-click **`setup_mit.bat`** — script tự kiểm tra Python 3.11, tạo `mit_venv`, cài PyTorch + MIT và kiểm tra import. Sau khi xong, chạy thêm:
 
 ```powershell
-# 1. Tải Python 3.11 từ https://python.org nếu chưa có (bật "Add to PATH")
+python apply_patches.py
+```
+
+#### Cách B — Thủ công
+
+> ⚠️ **KHÔNG dùng `pip install git+https://...`** — lệnh đó bỏ sót toàn bộ subpackages (`rendering/`, `translators/`...).
+> Phải clone repo rồi cài editable (`-e`).
+
+Chạy từng lệnh từ thư mục gốc project:
+
+```powershell
+# 1. Tải Python 3.11 từ https://python.org nếu chưa có
 py -3.11 -m venv mit_venv
 
 # 2. Nâng cấp pip
@@ -94,7 +119,7 @@ py -3.11 -m venv mit_venv
 # Không có GPU:
 # .\mit_venv\Scripts\python.exe -m pip install torch torchvision
 
-# 4. Clone source manga-image-translator (PHẢI dùng clone, không pip install git+)
+# 4. Clone source manga-image-translator (PHẢI clone, không pip install git+)
 git clone https://github.com/zyddnys/manga-image-translator.git tmp_repo
 
 # 5. Cài dependencies từ repo
@@ -113,40 +138,9 @@ python apply_patches.py
 # Kết quả mong đợi: OK
 ```
 
-> **Lưu ý:** Mỗi lần cập nhật MIT, chạy lại `python apply_patches.py`.  
-> `mit_venv` phải nằm trong cùng thư mục với `web_app.py`.
-
----
-
-## Cài đặt một lệnh (one-liner PowerShell)
-
-```powershell
-py -3.11 -m venv mit_venv ; .\mit_venv\Scripts\python.exe -m pip install --upgrade pip ; .\mit_venv\Scripts\python.exe -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124 ; git clone https://github.com/zyddnys/manga-image-translator.git tmp_repo ; .\mit_venv\Scripts\python.exe -m pip install -r tmp_repo\requirements.txt ; .\mit_venv\Scripts\python.exe -m pip install -e tmp_repo ; python apply_patches.py
-```
-
----
-
-## Patches tùy chỉnh (`apply_patches.py`)
-
-Thư mục `patches/` chứa các bản thay thế hoàn chỉnh cho 3 file trong thư viện `manga-image-translator`.  
-`apply_patches.py` copy chúng vào đúng vị trí trong `tmp_repo` (editable install).
-
-> ⚠️ `tmp_repo/` là thư viện ngoài — **không sửa trực tiếp trong đó**.  
-> Mọi thay đổi phải được lưu vào `patches/` rồi chạy `python apply_patches.py`.
-
-| File trong `patches/` | Đích | Nội dung thay đổi |
-|---|---|---|
-| `manga_translator_rendering_init.py` | `manga_translator/rendering/__init__.py` | • Giảm font size thay vì mở rộng bbox (tránh tràn bong bóng)<br>• `fg_bg_compare`: chữ đen + stroke trắng khi nền OCR tối<br>• Pixel sampling thực tế sau inpaint: nếu nền <210 brightness → force chữ đen + stroke trắng<br>• Debug log `[stroke-debug]` per region |
-| `manga_translator_rendering_text_render.py` | `manga_translator/rendering/text_render.py` | • Guard empty `line_width_list` (tránh crash ZWJ)<br>• `bg_size = 0.4 × font_size` (min 4px) — stroke dày hơn mặc định 0.07<br>• `stroke_radius` trong `put_char_*` dùng `border_size` thay vì hardcode 0.07 |
-| `manga_translator_translators_custom_openai.py` | `manga_translator/translators/custom_openai.py` | • Custom OpenAI-compatible translator với segment markers `<\|n\|>`<br>• Watermark detection → ZWJ fallback<br>• Retry tới 10 lần nếu output không phải Việt |
-
-**Workflow chỉnh sửa patch:**
-```powershell
-# 1. Sửa file trong patches/  (KHÔNG sửa trực tiếp trong tmp_repo/)
-# 2. Áp dụng vào tmp_repo:
-python apply_patches.py
-# 3. Chạy lại web app để thấy kết quả
-```
+> **Lưu ý:**
+> - `mit_venv` phải nằm trong cùng thư mục với `web_app.py`.
+> - Mỗi lần cập nhật MIT hoặc tạo lại `mit_venv`, chạy lại `python apply_patches.py`.
 
 ---
 
@@ -161,7 +155,7 @@ python apply_patches.py
 
 ### 2. Dịch manga (Trung/Anh → Việt)
 1. Mở tab **🌐 Dịch ảnh**
-2. Bấm **🔍 Kiểm tra** — đảm bảo các mục cần thiết ✅
+2. Bấm **🔍 Kiểm tra** — đảm bảo các mục cần thiết hiện ✅
 3. Chọn **Thư mục nguồn** (ảnh cần dịch)
 4. Chọn **Backend**:
    - **OCR + Ollama**: cần EasyOCR/PaddleOCR + Ollama đang chạy
@@ -175,30 +169,57 @@ python apply_patches.py
 
 ---
 
+## Patches tùy chỉnh (`apply_patches.py`)
+
+Thư mục `patches/` chứa các bản thay thế hoàn chỉnh cho **6 file** trong thư viện `manga-image-translator`, tối ưu cho việc dịch sang tiếng Việt. `apply_patches.py` tự tìm `manga_translator` (trong `mit_venv` hoặc bản editable) và copy patch vào đúng vị trí, đồng thời xoá bytecode cache cũ để patch có hiệu lực ngay.
+
+> ⚠️ `tmp_repo/` là thư viện ngoài — **không sửa trực tiếp trong đó**.
+> Mọi thay đổi phải được lưu vào `patches/` (source of truth) rồi chạy `python apply_patches.py`.
+
+| File trong `patches/` | Đích trong `manga_translator/` | Nội dung thay đổi |
+|---|---|---|
+| `manga_translator_rendering_init.py` | `rendering/__init__.py` | • Giảm font size thay vì mở rộng bbox (tránh tràn bong bóng)<br>• `fg_bg_compare`: chữ đen + stroke trắng khi nền OCR tối<br>• Pixel sampling sau inpaint: nền <210 brightness → force chữ đen + stroke trắng<br>• Debug log `[stroke-debug]` per region |
+| `manga_translator_rendering_text_render.py` | `rendering/text_render.py` | • Guard empty `line_width_list` (tránh crash với ký tự ZWJ)<br>• `bg_size = 0.4 × font_size` (min 4px) — stroke dày hơn mặc định 0.07<br>• `stroke_radius` dùng `border_size` thay vì hardcode 0.07 |
+| `manga_translator_translators_custom_openai.py` | `translators/custom_openai.py` | • Translator OpenAI-compatible với segment markers `<\|n\|>` (chống mất chữ khi dịch dài)<br>• Watermark detection → ZWJ fallback<br>• Phát hiện chữ trang trí (brand print toàn Latin) → giữ nguyên artwork gốc<br>• Retry tới 10 lần nếu output không phải tiếng Việt |
+| `manga_translator_detection_ctd.py` | `detection/ctd.py` | • CTD tôn trọng detection_size / text_threshold / box_threshold / unclip_ratio từ UI (mặc định cũ bị hardcode)<br>• Cải thiện phát hiện text nhỏ / SFX |
+| `manga_translator_detection_init.py` | `detection/__init__.py` | • Vẽ tay vùng text qua env var `MIT_MANUAL_REGIONS` (JSON box chuẩn hoá 0–1) — thêm vùng OCR bỏ sót và inpaint chúng |
+| `manga_translator_utils_generic.py` | `utils/generic.py` | • Guard crop rỗng khi bbox của textline nằm sát mép ảnh (tránh crash cv2.warpPerspective làm hỏng cả trang) |
+
+**Workflow chỉnh sửa patch:**
+```powershell
+# 1. Sửa file trong patches/  (KHÔNG sửa trực tiếp trong tmp_repo/)
+# 2. Áp dụng:
+python apply_patches.py
+# 3. Chạy lại web app để thấy kết quả
+```
+
+---
+
 ## Cấu trúc project
 
 ```
 crawl/
 ├── web_app.py              — Flask server + tất cả API routes
+├── app.py                  — GUI desktop (Tkinter), chỉ chức năng crawl
 ├── crawler.py              — Logic crawl và tải ảnh
 ├── translator_engine.py    — Shim tương thích (import từ package bên dưới)
 ├── translator_engine_pkg/  — Package dịch ảnh
 │   ├── _ocr.py             — PaddleOCR/EasyOCR, bubble detection
 │   ├── _utils.py           — Helpers: bbox, watermark, LAMA check
+│   ├── _common_utils.py    — Helpers dùng chung
 │   ├── _inpaint.py         — inpaint_region (OpenCV / LAMA)
 │   ├── _translate.py       — Ollama API helpers, translate_batch
 │   ├── _render.py          — Font loading, text rendering
 │   ├── _image_translator.py — ImageTranslator class (Ollama backend)
 │   └── _mit_backend.py     — MITImageTranslator class (MIT backend)
-├── patches/                — **Source of truth** cho các patch MIT (sửa ở đây, không sửa tmp_repo/)
-│   ├── manga_translator_rendering_init.py         — Rendering: contrast/stroke logic, font sizing VI
-│   ├── manga_translator_rendering_text_render.py  — Rendering: stroke radius fix, ZWJ crash guard
-│   └── manga_translator_translators_custom_openai.py — Custom translator với segment markers <|n|>
-├── apply_patches.py        — Script áp dụng patches vào mit_venv
+├── patches/                — Source of truth cho 6 patch MIT (sửa ở đây, không sửa tmp_repo/)
+├── apply_patches.py        — Áp dụng patches vào manga_translator (tự tìm mit_venv / editable)
+├── mit_inpaint_helper.py   — Inpaint với mask có sẵn bằng inpainter của MIT (chạy bằng mit_venv)
 ├── gpt_config_vi.yaml      — Config custom_openai translator
-├── setup_translator.py     — Cài AI dependencies tự động
+├── setup_translator.py     — Cài AI dependencies tự động (backend Ollama)
+├── setup_mit.bat           — Cài MIT backend tự động (Windows)
 ├── requirements.txt        — Dependencies cơ bản (Flask, requests, ...)
-├── start.bat               — Khởi động nhanh (Windows)
+├── start.bat               — Khởi động nhanh + set model Ollama cho MIT (Windows)
 ├── templates/              — Giao diện web (HTML/JS/CSS)
 │   ├── index.html
 │   └── partials/           — Partial templates theo tab/chức năng
@@ -216,6 +237,18 @@ crawl/
 | RTX 4070+ / 3080+ (12–16 GB) | ~0.5–1s | ~3–8s |
 | GTX 1660 / RTX 3060 (6–8 GB) | ~1–2s | ~5–15s |
 | CPU only | ~5–10s | ~5–15s |
+
+---
+
+## Khắc phục sự cố
+
+| Vấn đề | Cách xử lý |
+|---|---|
+| Tab Dịch ảnh báo MIT ❌ | Kiểm tra `mit_venv` nằm cùng thư mục `web_app.py`; chạy lệnh kiểm tra import ở Bước 3 |
+| Patch sửa rồi nhưng "không ăn" | Chạy lại `python apply_patches.py` (script tự xoá `.pyc` cache) rồi khởi động lại web app |
+| Dịch báo lỗi kết nối Ollama | Đảm bảo Ollama đang chạy (`ollama serve`) và model trong `start.bat` đã được pull |
+| `pip install git+...` xong nhưng MIT thiếu module | Gỡ ra, cài lại theo Bước 3 (phải clone + cài editable) |
+| Port 5000 bị chiếm | Đặt biến môi trường `PORT` trước khi chạy: `$env:PORT=8080; python web_app.py` |
 
 ---
 
