@@ -113,6 +113,29 @@
             </div>
           </div>
 
+          <!-- Glossary per-truyện (tên / xưng hô / cảnh giới — tự học) -->
+          <div class="card" style="margin-bottom:12px">
+            <div class="card-header">
+              <span>📒 Glossary truyện
+                <span style="font-size:.7rem;opacity:.6">(tên · xưng hô · cảnh giới — tự cập nhật sau mỗi lần dịch)</span>
+              </span>
+              <span style="display:flex;gap:6px">
+                <button class="btn btn-ghost" style="padding:3px 10px;font-size:.72rem" onclick="tLoadGlossary()">↻ Tải</button>
+                <button class="btn btn-primary" style="padding:3px 10px;font-size:.72rem" onclick="tSaveGlossary()">💾 Lưu</button>
+              </span>
+            </div>
+            <div class="card-body">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;font-size:.72rem;color:var(--text-muted)">
+                <span id="tGlossaryPath" style="word-break:break-all">Chọn thư mục nguồn rồi bấm "↻ Tải".</span>
+                <span id="tGlossaryCount" style="margin-left:auto"></span>
+              </div>
+              <textarea id="tGlossaryText" spellcheck="false"
+                placeholder="李雷 => Lý Lôi&#10;青云宗 => Thanh Vân Tông&#10;@note Lý Lôi xưng &quot;ta&quot;, gọi sư phụ là &quot;thầy&quot;"
+                style="width:100%;min-height:150px;resize:vertical;font-family:ui-monospace,Consolas,monospace;font-size:.78rem;line-height:1.5;padding:8px;border:1px solid var(--border);border-radius:7px;background:var(--surface2,#26262f);color:var(--text)"></textarea>
+              <div class="field-hint">Mỗi dòng: <code>chữ Hán =&gt; bản dịch</code> (khoá cứng), hoặc <code>@note &lt;ghi chú xưng hô&gt;</code>. File <code>glossary.txt</code> nằm ở gốc bộ, dùng chung mọi chương — chỉ áp cho bộ này. Cần backend MIT + translator <code>custom_openai</code>.</div>
+            </div>
+          </div>
+
           <!-- System Check -->
           <div class="card" style="margin-bottom:12px">
             <div class="card-header">
@@ -674,16 +697,35 @@ Nếu còn chữ mà không detect nổi, thử 0.45 kèm Detector=ctd và Gamma
     .re-dialog{background:var(--surface,#1b1b22);border:1px solid var(--border);border-radius:12px;
       width:100%;max-width:1280px;display:flex;flex-direction:column;overflow:hidden;}
     .re-body{flex:1;display:flex;min-height:0;}
-    .re-side{width:210px;flex:0 0 auto;border-right:1px solid var(--border);overflow-y:auto;padding:8px;}
+    .re-side-col{width:210px;flex:0 0 auto;border-right:1px solid var(--border);display:flex;flex-direction:column;min-height:0;}
+    .re-side-hdr{display:flex;align-items:center;gap:6px;padding:6px 8px;border-bottom:1px solid var(--border);flex:0 0 auto;}
+    .re-side{flex:1;overflow-y:auto;padding:8px;}
     .re-thumb{display:flex;align-items:center;gap:8px;padding:6px;border-radius:8px;cursor:pointer;
       border:1px solid transparent;margin-bottom:4px;}
     .re-thumb:hover{background:var(--surface2,#26262f);}
+    .re-thumb:hover .re-pin{opacity:1;}
     .re-thumb.active{border-color:var(--accent,#5b8cff);background:var(--surface2,#26262f);}
+    /* Ảnh đã ghim (cần sửa) — viền vàng + nền nhạt + 📌 luôn hiện */
+    .re-thumb.pinned{border-color:var(--warn,#f5a524);background:rgba(245,165,36,.10);}
     .re-thumb .re-pickcb{width:15px;height:15px;flex:0 0 auto;cursor:pointer;margin:0;}
     .re-thumb img{width:46px;height:46px;object-fit:cover;border-radius:5px;background:#000;flex:0 0 auto;}
     .re-thumb .re-tn{flex:1;min-width:0;font-size:.74rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
     .re-badge{background:var(--accent,#5b8cff);color:#fff;border-radius:10px;font-size:.66rem;
       padding:1px 7px;font-weight:600;flex:0 0 auto;}
+    .re-fresh{flex:0 0 auto;font-size:.7rem;line-height:1;}
+    .re-thumb.fresh{box-shadow:inset 3px 0 0 var(--green,#22c55e);}
+    .re-pin{flex:0 0 auto;background:transparent;border:0;cursor:pointer;font-size:.85rem;line-height:1;
+      padding:2px;border-radius:5px;opacity:.28;filter:grayscale(1);transition:opacity .12s,filter .12s;}
+    .re-pin:hover{opacity:1;filter:none;}
+    .re-pin.on{opacity:1;filter:none;}
+    .re-thumb.pinned .re-pin{opacity:1;filter:none;}
+    .img-sort-sel{background:var(--surface2,#26262f);color:var(--text);border:1px solid var(--border);
+      border-radius:6px;padding:3px 6px;font-size:.74rem;cursor:pointer;}
+    /* Nút lọc "chỉ hiện ảnh đã ghim" — bật thì viền vàng + nền nhạt */
+    .img-pinfilter{background:var(--surface2,#26262f);border:1px solid var(--border);border-radius:6px;
+      padding:2px 7px;font-size:.8rem;line-height:1.2;cursor:pointer;opacity:.55;filter:grayscale(1);}
+    .img-pinfilter:hover{opacity:.85;}
+    .img-pinfilter.active{opacity:1;filter:none;border-color:var(--warn,#f5a524);background:rgba(245,165,36,.14);}
     .re-main{flex:1;display:flex;flex-direction:column;min-width:0;}
     .re-toolbar{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--border);flex-wrap:wrap;}
     .re-canvas-wrap{flex:1;overflow:auto;display:flex;align-items:flex-start;justify-content:center;
@@ -810,7 +852,17 @@ Nếu còn chữ mà không detect nổi, thử 0.45 kèm Detector=ctd và Gamma
           title="Dịch ngay các ảnh đã tích (tự 💾 lưu vùng của ảnh đang mở trước). Đóng editor và chạy ở màn chính.">▶ Dịch ảnh đã chọn</button>
       </div>
       <div class="re-body">
-        <div class="re-side" id="reSide"></div>
+        <div class="re-side-col">
+          <div class="re-side-hdr">
+            <span class="re-pill" data-i18n="sort.label">Sắp xếp:</span>
+            <select id="reSort" class="img-sort-sel" onchange="reOnSortChange(this.value)" title="Sắp xếp ảnh" data-i18n-title="sort.title">
+              <option value="name" data-i18n="sort.alpha">A → Z</option>
+              <option value="recent" data-i18n="sort.recent_edit">🆕 Mới sửa</option>
+            </select>
+            <button id="rePinOnly" class="img-pinfilter" onclick="reTogglePinOnly()" title="Chỉ hiện ảnh đã ghim" data-i18n-title="pin.filter" aria-pressed="false" style="margin-left:auto">📌</button>
+          </div>
+          <div class="re-side" id="reSide"></div>
+        </div>
         <div class="re-main">
           <div class="re-canvas-wrap">
             <div class="re-stage" id="reStage" style="display:none">
@@ -870,7 +922,13 @@ Nếu còn chữ mà không detect nổi, thử 0.45 kèm Detector=ctd và Gamma
     <div class="card" style="flex:1">
       <div class="card-header">
         <span data-i18n="t.preview.header">Ảnh đã dịch</span>
-        <span style="font-size:.7rem;color:var(--text-muted);margin-right:auto" title="Di chuột lên ảnh rồi nhấn Delete để xóa" data-i18n="preview.del_hint">Del = xóa</span>
+        <span style="font-size:.7rem;color:var(--text-muted)" title="Di chuột lên ảnh rồi nhấn Delete để xóa" data-i18n="preview.del_hint">Del = xóa</span>
+        <span style="margin-left:auto"></span>
+        <button id="tPreviewPinOnly" class="img-pinfilter" onclick="tTogglePreviewPinOnly()" title="Chỉ hiện ảnh đã ghim" data-i18n-title="pin.filter" aria-pressed="false">📌</button>
+        <select id="tPreviewSort" class="img-sort-sel" onchange="tOnPreviewSortChange(this.value)" title="Sắp xếp ảnh" data-i18n-title="sort.title">
+          <option value="name" data-i18n="sort.alpha">A → Z</option>
+          <option value="recent" data-i18n="sort.recent">🆕 Mới dịch</option>
+        </select>
         <button class="btn btn-ghost" style="padding:3px 10px;font-size:.75rem;color:var(--red)" onclick="tDeleteAllPreviewImages()" title="Xóa toàn bộ ảnh đã dịch trong thư mục output" data-i18n="preview.del_all">🗑 Xóa tất cả</button>
         <button class="btn btn-ghost" style="padding:3px 10px;font-size:.75rem" onclick="tRefreshPreview()"
                 data-i18n="btn.refresh">↺ Làm mới</button>

@@ -51,8 +51,32 @@ function _lbRender() {
   const canCompare = !!(cur.origDir && cur.name);
   $('lbCompareBtn').style.display = canCompare ? '' : 'none';
   if (!canCompare) _lbCompare = false;
+  _lbRenderPin();
   _lbRenderCompare();
   _lbApplyZoom();
+}
+// Phạm vi ghim của ảnh đang xem = thư mục nguồn (chung gốc↔dịch như 2 panel kia).
+function _lbPinScope(cur) {
+  return (cur && cur.origDir) || (typeof pinScope === 'function' ? pinScope() : '');
+}
+function _lbRenderPin() {
+  const btn = $('lbPinBtn');
+  if (!btn) return;
+  const cur = _lbImages[_lbIdx];
+  const scope = _lbPinScope(cur);
+  const canPin = !!(scope && cur && cur.name && typeof togglePin === 'function');
+  btn.style.display = canPin ? '' : 'none';
+  if (!canPin) return;
+  const pinned = isPinned(scope, cur.name);
+  btn.classList.toggle('active', pinned);
+  btn.title = tr(pinned ? 'pin.undo' : 'pin.do');
+}
+function lbTogglePin() {
+  const cur = _lbImages[_lbIdx];
+  const scope = _lbPinScope(cur);
+  if (!cur || !cur.name || !scope || typeof togglePin !== 'function') return;
+  togglePin(scope, cur.name);   // tự refreshPinViews() → đồng bộ lưới + editor (+ tab khác qua 'storage')
+  _lbRenderPin();
 }
 // Dựng/ẩn khung so sánh song song theo trạng thái _lbCompare.
 function _lbRenderCompare() {
@@ -146,6 +170,7 @@ document.addEventListener('keydown', e => {
     if (e.key === 'ArrowRight')  { e.preventDefault(); lbNext(); return; }
     if (e.key === 'Delete')      { e.preventDefault(); lbDelete(); return; }
     if (e.key === 'c' || e.key === 'C') { e.preventDefault(); lbToggleCompare(); return; }
+    if (e.key === 'p' || e.key === 'P') { e.preventDefault(); lbTogglePin(); return; }
     if (e.key === '+' || e.key === '=') { e.preventDefault(); lbZoomIn(); return; }
     if (e.key === '-')           { e.preventDefault(); lbZoomOut(); return; }
     if (e.key === '0')           { e.preventDefault(); lbZoomReset(); return; }

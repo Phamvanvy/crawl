@@ -424,9 +424,90 @@ async function tRetryFailed() {
   }
 }
 
+// ── Sort & pin (dùng chung cho lưới "Ảnh đã dịch" + editor "Vùng chữ thủ công") ─
+// Cho phép xem nhanh những ảnh VỪA dịch/sửa (sort "Mới sửa" theo mtime) thay vì A→Z,
+// và GHIM ảnh cần kiểm/sửa lên đầu kèm dấu 📌. Lựa chọn lưu trong localStorage.
+const IMG_SORT_KEY    = 'imgSort.v1';    // {preview:'name'|'recent', region:'name'|'recent'}
+const IMG_PIN_KEY     = 'imgPins.v1';    // { <scope>: [name, …] }
+const IMG_PINONLY_KEY = 'imgPinOnly.v1'; // {preview:bool, region:bool}
+
+function _imgLoadJSON(key, def) { try { return JSON.parse(localStorage.getItem(key)) || def; } catch { return def; } }
+function _imgSaveJSON(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} }
+
+function getSortMode(which) { const s = _imgLoadJSON(IMG_SORT_KEY, {}); return s[which] === 'recent' ? 'recent' : 'name'; }
+function setSortMode(which, mode) { const s = _imgLoadJSON(IMG_SORT_KEY, {}); s[which] = (mode === 'recent' ? 'recent' : 'name'); _imgSaveJSON(IMG_SORT_KEY, s); }
+
+function getPinOnly(which) { return !!_imgLoadJSON(IMG_PINONLY_KEY, {})[which]; }
+function setPinOnly(which, on) { const s = _imgLoadJSON(IMG_PINONLY_KEY, {}); s[which] = !!on; _imgSaveJSON(IMG_PINONLY_KEY, s); }
+
+// Pin theo BỘ ẢNH (thư mục nguồn) — bản gốc & bản dịch DÙNG CHUNG 1 danh sách ghim,
+// nên ghim ở "Vùng chữ thủ công" (ảnh gốc) thì lưới "Ảnh đã dịch" cũng thấy, và ngược lại.
+function pinScope() {
+  return getVal('tInputDir').trim() || _tOutputDir || getVal('tOutputDir').trim() || '';
+}
+
+function _pinList(scope) { const p = _imgLoadJSON(IMG_PIN_KEY, {}); return (scope && Array.isArray(p[scope])) ? p[scope] : []; }
+function isPinned(scope, name) { return _pinList(scope).includes(name); }
+function togglePin(scope, name) {
+  if (!scope) return;
+  const p = _imgLoadJSON(IMG_PIN_KEY, {});
+  const arr = Array.isArray(p[scope]) ? p[scope] : [];
+  const i = arr.indexOf(name);
+  if (i >= 0) arr.splice(i, 1); else arr.push(name);
+  if (arr.length) p[scope] = arr; else delete p[scope];
+  _imgSaveJSON(IMG_PIN_KEY, p);
+  refreshPinViews();   // đồng bộ ngay cả 2 panel trong trang này
+}
+
+// Ảnh "mới" = vừa dịch/sửa trong vòng 1 tiếng (mtime giây). Đánh dấu 🆕 để tiện kiểm tra.
+const IMG_FRESH_SEC = 3600;
+function isFresh(mtime) { return !!mtime && (Date.now() / 1000 - mtime) <= IMG_FRESH_SEC; }
+
+// Lọc (chỉ ghim) rồi sắp xếp: ảnh ghim luôn lên đầu, trong mỗi nhóm theo mode đã chọn.
+function prepareImageList(images, scope, mode, pinOnly) {
+  const pins = new Set(_pinList(scope));
+  let list = images;
+  if (pinOnly) list = images.filter(im => pins.has(im.name));
+  return list.slice().sort((a, b) => {
+    const pa = pins.has(a.name), pb = pins.has(b.name);
+    if (pa !== pb) return pa ? -1 : 1;
+    if (mode === 'recent') { const d = (b.mtime || 0) - (a.mtime || 0); if (d) return d; }
+    return String(a.name).localeCompare(String(b.name), undefined, { numeric: true, sensitivity: 'base' });
+  });
+}
+
+// Cập nhật trạng thái bật/tắt của 2 nút lọc "chỉ ghim".
+function _syncPinOnlyButtons() {
+  const pb = $('tPreviewPinOnly');
+  if (pb) { const on = getPinOnly('preview'); pb.classList.toggle('active', on); pb.setAttribute('aria-pressed', on); }
+  const rb = $('rePinOnly');
+  if (rb) { const on = getPinOnly('region'); rb.classList.toggle('active', on); rb.setAttribute('aria-pressed', on); }
+}
+
+// Vẽ lại MỌI nơi đang hiển thị ghim khi danh sách ghim đổi (dù đổi ở đâu / tab nào):
+//   1) lưới "Ảnh đã dịch"   2) editor "✏️ Vùng chữ thủ công"   3) lightbox/so sánh gốc.
+function refreshPinViews() {
+  if (typeof tApplyPreviewSort === 'function' && _tPreviewAllImages.length) tApplyPreviewSort();
+  const ov = $('regionOverlay');
+  if (ov && ov.classList.contains('open') && typeof reRenderSide === 'function' && _reImages.length) reRenderSide();
+  const lb = $('lightbox');
+  if (lb && lb.classList.contains('open') && typeof _lbRenderPin === 'function') _lbRenderPin();
+}
+
+// Đồng bộ GIỮA CÁC TAB trình duyệt: tab khác đổi ghim/sort → tab này tự cập nhật.
+window.addEventListener('storage', (e) => {
+  if (e.key === IMG_PIN_KEY || e.key === IMG_PINONLY_KEY || e.key === IMG_SORT_KEY) {
+    const ps = $('tPreviewSort'); if (ps) ps.value = getSortMode('preview');
+    const rs = $('reSort');       if (rs) rs.value = getSortMode('region');
+    _syncPinOnlyButtons();
+    refreshPinViews();
+  }
+});
+
 // ── Preview ───────────────────────────────────────────────────────────────────
 const T_PREVIEW_PER_PAGE = 60;
-let _tPreviewAllImages   = [];   // cache: all image metadata from server
+let _tPreviewAllImages   = [];   // cache: TOÀN BỘ ảnh từ server (không bị lọc)
+let _tPreviewView        = [];   // danh sách đã lọc+sắp xếp đang hiển thị/phân trang
 let _tPreviewPage        = 0;    // current page (0-based)
 let _tFocusedPreviewImg  = null; // { path, name, cardEl } — for Delete key
 
@@ -442,35 +523,67 @@ async function tRefreshPreview() {
     data = await res.json();
   } catch { return; }
   _tPreviewAllImages = data.images || [];
-  _tPreviewPage      = 0;
+  tApplyPreviewSort();   // lọc + sắp xếp rồi render trang đầu
+}
+
+// Tính lại danh sách hiển thị (lọc ghim + sắp xếp) từ cache — KHÔNG làm hỏng cache.
+function tRebuildPreviewView() {
+  _tPreviewView = prepareImageList(_tPreviewAllImages, pinScope(), getSortMode('preview'), getPinOnly('preview'));
   tRenderPreviewPage();
 }
 
+// Như trên nhưng quay về trang 1 (khi đổi sort/lọc/ghim).
+function tApplyPreviewSort() {
+  _tPreviewPage = 0;
+  tRebuildPreviewView();
+}
+
+function tOnPreviewSortChange(mode) {
+  setSortMode('preview', mode);
+  tApplyPreviewSort();
+}
+
+function tTogglePreviewPin(name) {
+  togglePin(pinScope(), name);   // togglePin tự gọi refreshPinViews() → đồng bộ cả 2 panel
+}
+
+function tTogglePreviewPinOnly() {
+  setPinOnly('preview', !getPinOnly('preview'));
+  _syncPinOnlyButtons();
+  tApplyPreviewSort();
+}
+
 function tRenderPreviewPage() {
-  const total     = _tPreviewAllImages.length;
+  const total     = _tPreviewView.length;
+  const hasCache  = _tPreviewAllImages.length > 0;
   const pageCount = Math.max(1, Math.ceil(total / T_PREVIEW_PER_PAGE));
   if (_tPreviewPage >= pageCount) _tPreviewPage = Math.max(0, pageCount - 1);
   const start    = _tPreviewPage * T_PREVIEW_PER_PAGE;
   const end      = Math.min(start + T_PREVIEW_PER_PAGE, total);
-  const pageImgs = _tPreviewAllImages.slice(start, end);
+  const pageImgs = _tPreviewView.slice(start, end);
   const grid     = $('tPreviewGrid');
   const pager    = $('tPreviewPager');
   _tFocusedPreviewImg = null;
 
   if (!total) {
-    grid.innerHTML      = `<div class="log-empty" style="height:120px;grid-column:1/-1"><span>🖼</span><span>${escHtml(tr('t.preview.empty'))}</span></div>`;
+    // Phân biệt: thật sự trống vs đang bật lọc "chỉ ghim" mà chưa ghim ảnh nào.
+    const msg = (hasCache && getPinOnly('preview')) ? tr('pin.none') : tr('t.preview.empty');
+    grid.innerHTML      = `<div class="log-empty" style="height:120px;grid-column:1/-1"><span>🖼</span><span>${escHtml(msg)}</span></div>`;
     pager.style.display = 'none';
     return;
   }
 
   // Build lightbox list + cards in one pass
   const lbList = [];
-  const origDir = getVal('tInputDir').trim();   // thư mục nguồn để so sánh ảnh gốc
+  const origDir   = getVal('tInputDir').trim();   // thư mục nguồn để so sánh ảnh gốc
+  const scope     = pinScope();
   const frag   = document.createDocumentFragment();
   for (let i = 0; i < pageImgs.length; i++) {
     const img  = pageImgs[i];
+    const pinned = isPinned(scope, img.name);
+    const fresh  = isFresh(img.mtime);
     const card = document.createElement('div');
-    card.className = 'preview-card';
+    card.className = 'preview-card' + (pinned ? ' pinned' : '') + (fresh ? ' fresh' : '');
     card.tabIndex  = 0;
     const full  = '/api/translate/image?path=' + encodeURIComponent(img.path)
                 + '&rev=' + encodeURIComponent(img.mtime || '0');
@@ -478,9 +591,15 @@ function tRenderPreviewPage() {
     // Lightbox mở ảnh full-res; lưới chỉ tải thumbnail nhỏ (tránh decode hàng chục ảnh full).
     lbList.push({ src: full, path: img.path, name: img.name, cardEl: card, origDir });
     card.innerHTML = `<img src="${thumb}" loading="lazy" decoding="async" alt="${escHtml(img.name)}" width="130" height="90" />`
+                   + (fresh ? `<span class="pc-fresh" title="${escHtml(tr('fresh.hint'))}" data-i18n-title="fresh.hint">🆕</span>` : '')
                    + `<div class="pc-name">${escHtml(img.name)}</div>`
+                   + `<button class="pc-pin-btn${pinned ? ' on' : ''}" title="${escHtml(tr(pinned ? 'pin.undo' : 'pin.do'))}">📌</button>`
                    + `<button class="pc-del-btn" title="Xóa ảnh này để dịch lại (Del)">🗑</button>`;
     card.querySelector('img').addEventListener('click', ((_i) => () => openLightbox(lbList, _i))(i));
+    card.querySelector('.pc-pin-btn').addEventListener('click', e => {
+      e.stopPropagation();
+      tTogglePreviewPin(img.name);
+    });
     card.querySelector('.pc-del-btn').addEventListener('click', e => {
       e.stopPropagation();
       tDeletePreviewImg(img.path, img.name, card);
@@ -514,7 +633,7 @@ function tPreviewPrevPage() {
 }
 
 function tPreviewNextPage() {
-  const pageCount = Math.ceil(_tPreviewAllImages.length / T_PREVIEW_PER_PAGE);
+  const pageCount = Math.ceil(_tPreviewView.length / T_PREVIEW_PER_PAGE);
   if (_tPreviewPage < pageCount - 1) {
     _tPreviewPage++;
     tRenderPreviewPage();
@@ -540,7 +659,7 @@ async function tDeleteAllPreviewImages() {
   }
   _tPreviewAllImages = [];
   _tPreviewPage = 0;
-  tRenderPreviewPage();
+  tRebuildPreviewView();
   tAddLog(`🗑 Đã xóa ${deleted} ảnh${failed ? `, lỗi ${failed}` : ''}.`, deleted > 0 ? 'ok' : 'warn');
 }
 
@@ -560,7 +679,7 @@ async function tDeletePreviewImg(path, name, cardEl) {
   const idx = _tPreviewAllImages.findIndex(img => img.path === path);
   if (idx >= 0) _tPreviewAllImages.splice(idx, 1);
   if (_tFocusedPreviewImg && _tFocusedPreviewImg.path === path) _tFocusedPreviewImg = null;
-  tRenderPreviewPage();
+  tRebuildPreviewView();
 }
 
 // ── Image selection (translate a subset) ────────────────────────────────────
@@ -627,6 +746,53 @@ function tUpdImgSelCount() {
   if (el) el.textContent = n ? `Đang chọn ${n}/${m} ảnh` : 'Không tích = cả thư mục';
 }
 
+// ── Glossary per-truyện (tên / xưng hô / cảnh giới — tự học) ────────────────
+function _tGlossaryCountText(d) {
+  return `${d.terms || 0} mục khoá · ${d.notes || 0} ghi chú`
+    + (d.exists === false ? ' · (chưa có file — sẽ tạo khi dịch hoặc khi Lưu)' : '');
+}
+
+async function tLoadGlossary() {
+  const dir   = getVal('tInputDir').trim();
+  const pathEl  = $('tGlossaryPath');
+  const cntEl   = $('tGlossaryCount');
+  const textEl  = $('tGlossaryText');
+  if (!dir) { pathEl.textContent = 'Chưa chọn thư mục nguồn.'; cntEl.textContent = ''; return; }
+  pathEl.textContent = 'Đang tải…'; cntEl.textContent = '';
+  try {
+    const res = await fetch('/api/translate/glossary?input_dir=' + encodeURIComponent(dir));
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'lỗi');
+    textEl.value = data.content || '';
+    pathEl.textContent = data.path || '';
+    cntEl.textContent = _tGlossaryCountText(data);
+  } catch (e) {
+    pathEl.textContent = 'Lỗi: ' + String(e.message || e);
+    cntEl.textContent = '';
+  }
+}
+
+async function tSaveGlossary() {
+  const dir  = getVal('tInputDir').trim();
+  const cntEl  = $('tGlossaryCount');
+  const textEl = $('tGlossaryText');
+  if (!dir) { $('tGlossaryPath').textContent = 'Chưa chọn thư mục nguồn.'; return; }
+  cntEl.textContent = 'Đang lưu…';
+  try {
+    const res = await fetch('/api/translate/glossary', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ input_dir: dir, content: textEl.value }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'lỗi');
+    $('tGlossaryPath').textContent = data.path || '';
+    cntEl.textContent = '✔ Đã lưu — ' + _tGlossaryCountText(data);
+  } catch (e) {
+    cntEl.textContent = 'Lỗi: ' + String(e.message || e);
+  }
+}
+
 // Gọi khi thư mục nguồn vừa đổi → auto tải lại danh sách ảnh (và editor nếu mở).
 function onSourceFolderChanged() {
   _tSelImages = new Set();
@@ -639,6 +805,10 @@ function onSourceFolderChanged() {
 document.addEventListener('DOMContentLoaded', () => {
   const el = $('tInputDir');
   if (el) el.addEventListener('change', onSourceFolderChanged);
+  // Khôi phục lựa chọn sắp xếp + lọc đã lưu cho các dropdown/nút.
+  const ps = $('tPreviewSort'); if (ps) ps.value = getSortMode('preview');
+  const rs = $('reSort');       if (rs) rs.value = getSortMode('region');
+  _syncPinOnlyButtons();
 });
 
 // ── Manual region editor ────────────────────────────────────────────────────
@@ -690,30 +860,57 @@ async function reLoadList() {
 function reRenderSide() {
   const side = $('reSide');
   if (!_reImages.length) { side.innerHTML = '<div class="re-pill" style="padding:8px">Thư mục không có ảnh.</div>'; return; }
+  const scope = pinScope();
+  const pinOnly = getPinOnly('region');
+  const imgs = prepareImageList(_reImages, scope, getSortMode('region'), pinOnly);   // lọc + ghim + mode
+  if (!imgs.length) {   // bật lọc "chỉ ghim" mà chưa ghim ảnh nào
+    side.innerHTML = `<div class="re-pill" style="padding:8px">${escHtml(tr('pin.none'))}</div>`;
+    return;
+  }
   const frag = document.createDocumentFragment();
-  for (const im of _reImages) {
+  for (const im of imgs) {
+    const pinned = isPinned(scope, im.name);
+    const fresh  = isFresh(im.mtime);
     const row = document.createElement('div');
-    row.className = 're-thumb' + (im.name === _reName ? ' active' : '');
+    row.className = 're-thumb' + (im.name === _reName ? ' active' : '') + (pinned ? ' pinned' : '') + (fresh ? ' fresh' : '');
     const thumb = '/api/translate/image?path=' + encodeURIComponent(im.path) + '&thumb=92';
     const checked = _tSelImages.has(im.name) ? 'checked' : '';
     row.innerHTML = `<input type="checkbox" class="re-pickcb" ${checked} title="Tích để dịch ảnh này" />`
                   + `<img src="${thumb}" loading="lazy" alt="" />`
                   + `<span class="re-tn" title="${escHtml(im.name)}">${escHtml(im.name)}</span>`
-                  + (im.count ? `<span class="re-badge">${im.count}</span>` : '');
-    // Click checkbox = chọn ảnh để DỊCH; click chỗ khác = mở ảnh để SỬA vùng.
+                  + (fresh ? `<span class="re-fresh" title="${escHtml(tr('fresh.hint'))}">🆕</span>` : '')
+                  + (im.count ? `<span class="re-badge">${im.count}</span>` : '')
+                  + `<button class="re-pin${pinned ? ' on' : ''}" title="${escHtml(tr(pinned ? 'pin.undo' : 'pin.do'))}">📌</button>`;
+    // Click checkbox = chọn ảnh để DỊCH; click 📌 = ghim/bỏ ghim; click chỗ khác = mở ảnh để SỬA vùng.
     row.addEventListener('click', e => {
       if (e.target.classList.contains('re-pickcb')) return;
+      if (e.target.classList.contains('re-pin')) return;
       reSelectImage(im);
     });
     row.querySelector('.re-pickcb').addEventListener('change', () => {
       if (_tSelImages.has(im.name)) _tSelImages.delete(im.name); else _tSelImages.add(im.name);
       reUpdPickCount();
     });
+    row.querySelector('.re-pin').addEventListener('click', e => {
+      e.stopPropagation();
+      togglePin(scope, im.name);   // togglePin tự gọi refreshPinViews() → đồng bộ cả 2 panel
+    });
     frag.appendChild(row);
   }
   side.innerHTML = '';
   side.appendChild(frag);
   reUpdPickCount();
+}
+
+function reOnSortChange(mode) {
+  setSortMode('region', mode);
+  reRenderSide();
+}
+
+function reTogglePinOnly() {
+  setPinOnly('region', !getPinOnly('region'));
+  _syncPinOnlyButtons();
+  reRenderSide();
 }
 
 // Đồng bộ với danh sách chọn ảnh _tSelImages (dùng chung với lưới ở Cài đặt).

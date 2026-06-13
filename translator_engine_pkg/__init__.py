@@ -82,6 +82,7 @@ from ._mit_backend import (
     check_mit,
     MITImageTranslator,
     REGIONS_DIRNAME,
+    resolve_story_root,
 )
 
 __all__ = [
@@ -105,4 +106,5 @@ __all__ = [
     # main classes
     "ImageTranslator", "IMAGE_EXTS",
     "MITImageTranslator", "check_mit", "_MIT_INSTALL_HINT", "REGIONS_DIRNAME",
+    "resolve_story_root",
 ]

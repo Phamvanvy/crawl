@@ -1152,6 +1152,76 @@ def api_translate_source():
     return resp
 
 
+def _glossary_file_for(input_dir: str) -> Path:
+    """Đường dẫn glossary.txt của bộ truyện chứa input_dir. Ưu tiên file đã tồn
+    tại ở thư mục ảnh / thư mục cha; mặc định là gốc bộ (cha của 'original')."""
+    inp = Path(input_dir)
+    story_root = te.resolve_story_root(inp)
+    for c in (inp / "glossary.txt", inp.parent / "glossary.txt",
+              story_root / "glossary.txt"):
+        if c.is_file():
+            return c
+    return story_root / "glossary.txt"
+
+
+def _glossary_counts(text: str) -> tuple[int, int]:
+    """(số mục khoá-cứng '=>', số dòng @note) — để hiển thị nhanh trên UI."""
+    terms = notes = 0
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.lower().startswith("@note"):
+            notes += 1
+        elif "=>" in line:
+            terms += 1
+    return terms, notes
+
+
+@app.route("/api/translate/glossary")
+def api_translate_glossary_get():
+    """Đọc glossary.txt của bộ truyện chứa ?input_dir=. Trả {path, content,
+    exists, terms, notes}. Glossary tự học sau mỗi lần dịch; UI cho xem & sửa tay."""
+    input_dir = request.args.get("input_dir", "").strip()
+    if not input_dir:
+        return jsonify({"error": "Thiếu input_dir"}), 400
+    if not Path(input_dir).is_dir():
+        return jsonify({"error": f"Thư mục không tồn tại: {input_dir}"}), 404
+    gpath = _glossary_file_for(input_dir)
+    content = ""
+    exists = gpath.is_file()
+    if exists:
+        try:
+            content = gpath.read_text(encoding="utf-8")
+        except Exception as e:
+            return jsonify({"error": f"Không đọc được glossary: {e}"}), 500
+    terms, notes = _glossary_counts(content)
+    return jsonify({"path": str(gpath), "content": content, "exists": exists,
+                    "terms": terms, "notes": notes})
+
+
+@app.route("/api/translate/glossary", methods=["POST"])
+def api_translate_glossary_save():
+    """Ghi (đè) glossary.txt do người dùng sửa tay. Body JSON: {input_dir, content}."""
+    data = request.get_json(silent=True) or {}
+    input_dir = str(data.get("input_dir", "")).strip()
+    content = data.get("content", "")
+    if not input_dir:
+        return jsonify({"error": "Thiếu input_dir"}), 400
+    if not isinstance(content, str):
+        return jsonify({"error": "content phải là chuỗi"}), 400
+    if not Path(input_dir).is_dir():
+        return jsonify({"error": f"Thư mục không tồn tại: {input_dir}"}), 404
+    gpath = _glossary_file_for(input_dir)
+    try:
+        gpath.parent.mkdir(parents=True, exist_ok=True)
+        gpath.write_text(content, encoding="utf-8")
+    except Exception as e:
+        return jsonify({"error": f"Không ghi được glossary: {e}"}), 500
+    terms, notes = _glossary_counts(content)
+    return jsonify({"ok": True, "path": str(gpath), "terms": terms, "notes": notes})
+
+
 @app.route("/api/translate/preview")
 def api_translate_preview():
     """Liệt kê các ảnh đã xử lý trong output_dir."""
@@ -1206,6 +1276,8 @@ def api_regions_list():
         return jsonify({"error": f"Thư mục không tồn tại: {dir_str}"}), 400
 
     counts: dict[str, int] = {}
+    # mtime sidecar vùng thủ công → mốc "vừa chỉnh sửa" cho sort "Mới sửa".
+    region_mtime: dict[str, float] = {}
     rdir = p / te.REGIONS_DIRNAME
     if rdir.is_dir():
         for jf in rdir.glob("*.json"):
@@ -1216,12 +1288,25 @@ def api_regions_list():
                 n = 0
             if n:
                 counts[jf.stem] = n  # jf.stem of "002.jpg.json" == "002.jpg"
+            try:
+                region_mtime[jf.stem] = jf.stat().st_mtime
+            except OSError:
+                pass
 
     images = []
     for f in sorted((c for c in p.iterdir() if c.is_file()), key=lambda c: _regions_natural_key(c.name)):
         if f.suffix.lower() not in te.IMAGE_EXTS:
             continue
-        images.append({"name": f.name, "path": str(f), "count": counts.get(f.name, 0)})
+        try:
+            src_mtime = f.stat().st_mtime
+        except OSError:
+            src_mtime = 0.0
+        # "Mới sửa" = mốc gần nhất giữa ảnh nguồn và sidecar vùng thủ công đã lưu.
+        mtime = max(src_mtime, region_mtime.get(f.name, 0.0))
+        images.append({
+            "name": f.name, "path": str(f),
+            "count": counts.get(f.name, 0), "mtime": int(mtime),
+        })
     return jsonify({"images": images})
 
 

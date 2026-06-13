@@ -28,6 +28,26 @@ _PROJECT_ROOT = Path(__file__).parent.parent
 REGIONS_DIRNAME = ".manga_regions"
 
 
+def resolve_story_root(inp: Path) -> Path:
+    """Gốc bộ truyện = thư mục CHA của thư mục 'original' gần nhất trên đường dẫn
+    (kể cả chính inp). Glossary/pre_dict của bộ đặt ở đây để dùng chung cho MỌI
+    chương, CHỈ áp cho bộ đó.
+
+    Ví dụ:
+      F:\\Comic\\[..]\\original\\chap01  → F:\\Comic\\[..]      (bộ nhiều chương)
+      F:\\Comic\\[..]\\original          → F:\\Comic\\[..]      (one-shot dịch cả original)
+      <không có 'original' trên path>    → inp.parent          (như pre_dict cũ)
+    """
+    try:
+        inp = Path(inp).resolve()
+    except Exception:
+        inp = Path(inp)
+    for anc in (inp, *inp.parents):
+        if anc.name.lower() == "original":
+            return anc.parent
+    return inp.parent
+
+
 def _load_regions(regions_dir: Path, image_name: str) -> dict | None:
     """Đọc sidecar vùng thủ công → {"mode", "regions"} hoặc None nếu không có.
     Mỗi region: {x,y,w,h} và (tùy chọn) "text" — chữ Việt gõ tay (bỏ qua OCR/dịch)."""
@@ -303,6 +323,7 @@ class MITImageTranslator:
         self.on_log       = on_log or print
         self.on_progress  = on_progress or (lambda d, t: None)
         self._pre_dict_path: str | None = None
+        self._glossary_path: str | None = None
 
     def _log(self, msg: str):
         self.on_log(msg)
@@ -325,17 +346,37 @@ class MITImageTranslator:
         out = Path(output_dir)
         out.mkdir(parents=True, exist_ok=True)
 
+        # Gốc bộ truyện (cha của 'original') — nơi đặt pre_dict.txt & glossary.txt
+        # dùng chung cho MỌI chương, CHỈ áp cho bộ này.
+        story_root = resolve_story_root(inp)
+
         # Từ điển sửa NGUỒN per-truyện (MIT --pre-dict): áp lên text sau OCR,
         # TRƯỚC khi dịch — chốt các lỗi OCR cố hữu của bộ (vd 阿访→阿诚 khi OCR
-        # đọc nhầm tên nhân vật). Đặt pre_dict.txt trong thư mục ảnh hoặc thư
-        # mục cha (gốc bộ truyện). Mỗi dòng: <regex_sai> <thay_bằng>, # = chú thích.
+        # đọc nhầm tên nhân vật). Tra theo thứ tự: thư mục ảnh → thư mục cha →
+        # gốc bộ (để bộ nhiều chương dùng chung 1 file). Mỗi dòng: <regex_sai> <thay_bằng>.
         self._pre_dict_path = next(
-            (str(c) for c in (inp / "pre_dict.txt", inp.parent / "pre_dict.txt")
+            (str(c) for c in (inp / "pre_dict.txt", inp.parent / "pre_dict.txt",
+                              story_root / "pre_dict.txt")
              if c.is_file()),
             None,
         )
         if self._pre_dict_path:
             self._log(f"  [PRE-DICT] Từ điển sửa nguồn của bộ: {self._pre_dict_path}")
+
+        # Glossary per-truyện (tên/xưng hô/cảnh giới) — bộ nhớ BỀN, đặt ở gốc bộ,
+        # custom_openai đọc qua env MIT_GLOSSARY_PATH: bơm vào prompt + enforce sau
+        # dịch + TỰ HỌC (ghi thêm tên mới sau mỗi lần chạy). Đường dẫn cố định ở
+        # gốc bộ kể cả khi chưa tồn tại — lần chạy đầu sẽ tạo file.
+        self._glossary_path = None
+        if self.translator == "custom_openai":
+            existing = next(
+                (str(c) for c in (inp / "glossary.txt", inp.parent / "glossary.txt",
+                                  story_root / "glossary.txt")
+                 if c.is_file()),
+                None,
+            )
+            self._glossary_path = existing or str(story_root / "glossary.txt")
+            self._log(f"  [GLOSSARY] Glossary bộ truyện (tự học): {self._glossary_path}")
 
         # images_override = chỉ dịch các ảnh đã chọn (list đường dẫn đầy đủ),
         # None/rỗng = dịch cả thư mục như cũ. Sidecar vùng thủ công vẫn đọc từ
@@ -672,6 +713,9 @@ class MITImageTranslator:
         if self.translator == "custom_openai" and self.custom_openai_api_key:
             sub_env["CUSTOM_OPENAI_API_KEY"] = self.custom_openai_api_key
             self._log("  [ENV] CUSTOM_OPENAI_API_KEY=***")
+        if self.translator == "custom_openai" and getattr(self, "_glossary_path", None):
+            sub_env["MIT_GLOSSARY_PATH"] = self._glossary_path
+            self._log(f"  [ENV] MIT_GLOSSARY_PATH={self._glossary_path}")
 
         _thread_limit = "4" if self.cpu_priority == "normal" else "3" if self.cpu_priority == "below_normal" else "2"
         for _env_key in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
