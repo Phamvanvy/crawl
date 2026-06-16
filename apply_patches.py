@@ -14,6 +14,13 @@ SOURCE OF TRUTH: patches/ directory — do NOT edit files in tmp_repo/ directly.
 After editing a patch file, always run: python apply_patches.py
 
 Patches applied:
+  0. manga_translator/manga_translator.py
+     - _run_text_translation: stash bbox từng vùng (keyed theo text nguồn) vào
+       manga_translator._VI_REGION_BOXES trước khi dịch, để merge-planner của
+       custom_openai (_plan_sentence_merges) chặn ép-gộp các segment kề-index
+       nhưng nằm XA nhau trên trang (thư pháp/tiêu đề/bong bóng rời bị OCR nối
+       nhầm → dồn dịch 1 chỗ, bong bóng rỗng). Thay đổi thuần bổ sung (try/except).
+
   1. manga_translator/rendering/__init__.py
      - fg_bg_compare: force black text + white stroke when OCR-detected bg is dark.
      - Pixel sampling: sample actual inpainted image pixels at render location;
@@ -125,6 +132,10 @@ def apply():
         sys.exit(1)
 
     patches = [
+        (
+            PATCHES_DIR / "manga_translator_manga_translator.py",
+            sp / "manga_translator" / "manga_translator.py",
+        ),
         (
             PATCHES_DIR / "manga_translator_rendering_init.py",
             sp / "manga_translator" / "rendering" / "__init__.py",
