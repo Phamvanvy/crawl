@@ -1440,6 +1440,160 @@ def api_regions_save():
     return jsonify({"ok": True, "count": len(clean)})
 
 
+def _sanitize_region(r):
+    """Làm sạch 1 region (toạ độ 0..1 + cờ) như /api/regions/save làm cho từng box.
+    Trả dict box hợp lệ hoặc None nếu suy biến/sai định dạng."""
+    try:
+        x = float(r["x"]); y = float(r["y"]); w = float(r["w"]); h = float(r["h"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    x = max(0.0, min(1.0, x)); y = max(0.0, min(1.0, y))
+    w = max(0.0, min(1.0 - x, w)); h = max(0.0, min(1.0 - y, h))
+    if w < 0.002 or h < 0.002:
+        return None
+    box = {"x": round(x, 5), "y": round(y, 5), "w": round(w, 5), "h": round(h, 5)}
+    if r.get("erase_flat"):
+        box["erase_flat"] = True
+        fc = str(r.get("flat_color") or "").strip().lstrip("#")
+        if re.fullmatch(r"[0-9a-fA-F]{6}", fc):
+            box["flat_color"] = "#" + fc.lower()
+    if r.get("inpaint_only"):
+        box["inpaint_only"] = True
+        return box
+    txt = str(r.get("text") or "").strip()
+    if txt:
+        box["text"] = txt[:2000]
+    if r.get("erase_box"):
+        box["erase_box"] = True
+    font_name = str(r.get("font") or "").strip().replace("\\", "/").split("/")[-1]
+    if font_name and font_name.lower().endswith((".ttf", ".otf")):
+        box["font"] = font_name[:80]
+    try:
+        fsz = int(r.get("font_size") or 0)
+        if 6 <= fsz <= 200:
+            box["font_size"] = fsz
+    except (TypeError, ValueError):
+        pass
+    try:
+        mdl = int(r["mask_dilate"])
+        if 0 <= mdl <= 10:
+            box["mask_dilate"] = mdl
+    except (KeyError, TypeError, ValueError):
+        pass
+    try:
+        rot = float(r.get("rotate") or 0)
+        if -180 <= rot <= 180 and abs(rot) > 0.01:
+            box["rotate"] = round(rot, 1)
+    except (TypeError, ValueError):
+        pass
+    return box
+
+
+@app.route("/api/regions/broadcast", methods=["POST"])
+def api_regions_broadcast():
+    """Áp (MERGE) một bộ vùng — thường là box '🧽 chỉ xoá' watermark — sang NHIỀU ảnh
+    đã chọn cùng thư mục. Toạ độ chuẩn hoá 0..1 nên cùng vị trí áp đúng cho mọi ảnh
+    (watermark luôn ở một chỗ). GIỮ NGUYÊN vùng sẵn có của từng ảnh (merge, bỏ box
+    trùng khít); CHỈ đụng các ảnh nằm trong `names`."""
+    data = request.get_json(silent=True) or {}
+    dir_str = str(data.get("dir", "")).strip()
+    names = data.get("names") or []
+    p = Path(dir_str).resolve()
+    if not dir_str or not p.is_dir():
+        return jsonify({"error": "Thư mục không hợp lệ."}), 400
+    if not isinstance(names, list) or not names:
+        return jsonify({"error": "Chưa chọn ảnh đích."}), 400
+
+    incoming = [b for b in (_sanitize_region(r) for r in (data.get("regions") or [])) if b]
+    if not incoming:
+        return jsonify({"error": "Không có vùng hợp lệ để áp."}), 400
+
+    # overwrite=True → GHI ĐÈ: clone y nguyên sidecar nguồn (toàn bộ vùng + chế độ
+    # merge/replace + siết mask) sang ảnh đích, thay thế vùng cũ. Dùng để set "Replace
+    # chỉ-tay + siết mask" cho cả loạt trong 1 cú. overwrite=False (mặc định) → MERGE:
+    # thêm box vào sidecar sẵn có (giữ vùng/chế độ riêng của ảnh đích).
+    overwrite = bool(data.get("overwrite"))
+    region_mode = str(data.get("region_mode", "merge")).strip().lower()
+    if region_mode not in ("merge", "replace"):
+        region_mode = "merge"
+    try:
+        bcast_dilate = max(0, min(10, int(data.get("mask_dilate", 1))))
+    except (TypeError, ValueError):
+        bcast_dilate = 1
+
+    def _key(b):
+        return (round(b["x"], 4), round(b["y"], 4), round(b["w"], 4), round(b["h"], 4),
+                bool(b.get("inpaint_only")), bool(b.get("erase_flat")))
+
+    rdir = p / te.REGIONS_DIRNAME
+    updated, skipped = 0, []
+    for raw in names:
+        name = str(raw).strip()
+        imgp = p / name
+        if not name or not imgp.is_file() or imgp.suffix.lower() not in te.IMAGE_EXTS:
+            skipped.append(name)
+            continue
+        f = rdir / (name + ".json")
+        if overwrite:
+            out_mode, out_dilate = region_mode, bcast_dilate
+            merged = [dict(b) for b in incoming]
+        else:
+            existing, out_mode, out_dilate = [], "merge", 1
+            if f.is_file():
+                try:
+                    d = json.loads(f.read_text(encoding="utf-8"))
+                    existing = [r for r in (d.get("regions") or []) if isinstance(r, dict)]
+                    if d.get("mode") in ("merge", "replace"):
+                        out_mode = d["mode"]
+                    out_dilate = max(0, min(10, int(d.get("mask_dilate", 1))))
+                except Exception:
+                    existing = []
+            seen = {_key(b) for b in existing
+                    if all(k in b for k in ("x", "y", "w", "h"))}
+            merged = list(existing)
+            for b in incoming:
+                if _key(b) not in seen:
+                    merged.append(dict(b)); seen.add(_key(b))
+        try:
+            rdir.mkdir(exist_ok=True)
+            f.write_text(json.dumps({"image": name, "mode": out_mode,
+                                     "mask_dilate": out_dilate, "regions": merged},
+                                    ensure_ascii=False), encoding="utf-8")
+            updated += 1
+        except Exception:
+            skipped.append(name)
+    return jsonify({"ok": True, "updated": updated,
+                    "skipped": [s for s in skipped if s], "applied": len(incoming),
+                    "overwrite": overwrite})
+
+
+@app.route("/api/regions/clear", methods=["POST"])
+def api_regions_clear():
+    """Xoá HẾT vùng thủ công (xoá sidecar .json) của các ảnh đã chọn trong thư mục."""
+    data = request.get_json(silent=True) or {}
+    dir_str = str(data.get("dir", "")).strip()
+    names = data.get("names") or []
+    p = Path(dir_str).resolve()
+    if not dir_str or not p.is_dir():
+        return jsonify({"error": "Thư mục không hợp lệ."}), 400
+    if not isinstance(names, list) or not names:
+        return jsonify({"error": "Chưa chọn ảnh nào để xoá vùng."}), 400
+    rdir = p / te.REGIONS_DIRNAME
+    cleared = 0
+    for raw in names:
+        name = str(raw).strip()
+        if not name:
+            continue
+        f = rdir / (name + ".json")
+        if f.is_file():
+            try:
+                f.unlink()
+                cleared += 1
+            except Exception:
+                pass
+    return jsonify({"ok": True, "cleared": cleared})
+
+
 def _autotrim_bbox(arr, tol: int = 22, frac: float = 0.985, gap: int = 8):
     """Bbox (x0,y0,x1,y1) sau khi gọt các DẢI viền đồng màu ở 4 cạnh, XÉT TỪNG CẠNH
     ĐỘC LẬP. Mỗi cạnh dùng màu (trung vị) của chính mép đó làm chuẩn rồi gọt dần các

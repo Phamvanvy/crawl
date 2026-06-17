@@ -1310,6 +1310,96 @@ async function reSave() {
   tAddLog(`✏️ Lưu ${data.count || 0} vùng thủ công cho ${_reName} (${_reMode}).`, 'ok');
 }
 
+// Áp các box "🧽 Chỉ xoá" của ảnh ĐANG MỞ sang MỌI ảnh đã tích ở lưới "Chọn ảnh để
+// dịch" — dùng cho watermark cùng vị trí trên nhiều trang. Toạ độ đã chuẩn hoá 0..1
+// nên áp đúng chỗ cho mọi ảnh. Chỉ broadcast vùng inpaint_only (không nhân bản chữ
+// gõ tay — chữ khác nhau từng ảnh). Giữ nguyên vùng sẵn có của từng ảnh đích.
+async function reApplyEraseToSelected() {
+  if (!_reName) { alert('Mở 1 ảnh và vẽ vùng "🧽 Chỉ xoá" trước đã.'); return; }
+  const erase = _reRegions.filter(r => r.inpaint_only);
+  if (!erase.length) {
+    alert('Ảnh này chưa có vùng "🧽 Chỉ xoá" nào.\nVẽ 1 box trùm watermark rồi tích "🧽 Chỉ xoá", sau đó bấm lại.');
+    return;
+  }
+  if (!_tSelImages.size) {
+    alert('Hãy tích các ảnh ĐÍCH ở lưới "🖼 Chọn ảnh để dịch" bên dưới (có thể bấm "☑ Tất cả").');
+    return;
+  }
+  const names = [..._tSelImages];
+  if (!confirm(`Áp ${erase.length} vùng "🧽 chỉ xoá" cho ${names.length} ảnh đã tích?\n` +
+               `(Giữ nguyên các vùng sẵn có của từng ảnh; bỏ qua box trùng.)`)) return;
+  let data;
+  try {
+    const res = await fetch('/api/regions/broadcast', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dir: _reDir, regions: erase, names }),
+    });
+    data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'lỗi');
+  } catch (e) { alert('Áp thất bại: ' + (e.message || e)); return; }
+  const sk = (data.skipped && data.skipped.length) ? ` (bỏ qua ${data.skipped.length})` : '';
+  tAddLog(`📌 Áp ${data.applied} vùng chỉ-xoá cho ${data.updated} ảnh đã chọn${sk}.`, 'ok');
+  try { await reLoadList(); } catch {}   // làm tươi badge số vùng, giữ ảnh đang mở
+  alert(`Đã áp vùng chỉ-xoá cho ${data.updated} ảnh.${sk}\nLần dịch tới các ảnh này sẽ xoá watermark ở vị trí đó.`);
+}
+
+// GHI ĐÈ toàn bộ vùng + chế độ (merge/replace) + siết mask của ảnh ĐANG MỞ sang MỌI
+// ảnh đã tích — clone y nguyên. Dùng để set "Replace chỉ-tay + siết mask" cho cả loạt
+// trong 1 cú (vd xoá watermark toàn bộ). Vùng cũ của ảnh đích bị THAY THẾ.
+async function reCopyAllToSelected() {
+  if (!_reName) { alert('Mở 1 ảnh nguồn (đã vẽ vùng + chọn chế độ) trước đã.'); return; }
+  if (!_reRegions.length) {
+    alert('Ảnh nguồn chưa có vùng nào để copy.\n(Muốn xoá vùng hàng loạt thì dùng nút "🧹 Xoá vùng ảnh chọn".)');
+    return;
+  }
+  if (!_tSelImages.size) {
+    alert('Hãy tích các ảnh ĐÍCH ở lưới "🖼 Chọn ảnh để dịch" bên dưới (có thể bấm "☑ Tất cả").');
+    return;
+  }
+  const names = [..._tSelImages];
+  const md = parseInt(($('reMaskDilate') || {}).value, 10) || 0;
+  if (!confirm(`GHI ĐÈ ${names.length} ảnh đã tích bằng TOÀN BỘ ${_reRegions.length} vùng + chế độ "${_reMode}" ` +
+               `+ siết mask ${md} của ảnh "${_reName}"?\n⚠ Vùng cũ của các ảnh đó sẽ bị THAY THẾ.`)) return;
+  let data;
+  try {
+    const res = await fetch('/api/regions/broadcast', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dir: _reDir, regions: _reRegions, names,
+                             overwrite: true, region_mode: _reMode, mask_dilate: md }),
+    });
+    data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'lỗi');
+  } catch (e) { alert('Copy thất bại: ' + (e.message || e)); return; }
+  const sk = (data.skipped && data.skipped.length) ? ` (bỏ qua ${data.skipped.length})` : '';
+  tAddLog(`📋 Copy ${data.applied} vùng + chế độ "${_reMode}" + siết ${md} sang ${data.updated} ảnh${sk}.`, 'ok');
+  try { await reLoadList(); } catch {}
+  alert(`Đã copy toàn bộ vùng + cài đặt sang ${data.updated} ảnh.${sk}`);
+}
+
+// Xoá HẾT vùng thủ công của các ảnh đã tích (xoá sidecar). Không thể hoàn tác.
+async function reClearSelected() {
+  if (!_tSelImages.size) { alert('Hãy tích các ảnh cần XOÁ vùng ở lưới "🖼 Chọn ảnh để dịch" bên dưới.'); return; }
+  const names = [..._tSelImages];
+  if (!confirm(`Xoá HẾT vùng thủ công của ${names.length} ảnh đã tích?\n⚠ Không thể hoàn tác.`)) return;
+  let data;
+  try {
+    const res = await fetch('/api/regions/clear', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dir: _reDir, names }),
+    });
+    data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'lỗi');
+  } catch (e) { alert('Xoá thất bại: ' + (e.message || e)); return; }
+  tAddLog(`🧹 Xoá vùng của ${data.cleared} ảnh đã chọn.`, 'ok');
+  const reopen = _reName && _tSelImages.has(_reName);
+  try { await reLoadList(); } catch {}
+  if (reopen) {   // ảnh đang mở vừa bị xoá vùng → nạp lại để canvas trống theo
+    const im = _reImages.find(x => x.name === _reName);
+    if (im) reSelectImage(im);
+  }
+  alert(`Đã xoá vùng của ${data.cleared} ảnh.`);
+}
+
 document.addEventListener('keydown', e => {
   if (!$('regionOverlay') || !$('regionOverlay').classList.contains('open')) return;
   const typing = /^(INPUT|TEXTAREA)$/.test((e.target && e.target.tagName) || '');

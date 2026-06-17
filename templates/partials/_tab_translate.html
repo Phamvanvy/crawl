@@ -836,6 +836,12 @@ Nếu còn chữ mà không detect nổi, thử 0.45 kèm Detector=ctd và Gamma
           title="Cắt HÀNG LOẠT ảnh theo khung vùng ĐANG CHỌN (phần ảnh muốn GIỮ — vẽ 1 khung trùm phần nội dung, bỏ viền trắng thừa). Toạ độ chuẩn hoá nên áp được cho mọi ảnh dù khác kích thước. Ảnh áp dụng = ảnh đã tích (không tích = cả thư mục).">✂ Crop theo vùng chọn</button>
         <button class="btn btn-ghost" style="padding:3px 10px;font-size:.74rem" onclick="reAutoTrim()"
           title="Tự dò viền ĐỒNG MÀU (viền trắng thừa) của TỪNG ảnh và cắt bỏ — không cần vẽ khung. Ảnh áp dụng = ảnh đã tích (không tích = cả thư mục).">✂ Tự cắt viền</button>
+        <button class="btn btn-ghost" style="padding:3px 10px;font-size:.74rem" onclick="reApplyEraseToSelected()"
+          title="MERGE các box '🧽 Chỉ xoá' của ẢNH ĐANG MỞ sang ảnh đã TÍCH (giữ nguyên vùng sẵn có của từng ảnh). Dùng khi chỉ muốn THÊM vùng xoá watermark mà không đụng vùng/chữ riêng của các ảnh.">📌 Áp "chỉ xoá" (merge)</button>
+        <button class="btn btn-ghost" style="padding:3px 10px;font-size:.74rem" onclick="reCopyAllToSelected()"
+          title="GHI ĐÈ: copy TOÀN BỘ vùng + chế độ (merge/replace) + siết mask của ẢNH ĐANG MỞ sang MỌI ảnh đã TÍCH. Vùng cũ của các ảnh đó bị thay thế. Dùng để set 'Replace chỉ-tay + siết mask' cho cả loạt trong 1 cú (vd bỏ watermark toàn bộ). Toạ độ chuẩn hoá nên áp đúng dù ảnh khác kích thước.">📋 Copy TẤT CẢ → ảnh chọn</button>
+        <button class="btn btn-ghost" style="padding:3px 10px;font-size:.74rem;color:var(--red)" onclick="reClearSelected()"
+          title="Xoá HẾT vùng thủ công của các ảnh đã TÍCH (không thể hoàn tác).">🧹 Xoá vùng ảnh chọn</button>
         <span class="re-pill" id="rePickCount" style="flex:0 0 auto">Chưa chọn ảnh nào</span>
         <span style="margin-left:auto"></span>
         <span class="re-pill" style="flex:0 0 auto;display:flex;align-items:center;gap:6px"
