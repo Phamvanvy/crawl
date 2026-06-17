@@ -27,6 +27,7 @@ from flask import Flask, jsonify, render_template, request, send_file
 
 from crawler import crawl, retry_failed_downloads
 import translator_engine as te
+import glossary_store
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024  # 1 MB — JSON payload only
@@ -659,6 +660,7 @@ def api_translate_start():
     mit_verbose       = bool(data.get("mit_verbose",     False))
     mit_skip_no_text  = bool(data.get("mit_skip_no_text",False))
     mit_overwrite     = bool(data.get("mit_overwrite",   False))
+    use_global_glossary = bool(data.get("use_global_glossary", False))
     overwrite         = bool(data.get("overwrite",       False))
     cpu_priority      = str(data.get("cpu_priority",     "below_normal")).strip()
     translation_style = str(data.get("translation_style", "modern")).strip().lower()
@@ -793,6 +795,7 @@ def api_translate_start():
                     cpu_priority=cpu_priority,
                     gpt_style=translation_style,
                     image_quality=image_quality,
+                    use_global_glossary=use_global_glossary,
                     on_log=on_log,
                     on_progress=on_progress,
                 )
@@ -1164,6 +1167,21 @@ def _glossary_file_for(input_dir: str) -> Path:
     return story_root / "glossary.txt"
 
 
+def _extract_glossary_pairs(content: str) -> list[tuple[str, str]]:
+    """Bóc list[(zh, vi)] từ nội dung glossary.txt cũ — bỏ qua dòng #, @note và
+    dòng không có '=>'. Dùng chung cho import & promote."""
+    pairs = []
+    for raw in (content or "").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or line.lower().startswith("@note"):
+            continue
+        if "=>" in line:
+            zh, _, vi = line.partition("=>")
+            if zh.strip() and vi.strip():
+                pairs.append((zh.strip(), vi.strip()))
+    return pairs
+
+
 def _glossary_counts(text: str) -> tuple[int, int]:
     """(số mục khoá-cứng '=>', số dòng @note) — để hiển thị nhanh trên UI."""
     terms = notes = 0
@@ -1220,6 +1238,159 @@ def api_translate_glossary_save():
         return jsonify({"error": f"Không ghi được glossary: {e}"}), 500
     terms, notes = _glossary_counts(content)
     return jsonify({"ok": True, "path": str(gpath), "terms": terms, "notes": notes})
+
+
+# ── Glossary DÙNG CHUNG (global, SQLite) ─────────────────────────────────────
+# Kho cặp từ zh→vi tham chiếu cho MỌI bộ (đối lập với glossary.txt per-bộ). UI tab
+# "📚 Glossary chung" gọi các route dưới để xem/sửa/bật-tắt/xoá/dedup. Khi dịch,
+# bộ nào tích "áp glossary chung" sẽ hợp nhất các mục enabled vào prompt + enforce.
+def _glossary_global_payload():
+    """Body JSON chung cho các route POST."""
+    return request.get_json(silent=True) or {}
+
+
+@app.route("/api/glossary/global")
+def api_glossary_global_list():
+    """Liệt kê cặp từ kho global. ?q= lọc chuỗi con; ?status=enabled|pending|all."""
+    q = (request.args.get("q", "") or "").strip() or None
+    status = (request.args.get("status", "") or "").strip().lower()
+    if status not in ("enabled", "pending"):
+        status = None
+    try:
+        items = glossary_store.list_all(q=q, status=status)
+        return jsonify({"items": items, "counts": glossary_store.counts()})
+    except Exception as e:
+        return jsonify({"error": f"Không đọc được kho glossary: {e}"}), 500
+
+
+@app.route("/api/glossary/global", methods=["POST"])
+def api_glossary_global_upsert():
+    """Thêm cặp mới hoặc sửa cặp đã có. Body: {id?, zh, vi, enabled?}.
+    Có id → sửa cả zh/vi (update_pair, tự gộp nếu zh trùng mục khác);
+    không id → upsert theo zh (tự dedup)."""
+    data = _glossary_global_payload()
+    zh = str(data.get("zh", "")).strip()
+    vi = str(data.get("vi", "")).strip()
+    if not zh or not vi:
+        return jsonify({"error": "Thiếu zh hoặc vi"}), 400
+    try:
+        if data.get("id") not in (None, "", 0):
+            row = glossary_store.update_pair(None, int(data["id"]), zh, vi)
+            if data.get("enabled") is not None:
+                glossary_store.set_enabled(None, [row["id"]], bool(data["enabled"]))
+                row["enabled"] = bool(data["enabled"])
+        else:
+            row = glossary_store.upsert(None, zh, vi,
+                                        enabled=bool(data.get("enabled", True)))
+        return jsonify({"ok": True, "item": row, "counts": glossary_store.counts()})
+    except Exception as e:
+        return jsonify({"error": f"Không lưu được: {e}"}), 500
+
+
+@app.route("/api/glossary/global/toggle", methods=["POST"])
+def api_glossary_global_toggle():
+    """Bật/tắt hàng loạt. Body: {ids:[], enabled:bool}."""
+    data = _glossary_global_payload()
+    ids = data.get("ids") or []
+    try:
+        n = glossary_store.set_enabled(None, ids, bool(data.get("enabled", True)))
+        return jsonify({"ok": True, "changed": n, "counts": glossary_store.counts()})
+    except Exception as e:
+        return jsonify({"error": f"Không đổi được: {e}"}), 500
+
+
+@app.route("/api/glossary/global/delete", methods=["POST"])
+def api_glossary_global_delete():
+    """Xoá hàng loạt. Body: {ids:[]}."""
+    data = _glossary_global_payload()
+    try:
+        n = glossary_store.delete(None, data.get("ids") or [])
+        return jsonify({"ok": True, "deleted": n, "counts": glossary_store.counts()})
+    except Exception as e:
+        return jsonify({"error": f"Không xoá được: {e}"}), 500
+
+
+@app.route("/api/glossary/global/dedup", methods=["POST"])
+def api_glossary_global_dedup():
+    """Gộp các cặp zh trùng (sau chuẩn hoá). Trả {merged, total}."""
+    try:
+        res = glossary_store.dedup()
+        return jsonify({"ok": True, **res, "counts": glossary_store.counts()})
+    except Exception as e:
+        return jsonify({"error": f"Không gộp được: {e}"}), 500
+
+
+@app.route("/api/glossary/global/promote", methods=["POST"])
+def api_glossary_global_promote():
+    """Đưa glossary per-bộ của ?input_dir lên kho global (enabled=1). Body: {input_dir}."""
+    data = _glossary_global_payload()
+    input_dir = str(data.get("input_dir", "")).strip()
+    if not input_dir or not Path(input_dir).is_dir():
+        return jsonify({"error": "input_dir không hợp lệ"}), 400
+    gpath = _glossary_file_for(input_dir)
+    if not gpath.is_file():
+        return jsonify({"error": "Bộ này chưa có glossary.txt"}), 404
+    try:
+        pairs = _extract_glossary_pairs(gpath.read_text(encoding="utf-8"))
+    except Exception as e:
+        return jsonify({"error": f"Không đọc được glossary bộ: {e}"}), 500
+    source = Path(input_dir).resolve().parent.name
+    try:
+        n = glossary_store.promote_terms(None, pairs, source=source, enabled=True)
+        return jsonify({"ok": True, "promoted": n, "counts": glossary_store.counts()})
+    except Exception as e:
+        return jsonify({"error": f"Không đưa lên global được: {e}"}), 500
+
+
+@app.route("/api/glossary/global/import", methods=["POST"])
+def api_glossary_global_import():
+    """Import cặp zh=>vi từ file glossary.txt CŨ vào kho dùng chung. Nhận một trong:
+      - path      : đường dẫn tới glossary.txt HOẶC thư mục bộ (tự tìm glossary.txt),
+      - input_dir : thư mục bộ (tương tự path là dir),
+      - content   : nội dung glossary dán tay.
+    enabled=True (mặc định) → upsert + duyệt luôn (bản import GHI ĐÈ vi cũ). enabled=False
+    → chỉ thêm mục MỚI ở trạng thái chờ duyệt, không đụng mục đã có. Bỏ qua @note."""
+    data = _glossary_global_payload()
+    enabled = bool(data.get("enabled", True))
+    content = data.get("content")
+    src_label = "import"
+    if not content:
+        raw_path = str(data.get("path", "")).strip()
+        input_dir = str(data.get("input_dir", "")).strip()
+        gpath = None
+        if raw_path:
+            p = Path(raw_path)
+            if p.is_dir():
+                gpath = _glossary_file_for(str(p))
+            elif p.is_file():
+                gpath = p
+            else:
+                return jsonify({"error": f"Không tìm thấy đường dẫn: {raw_path}"}), 404
+        elif input_dir:
+            if not Path(input_dir).is_dir():
+                return jsonify({"error": "input_dir không hợp lệ"}), 400
+            gpath = _glossary_file_for(input_dir)
+        else:
+            return jsonify({"error": "Cần path, input_dir hoặc content"}), 400
+        if not gpath or not Path(gpath).is_file():
+            return jsonify({"error": "Không tìm thấy glossary.txt để import"}), 404
+        try:
+            content = Path(gpath).read_text(encoding="utf-8")
+        except Exception as e:
+            return jsonify({"error": f"Không đọc được file: {e}"}), 500
+        src_label = Path(gpath).resolve().parent.name or "import"
+    pairs = _extract_glossary_pairs(content)
+    if not pairs:
+        return jsonify({"error": "Không tìm thấy cặp 'chữ Hán => bản dịch' nào."}), 400
+    try:
+        if enabled:
+            n = glossary_store.promote_terms(None, pairs, source=src_label, enabled=True)
+        else:
+            n = glossary_store.learn_pending(None, pairs, source=src_label)
+        return jsonify({"ok": True, "imported": n, "total_pairs": len(pairs),
+                        "counts": glossary_store.counts()})
+    except Exception as e:
+        return jsonify({"error": f"Import lỗi: {e}"}), 500
 
 
 @app.route("/api/translate/preview")

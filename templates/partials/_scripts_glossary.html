@@ -1,0 +1,205 @@
+<script>
+// ── Glossary dùng chung (global) — quản lý cặp zh→vi trên UI ────────────────
+// Gọi API /api/glossary/global*. Bảng cho xem/sửa inline/bật-tắt/xoá/dedup. Mục
+// "Áp" (enabled) sẽ được hợp nhất khi dịch bộ có tích "📚 Áp Glossary chung".
+let _gItems = [];
+let _gSearchTimer = null;
+
+function gEsc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function gSetCounts(c) {
+  if (!c) return;
+  $('gCounts').textContent =
+    `${c.total} cặp · ${c.enabled} đã duyệt · ${c.pending} chờ duyệt`;
+}
+
+async function gLoad() {
+  const q = ($('gSearch') ? $('gSearch').value : '').trim();
+  const status = $('gStatus') ? $('gStatus').value : '';
+  const body = $('gBody');
+  body.innerHTML = '<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--text-muted)">Đang tải…</td></tr>';
+  try {
+    const url = '/api/glossary/global?q=' + encodeURIComponent(q)
+              + '&status=' + encodeURIComponent(status);
+    const res = await fetch(url);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'lỗi');
+    _gItems = data.items || [];
+    gSetCounts(data.counts);
+    gRender();
+  } catch (e) {
+    body.innerHTML = '<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--danger,#e66)">Lỗi: '
+                   + gEsc(e.message || e) + '</td></tr>';
+  }
+}
+
+function gOnSearch() {
+  clearTimeout(_gSearchTimer);
+  _gSearchTimer = setTimeout(gLoad, 280);
+}
+
+function gRender() {
+  const body = $('gBody');
+  if (!_gItems.length) {
+    body.innerHTML = '<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--text-muted)">Chưa có cặp từ nào.</td></tr>';
+    if ($('gCheckAll')) $('gCheckAll').checked = false;
+    gUpdateSelInfo();
+    return;
+  }
+  body.innerHTML = _gItems.map(it => {
+    const src = (it.sources || []).join(', ');
+    const pend = it.enabled ? '' : ' title="Chờ duyệt"';
+    const rowStyle = it.enabled ? '' : 'opacity:.62';
+    return `<tr data-id="${it.id}" style="border-top:1px solid var(--border);${rowStyle}">
+      <td style="padding:7px 10px"><input type="checkbox" class="g-sel" onchange="gUpdateSelInfo()"></td>
+      <td style="padding:7px 10px">
+        <label class="g-switch" style="cursor:pointer;display:inline-flex;align-items:center;gap:5px">
+          <input type="checkbox" ${it.enabled ? 'checked' : ''} onchange="gToggleOne(${it.id}, this.checked)">
+          <span style="font-size:.7rem;color:var(--text-muted)"${pend}>${it.enabled ? 'bật' : 'chờ'}</span>
+        </label>
+      </td>
+      <td style="padding:7px 10px"><input class="g-zh" value="${gEsc(it.zh)}"
+        style="width:100%;padding:5px 7px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--text);font-size:.84rem"
+        onfocus="this.style.borderColor='var(--border)';this.style.background='var(--surface2,#26262f)'"
+        onblur="gSaveRow(${it.id})"></td>
+      <td style="padding:7px 10px"><input class="g-vi" value="${gEsc(it.vi)}"
+        style="width:100%;padding:5px 7px;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--text);font-size:.84rem"
+        onfocus="this.style.borderColor='var(--border)';this.style.background='var(--surface2,#26262f)'"
+        onblur="gSaveRow(${it.id})"></td>
+      <td style="padding:7px 10px;font-size:.72rem;color:var(--text-muted)" title="${gEsc(src)}">${gEsc(src)}</td>
+      <td style="padding:7px 10px;text-align:right">
+        <button class="btn btn-danger" style="padding:4px 9px;font-size:.72rem" onclick="gDeleteOne(${it.id})">🗑</button>
+      </td>
+    </tr>`;
+  }).join('');
+  if ($('gCheckAll')) $('gCheckAll').checked = false;
+  gUpdateSelInfo();
+}
+
+function gSelectedIds() {
+  return [...document.querySelectorAll('#gBody tr')]
+    .filter(tr => { const c = tr.querySelector('.g-sel'); return c && c.checked; })
+    .map(tr => parseInt(tr.dataset.id, 10));
+}
+
+function gUpdateSelInfo() {
+  const n = gSelectedIds().length;
+  $('gSelInfo').textContent = n ? `${n} mục đã chọn` : '';
+}
+
+function gToggleAll(on) {
+  document.querySelectorAll('#gBody .g-sel').forEach(c => { c.checked = on; });
+  gUpdateSelInfo();
+}
+
+async function gApi(path, payload) {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload || {}),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'lỗi');
+  return data;
+}
+
+async function gAdd() {
+  const zh = $('gNewZh').value.trim();
+  const vi = $('gNewVi').value.trim();
+  if (!zh || !vi) { alert('Nhập cả chữ Hán và bản dịch.'); return; }
+  try {
+    const data = await gApi('/api/glossary/global', { zh, vi, enabled: true });
+    gSetCounts(data.counts);
+    $('gNewZh').value = ''; $('gNewVi').value = '';
+    $('gNewZh').focus();
+    gLoad();
+  } catch (e) { alert('Không thêm được: ' + (e.message || e)); }
+}
+
+// Lưu khi sửa inline zh/vi (onblur). Bỏ qua nếu không đổi.
+async function gSaveRow(id) {
+  const tr = document.querySelector(`#gBody tr[data-id="${id}"]`);
+  if (!tr) return;
+  const it = _gItems.find(x => x.id === id);
+  const zh = tr.querySelector('.g-zh').value.trim();
+  const vi = tr.querySelector('.g-vi').value.trim();
+  if (!it || (zh === it.zh && vi === it.vi)) return;
+  if (!zh || !vi) { gLoad(); return; }   // rỗng → khôi phục
+  try {
+    const data = await gApi('/api/glossary/global', { id, zh, vi });
+    gSetCounts(data.counts);
+    if (data.item) { it.zh = data.item.zh; it.vi = data.item.vi; }
+    // zh có thể đã gộp vào mục khác → tải lại cho chắc
+    gLoad();
+  } catch (e) { alert('Không lưu được: ' + (e.message || e)); gLoad(); }
+}
+
+async function gToggleOne(id, enabled) {
+  try {
+    const data = await gApi('/api/glossary/global/toggle', { ids: [id], enabled });
+    gSetCounts(data.counts);
+    const it = _gItems.find(x => x.id === id);
+    if (it) it.enabled = enabled;
+    gRender();
+  } catch (e) { alert('Không đổi được: ' + (e.message || e)); gLoad(); }
+}
+
+async function gBulkEnable(enabled) {
+  const ids = gSelectedIds();
+  if (!ids.length) { alert('Chưa chọn mục nào.'); return; }
+  try {
+    const data = await gApi('/api/glossary/global/toggle', { ids, enabled });
+    gSetCounts(data.counts);
+    gLoad();
+  } catch (e) { alert('Lỗi: ' + (e.message || e)); }
+}
+
+async function gDeleteOne(id) {
+  if (!confirm('Xoá cặp từ này khỏi kho dùng chung?')) return;
+  try {
+    const data = await gApi('/api/glossary/global/delete', { ids: [id] });
+    gSetCounts(data.counts);
+    gLoad();
+  } catch (e) { alert('Không xoá được: ' + (e.message || e)); }
+}
+
+async function gBulkDelete() {
+  const ids = gSelectedIds();
+  if (!ids.length) { alert('Chưa chọn mục nào.'); return; }
+  if (!confirm(`Xoá ${ids.length} cặp đã chọn?`)) return;
+  try {
+    const data = await gApi('/api/glossary/global/delete', { ids });
+    gSetCounts(data.counts);
+    gLoad();
+  } catch (e) { alert('Lỗi: ' + (e.message || e)); }
+}
+
+async function gImport() {
+  const path = $('gImportPath').value.trim();
+  if (!path) { alert('Nhập đường dẫn file glossary.txt hoặc thư mục bộ.'); return; }
+  const enabled = $('gImportEnabled').checked;
+  if (!confirm(`Import cặp từ "${path}" vào kho dùng chung`
+      + (enabled ? ' (duyệt luôn)?' : ' (chờ duyệt)?'))) return;
+  try {
+    const data = await gApi('/api/glossary/global/import', { path, enabled });
+    gSetCounts(data.counts);
+    alert(`Đã import ${data.imported}/${data.total_pairs} cặp.`);
+    $('gImportPath').value = '';
+    gLoad();
+  } catch (e) { alert('Import lỗi: ' + (e.message || e)); }
+}
+
+async function gDedup() {
+  if (!confirm('Gộp các cặp có chữ Hán trùng nhau?')) return;
+  try {
+    const data = await gApi('/api/glossary/global/dedup', {});
+    gSetCounts(data.counts);
+    alert(`Đã gộp ${data.merged} cặp trùng. Còn lại ${data.total} cặp.`);
+    gLoad();
+  } catch (e) { alert('Không gộp được: ' + (e.message || e)); }
+}
+</script>

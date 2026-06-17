@@ -133,6 +133,13 @@
                 placeholder="李雷 => Lý Lôi&#10;青云宗 => Thanh Vân Tông&#10;@note Lý Lôi xưng &quot;ta&quot;, gọi sư phụ là &quot;thầy&quot;"
                 style="width:100%;min-height:150px;resize:vertical;font-family:ui-monospace,Consolas,monospace;font-size:.78rem;line-height:1.5;padding:8px;border:1px solid var(--border);border-radius:7px;background:var(--surface2,#26262f);color:var(--text)"></textarea>
               <div class="field-hint">Mỗi dòng: <code>chữ Hán =&gt; bản dịch</code> (khoá cứng), hoặc <code>@note &lt;ghi chú xưng hô&gt;</code>. File <code>glossary.txt</code> nằm ở gốc bộ, dùng chung mọi chương — chỉ áp cho bộ này. Cần backend MIT + translator <code>custom_openai</code>.</div>
+              <label style="display:flex;align-items:center;gap:7px;margin-top:9px;font-size:.8rem;cursor:pointer">
+                <input type="checkbox" id="tUseGlobalGlossary">
+                <span>📚 Áp <b>Glossary chung</b> khi dịch bộ này
+                  <span style="opacity:.6">(hợp nhất các cặp đã duyệt từ kho dùng chung; per-bộ ưu tiên khi trùng)</span>
+                </span>
+              </label>
+              <div class="field-hint">Quản lý kho dùng chung ở tab <b>📚 Glossary chung</b>. Tên tự học khi dịch sẽ được đẩy lên kho ở trạng thái <i>chờ duyệt</i>.</div>
             </div>
           </div>
 

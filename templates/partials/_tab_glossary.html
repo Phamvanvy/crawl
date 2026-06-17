@@ -1,0 +1,91 @@
+<!-- ── Glossary chung (global) tab ─────────────────────────────────────────── -->
+<div id="tab-glossary" class="layout" style="display:none">
+  <div class="left-col" style="grid-column:1/-1;max-width:1100px;margin:0 auto;width:100%">
+
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-header">
+        <span>📚 Glossary dùng chung
+          <span style="font-size:.7rem;opacity:.6">(cặp <code>chữ Hán → tiếng Việt</code> tham chiếu cho mọi bộ)</span>
+        </span>
+        <span id="gCounts" style="font-size:.72rem;color:var(--text-muted)"></span>
+      </div>
+      <div class="card-body">
+
+        <!-- Thanh công cụ -->
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+          <input id="gSearch" type="text" placeholder="🔍 Tìm chữ Hán hoặc bản dịch…" oninput="gOnSearch()"
+            style="flex:1;min-width:180px;padding:7px 10px;border:1px solid var(--border);border-radius:7px;background:var(--surface2,#26262f);color:var(--text);font-size:.82rem">
+          <select id="gStatus" onchange="gLoad()"
+            style="padding:7px 10px;border:1px solid var(--border);border-radius:7px;background:var(--surface2,#26262f);color:var(--text);font-size:.8rem">
+            <option value="">Tất cả</option>
+            <option value="enabled">Đã duyệt</option>
+            <option value="pending">Chờ duyệt</option>
+          </select>
+          <button class="btn btn-ghost" style="padding:6px 12px;font-size:.76rem" onclick="gLoad()">↻ Tải</button>
+          <button class="btn btn-ghost" style="padding:6px 12px;font-size:.76rem" onclick="gDedup()">🧹 Gỡ trùng</button>
+        </div>
+
+        <!-- Hành động hàng loạt -->
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;font-size:.76rem">
+          <label style="display:flex;align-items:center;gap:5px;cursor:pointer">
+            <input type="checkbox" id="gCheckAll" onchange="gToggleAll(this.checked)"> Chọn tất cả
+          </label>
+          <span id="gSelInfo" style="color:var(--text-muted)"></span>
+          <span style="margin-left:auto;display:flex;gap:6px">
+            <button class="btn btn-ghost" style="padding:5px 10px;font-size:.74rem" onclick="gBulkEnable(true)">✓ Duyệt mục chọn</button>
+            <button class="btn btn-ghost" style="padding:5px 10px;font-size:.74rem" onclick="gBulkEnable(false)">✕ Bỏ duyệt</button>
+            <button class="btn btn-danger" style="padding:5px 10px;font-size:.74rem" onclick="gBulkDelete()">🗑 Xoá mục chọn</button>
+          </span>
+        </div>
+
+        <!-- Thêm cặp mới -->
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;padding:10px;border:1px dashed var(--border);border-radius:8px">
+          <input id="gNewZh" type="text" placeholder="Chữ Hán (vd 青云宗)"
+            style="flex:1;min-width:120px;padding:7px 10px;border:1px solid var(--border);border-radius:7px;background:var(--surface2,#26262f);color:var(--text);font-size:.82rem">
+          <span style="opacity:.5">→</span>
+          <input id="gNewVi" type="text" placeholder="Bản dịch (vd Thanh Vân Tông)"
+            style="flex:1;min-width:120px;padding:7px 10px;border:1px solid var(--border);border-radius:7px;background:var(--surface2,#26262f);color:var(--text);font-size:.82rem">
+          <button class="btn btn-primary" style="padding:7px 14px;font-size:.78rem" onclick="gAdd()">➕ Thêm cặp</button>
+        </div>
+
+        <!-- Import từ glossary.txt cũ -->
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;padding:10px;border:1px dashed var(--border);border-radius:8px">
+          <span style="font-size:.78rem;font-weight:600">📥 Import từ <code>glossary.txt</code> cũ</span>
+          <input id="gImportPath" type="text" placeholder="Đường dẫn file glossary.txt hoặc thư mục bộ truyện"
+            style="flex:1;min-width:200px;padding:7px 10px;border:1px solid var(--border);border-radius:7px;background:var(--surface2,#26262f);color:var(--text);font-size:.8rem">
+          <label style="display:flex;align-items:center;gap:5px;font-size:.76rem;cursor:pointer">
+            <input type="checkbox" id="gImportEnabled" checked> Duyệt luôn
+          </label>
+          <button class="btn btn-primary" style="padding:7px 14px;font-size:.78rem" onclick="gImport()">📥 Import</button>
+        </div>
+
+        <!-- Bảng cặp từ -->
+        <div style="overflow:auto;border:1px solid var(--border);border-radius:8px">
+          <table id="gTable" style="width:100%;border-collapse:collapse;font-size:.82rem">
+            <thead>
+              <tr style="background:var(--surface2,#26262f);text-align:left">
+                <th style="padding:8px 10px;width:34px"></th>
+                <th style="padding:8px 10px;width:78px">Áp</th>
+                <th style="padding:8px 10px">Chữ Hán</th>
+                <th style="padding:8px 10px">Tiếng Việt</th>
+                <th style="padding:8px 10px;width:130px">Nguồn (bộ)</th>
+                <th style="padding:8px 10px;width:96px"></th>
+              </tr>
+            </thead>
+            <tbody id="gBody">
+              <tr><td colspan="6" style="padding:16px;text-align:center;color:var(--text-muted)">Đang tải…</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="field-hint" style="margin-top:10px">
+          Cặp <b>đã duyệt</b> (Áp = bật) sẽ được hợp nhất vào prompt + enforce khi bộ nào tích
+          <b>📚 Áp Glossary chung</b> lúc dịch. Khi trùng chữ Hán, <b>glossary per-bộ luôn ưu tiên</b>.
+          Mục <b>chờ duyệt</b> do quá trình dịch tự học — bật <i>Áp</i> để dùng chung.
+          Khoá theo chữ Hán nên thêm trùng tự gộp; nút <b>Gỡ trùng</b> dọn biến thể gõ khác nhau.
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>

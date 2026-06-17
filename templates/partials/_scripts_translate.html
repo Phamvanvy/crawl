@@ -282,6 +282,7 @@ async function tStart() {
   const mit_verbose      = $('tMITVerbose').checked;
   const mit_skip_no_text = $('tMITSkipNoText').checked;
   const mit_overwrite    = $('tMITOverwrite').checked;
+  const use_global_glossary = $('tUseGlobalGlossary') ? $('tUseGlobalGlossary').checked : false;
   const mit_custom_api_base = getVal('tMITCustomOpenAiApiBase');
   const mit_custom_api_key  = getVal('tMITCustomOpenAiApiKey');
   const cpu_priority     = getVal('tCpuPriority') || 'below_normal';
@@ -325,6 +326,7 @@ async function tStart() {
         mit_font_ofs, mit_font_min, mit_font_fixed, mit_font_color, mit_narrow_wide, mit_narrow_fcap,
         mit_custom_api_base, mit_custom_api_key,
         mit_verbose, mit_skip_no_text, mit_overwrite,
+        use_global_glossary,
         inpainter, overwrite, font_scale, image_quality, cpu_priority,
       }),
     });

@@ -278,6 +278,7 @@ class MITImageTranslator:
         cpu_priority: str = "below_normal",
         gpt_style: str = "",
         image_quality: int = 95,
+        use_global_glossary: bool = False,
         on_log=None,
         on_progress=None,
     ):
@@ -321,6 +322,9 @@ class MITImageTranslator:
             self.image_quality = max(40, min(100, int(image_quality)))
         except (TypeError, ValueError):
             self.image_quality = 95
+        # Áp glossary DÙNG CHUNG (global) cho lần dịch này: chỉ hợp lý với
+        # custom_openai (cơ chế bơm prompt + enforce nằm ở translator đó).
+        self.use_global_glossary = bool(use_global_glossary)
         self.on_log       = on_log or print
         self.on_progress  = on_progress or (lambda d, t: None)
         self._pre_dict_path: str | None = None
@@ -717,6 +721,17 @@ class MITImageTranslator:
         if self.translator == "custom_openai" and getattr(self, "_glossary_path", None):
             sub_env["MIT_GLOSSARY_PATH"] = self._glossary_path
             self._log(f"  [ENV] MIT_GLOSSARY_PATH={self._glossary_path}")
+        # Glossary DÙNG CHUNG (global, SQLite): khi user bật, truyền đường dẫn kho +
+        # cờ để custom_openai hợp nhất mục đã duyệt vào prompt/enforce và đẩy mục tự
+        # học lên kho (chờ duyệt). Đường dẫn kho lấy từ glossary_store (gốc repo).
+        if self.translator == "custom_openai" and getattr(self, "use_global_glossary", False):
+            try:
+                import glossary_store as _gstore
+                sub_env["MIT_GLOSSARY_DB"] = _gstore.db_path()
+                sub_env["MIT_GLOSSARY_USE_GLOBAL"] = "1"
+                self._log(f"  [ENV] MIT_GLOSSARY_DB={sub_env['MIT_GLOSSARY_DB']} (áp glossary chung)")
+            except Exception as _e:
+                self._log(f"  [GLOSSARY] Không nạp được kho global: {_e}")
 
         _thread_limit = "4" if self.cpu_priority == "normal" else "3" if self.cpu_priority == "below_normal" else "2"
         for _env_key in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",

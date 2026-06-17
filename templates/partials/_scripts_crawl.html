@@ -454,10 +454,13 @@ function switchTab(name) {
   $('tab-crawl').style.display     = name === 'crawl'     ? '' : 'none';
   $('tab-translate').style.display = name === 'translate' ? '' : 'none';
   $('tab-viewer').style.display    = name === 'viewer'    ? '' : 'none';
+  if ($('tab-glossary')) $('tab-glossary').style.display = name === 'glossary' ? '' : 'none';
   $('tabBtnCrawl').classList.toggle('active',     name === 'crawl');
   $('tabBtnTranslate').classList.toggle('active', name === 'translate');
   $('tabBtnViewer').classList.toggle('active',    name === 'viewer');
+  if ($('tabBtnGlossary')) $('tabBtnGlossary').classList.toggle('active', name === 'glossary');
   if (name === 'translate') runCheck();
+  if (name === 'glossary' && typeof gLoad === 'function') gLoad();
 }
 
 // ── Dependency check ──────────────────────────────────────────────────────────
