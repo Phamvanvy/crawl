@@ -1320,6 +1320,125 @@ def api_glossary_global_dedup():
         return jsonify({"error": f"Không gộp được: {e}"}), 500
 
 
+# ── AI dịch lại cặp glossary (model cũ dịch sai) ─────────────────────────────
+# Người dùng chọn vài cặp đang sai trên UI → nhờ chính LLM (custom_openai họ dùng
+# để dịch) dịch LẠI bản Việt theo lối Hán-Việt chuẩn, rồi ghi đè vào kho. Gọi
+# endpoint OpenAI-compatible /chat/completions bằng requests (đã có sẵn, không thêm
+# dependency); chạy được cho cả ollama / llama.cpp / LM Studio.
+_GLOSSARY_RETRANSLATE_SYS = (
+    "Bạn là chuyên gia dịch thuật ngữ truyện tranh tu tiên/võ hiệp Trung→Việt. "
+    "Dưới đây là danh sách thuật ngữ (tên nhân vật, môn phái/gia tộc, địa danh, "
+    "công pháp/bảo vật, cảnh giới tu luyện) kèm bản dịch HIỆN TẠI có thể SAI. "
+    "Hãy dịch lại sang tiếng Việt theo lối Hán-Việt CHUẨN và tự nhiên cho thể loại "
+    "này (vd 青云宗 => Thanh Vân Tông, 结丹期 => Kết Đan kỳ, 李雷 => Lý Lôi). "
+    "Ưu tiên âm Hán-Việt cho danh từ riêng, giữ đúng nghĩa. Mỗi mục xuất ĐÚNG một "
+    "dòng theo dạng:\n"
+    "<chữ Hán gốc> => <bản dịch tiếng Việt>\n"
+    "Giữ NGUYÊN VĂN chữ Hán gốc bên trái. Chỉ xuất danh sách, không giải thích, "
+    "không đánh số, không thêm chữ nào khác."
+)
+
+
+def _llm_chat_completion(api_base, api_key, model, messages, timeout=120):
+    """POST tới endpoint OpenAI-compatible /chat/completions. Trả nội dung message
+    (đã bóc <think>…</think> nếu model bật suy nghĩ) hoặc raise lỗi."""
+    import requests
+    base = (api_base or "http://127.0.0.1:8080/v1").rstrip("/")
+    url = base + "/chat/completions"
+    headers = {"Content-Type": "application/json",
+               "Authorization": f"Bearer {api_key or 'ollama'}"}
+    payload = {
+        "model": model or "Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive-Q4_K_M",
+        "messages": messages,
+        "temperature": 0.2,
+        "top_p": 0.8,
+        "max_tokens": 20000,
+    }
+    resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
+    resp.raise_for_status()
+    data = resp.json()
+    content = ((data.get("choices") or [{}])[0].get("message", {}) or {}).get("content", "") or ""
+    return re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL | re.IGNORECASE)
+
+
+def _parse_retranslate_output(out: str) -> dict:
+    """Bóc các dòng '<Hán> <sep> <Việt>' → {zh: vi}. Chấp nhận '=>', '→', '：', ':'."""
+    res: dict = {}
+    for line in (out or "").splitlines():
+        line = line.strip().lstrip("-*0123456789.) ").strip()
+        sep = next((s for s in ("=>", "→", "：", ":") if s in line), None)
+        if not sep:
+            continue
+        zh, _, vi = line.partition(sep)
+        zh, vi = zh.strip(), vi.strip()
+        if zh and vi:
+            res[zh] = vi
+    return res
+
+
+@app.route("/api/glossary/global/retranslate", methods=["POST"])
+def api_glossary_global_retranslate():
+    """Nhờ AI ĐỀ XUẤT bản Việt mới cho các cặp đã chọn — CHỈ trả gợi ý, KHÔNG ghi DB
+    (người dùng xem trước rồi tự áp dụng qua route upsert). Body:
+    {ids:[], api_base?, api_key?, model?}. Gửi 'zh => vi hiện tại' cho LLM.
+    Trả {suggestions:[{id,zh,old,new,changed}], total}."""
+    import unicodedata
+    data = _glossary_global_payload()
+    try:
+        ids = [int(i) for i in (data.get("ids") or [])]
+    except (TypeError, ValueError):
+        ids = []
+    if not ids:
+        return jsonify({"error": "Chưa chọn mục nào để dịch lại"}), 400
+    api_base = str(data.get("api_base", "")).strip()
+    api_key  = str(data.get("api_key", "")).strip()
+    model    = str(data.get("model", "")).strip()
+    try:
+        by_id = {it["id"]: it for it in glossary_store.list_all()}
+    except Exception as e:
+        return jsonify({"error": f"Không đọc được kho: {e}"}), 500
+    picked = [by_id[i] for i in ids if i in by_id]
+    if not picked:
+        return jsonify({"error": "Không tìm thấy mục đã chọn"}), 404
+
+    # Chia BATCH: 1 request nhồi quá nhiều mục → output vượt max_tokens, model chỉ
+    # trả vài dòng đầu, phần còn lại bị bỏ sót (UI báo "0 đổi"). 30 mục/lần là vừa.
+    _BATCH = 30
+    mapping: dict = {}
+    errors = 0
+    for i in range(0, len(picked), _BATCH):
+        chunk = picked[i:i + _BATCH]
+        block = "\n".join(f"{it['zh']} => {it['vi']}" for it in chunk)
+        messages = [
+            {"role": "system", "content": _GLOSSARY_RETRANSLATE_SYS},
+            {"role": "user", "content": block},
+        ]
+        try:
+            out = _llm_chat_completion(api_base, api_key, model, messages)
+            mapping.update(_parse_retranslate_output(out))
+        except Exception as e:
+            errors += 1
+            last_err = str(e)
+    # Tất cả batch đều lỗi (server LLM không chạy / sai cấu hình) → báo rõ.
+    if errors and not mapping:
+        return jsonify({"error": f"Gọi AI thất bại: {last_err}"}), 502
+
+    suggestions = []
+    for it in picked:
+        new_vi = mapping.get(it["zh"]) or mapping.get(
+            unicodedata.normalize("NFC", it["zh"]))
+        missing = not new_vi                 # AI không trả về mục này
+        if missing:
+            new_vi = it["vi"]
+        suggestions.append({"id": it["id"], "zh": it["zh"], "old": it["vi"],
+                            "new": new_vi, "changed": new_vi != it["vi"],
+                            "missing": missing})
+    return jsonify({"ok": True, "suggestions": suggestions,
+                    "total": len(suggestions),
+                    "missing": sum(1 for s in suggestions if s["missing"]),
+                    "batch_errors": errors})
+
+
 @app.route("/api/glossary/global/promote", methods=["POST"])
 def api_glossary_global_promote():
     """Đưa glossary per-bộ của ?input_dir lên kho global (enabled=1). Body: {input_dir}."""

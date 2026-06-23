@@ -32,6 +32,7 @@
           </label>
           <span id="gSelInfo" style="color:var(--text-muted)"></span>
           <span style="margin-left:auto;display:flex;gap:6px">
+            <button class="btn btn-ghost" style="padding:5px 10px;font-size:.74rem" onclick="gBulkRetranslate()" title="Nhờ AI dịch lại bản Việt của các mục đã chọn (dùng LLM cấu hình ở tab Dịch)">🤖 AI dịch lại</button>
             <button class="btn btn-ghost" style="padding:5px 10px;font-size:.74rem" onclick="gBulkEnable(true)">✓ Duyệt mục chọn</button>
             <button class="btn btn-ghost" style="padding:5px 10px;font-size:.74rem" onclick="gBulkEnable(false)">✕ Bỏ duyệt</button>
             <button class="btn btn-danger" style="padding:5px 10px;font-size:.74rem" onclick="gBulkDelete()">🗑 Xoá mục chọn</button>
@@ -69,7 +70,7 @@
                 <th style="padding:8px 10px">Chữ Hán</th>
                 <th style="padding:8px 10px">Tiếng Việt</th>
                 <th style="padding:8px 10px;width:130px">Nguồn (bộ)</th>
-                <th style="padding:8px 10px;width:96px"></th>
+                <th style="padding:8px 10px;width:118px"></th>
               </tr>
             </thead>
             <tbody id="gBody">
@@ -85,6 +86,39 @@
           Khoá theo chữ Hán nên thêm trùng tự gộp; nút <b>Gỡ trùng</b> dọn biến thể gõ khác nhau.
         </div>
 
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Modal xem trước AI dịch lại ──────────────────────────────────────── -->
+  <div id="gRtModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.55);align-items:center;justify-content:center;padding:20px">
+    <div class="card" style="width:min(820px,96vw);max-height:88vh;display:flex;flex-direction:column;margin:0">
+      <div class="card-header">
+        <span>🤖 AI đề xuất dịch lại — xem trước rồi mới lưu</span>
+        <span id="gRtInfo" style="font-size:.72rem;color:var(--text-muted)"></span>
+      </div>
+      <div class="card-body" style="overflow:auto;flex:1">
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px;font-size:.76rem;flex-wrap:wrap">
+          <label style="display:flex;align-items:center;gap:5px;cursor:pointer">
+            <input type="checkbox" id="gRtAll" onchange="gRtToggleAll(this.checked)"> Chọn tất cả mục có đổi
+          </label>
+          <span style="color:var(--text-muted)">Bỏ tick để giữ bản cũ. Ô “AI đề xuất” sửa tay được trước khi lưu.</span>
+        </div>
+        <table style="width:100%;border-collapse:collapse;font-size:.82rem">
+          <thead>
+            <tr style="background:var(--surface2,#26262f);text-align:left">
+              <th style="padding:6px 8px;width:30px"></th>
+              <th style="padding:6px 8px">Chữ Hán</th>
+              <th style="padding:6px 8px">Bản hiện tại</th>
+              <th style="padding:6px 8px">AI đề xuất (sửa được)</th>
+            </tr>
+          </thead>
+          <tbody id="gRtBody"></tbody>
+        </table>
+      </div>
+      <div class="card-body" style="border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex:0 0 auto">
+        <button class="btn btn-ghost" onclick="gRtClose()">Huỷ</button>
+        <button class="btn btn-primary" id="gRtApply" onclick="gRtApply()">✓ Áp dụng mục đã chọn</button>
       </div>
     </div>
   </div>

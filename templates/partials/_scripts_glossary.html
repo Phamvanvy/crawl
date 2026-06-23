@@ -71,7 +71,8 @@ function gRender() {
         onfocus="this.style.borderColor='var(--border)';this.style.background='var(--surface2,#26262f)'"
         onblur="gSaveRow(${it.id})"></td>
       <td style="padding:7px 10px;font-size:.72rem;color:var(--text-muted)" title="${gEsc(src)}">${gEsc(src)}</td>
-      <td style="padding:7px 10px;text-align:right">
+      <td style="padding:7px 10px;text-align:right;white-space:nowrap">
+        <button class="btn btn-ghost" style="padding:4px 8px;font-size:.72rem" title="AI dịch lại mục này" onclick="gRetranslate([${it.id}])">🤖</button>
         <button class="btn btn-danger" style="padding:4px 9px;font-size:.72rem" onclick="gDeleteOne(${it.id})">🗑</button>
       </td>
     </tr>`;
@@ -191,6 +192,116 @@ async function gImport() {
     $('gImportPath').value = '';
     gLoad();
   } catch (e) { alert('Import lỗi: ' + (e.message || e)); }
+}
+
+// ── AI dịch lại (model cũ dịch sai) ────────────────────────────────────────
+// Lấy cấu hình LLM từ tab Dịch (cùng SPA): ưu tiên custom_openai (MIT), fallback
+// llm_base_url / model mặc định. Backend tự mặc định ollama nếu để trống.
+function gLlmConfig() {
+  const gv = id => { const el = document.getElementById(id); return el ? (el.value || '').trim() : ''; };
+  return {
+    api_base: gv('tMITCustomOpenAiApiBase') || gv('tLlmBaseUrl'),
+    api_key:  gv('tMITCustomOpenAiApiKey'),
+    model:    gv('tMITOllamaModel') || gv('tModel'),
+  };
+}
+
+let _gRtItems = [];   // đề xuất AI đang xem trước
+
+// Bước 1: hỏi AI đề xuất (KHÔNG ghi DB) → mở modal xem trước.
+async function gRetranslate(ids) {
+  if (!ids || !ids.length) { alert('Chưa chọn mục nào để dịch lại.'); return; }
+  const cfg = gLlmConfig();
+  const prev = $('gSelInfo').textContent;
+  $('gSelInfo').textContent = '🤖 Đang nhờ AI dịch lại…';
+  try {
+    const data = await gApi('/api/glossary/global/retranslate', { ids, ...cfg });
+    $('gSelInfo').textContent = prev;
+    _gRtItems = data.suggestions || [];
+    if (!_gRtItems.length) { alert('AI không trả về đề xuất nào.'); return; }
+    const nChange = _gRtItems.filter(s => s.changed).length;
+    const nMissing = data.missing || 0;
+    // Không có gì đổi → không mở modal, báo thẳng (kèm chẩn đoán nếu AI dịch hụt).
+    if (nChange === 0) {
+      if (nMissing) {
+        alert(`AI không dịch được ${nMissing}/${_gRtItems.length} mục `
+          + `(model trả thiếu hoặc sai định dạng). Thử lại với ÍT mục hơn, `
+          + `hoặc kiểm tra model/API ở tab Dịch.`);
+      } else {
+        alert(`AI giữ nguyên tất cả ${_gRtItems.length} mục — không có gì cần sửa.`);
+      }
+      return;
+    }
+    gRtOpen(cfg, nChange, nMissing);
+  } catch (e) {
+    $('gSelInfo').textContent = prev;
+    alert('AI dịch lại lỗi: ' + (e.message || e));
+  }
+}
+
+function gBulkRetranslate() { gRetranslate(gSelectedIds()); }
+
+// ── Modal xem trước ────────────────────────────────────────────────────────
+function gRtOpen(cfg, nChange, nMissing) {
+  // Chỉ hiện các mục CÓ ĐỔI lên đầu cho gọn; mục AI bỏ sót gắn nhãn ⚠ để biết.
+  $('gRtInfo').textContent =
+    `${_gRtItems.length} mục · ${nChange} có đổi`
+    + (nMissing ? ` · ⚠ ${nMissing} AI bỏ sót` : '')
+    + ` · model ${cfg.model || 'mặc định'}`;
+  // Sắp mục có đổi lên trước.
+  const ordered = [..._gRtItems].sort((a, b) => (b.changed ? 1 : 0) - (a.changed ? 1 : 0));
+  $('gRtBody').innerHTML = ordered.map(s => {
+    const warn = s.missing
+      ? ' <span title="AI không trả về mục này" style="color:var(--warn,#e0a33e)">⚠</span>' : '';
+    return `
+    <tr data-id="${s.id}" style="border-top:1px solid var(--border);${s.changed ? '' : 'opacity:.6'}">
+      <td style="padding:6px 8px"><input type="checkbox" class="g-rt-sel" ${s.changed ? 'checked' : ''}></td>
+      <td style="padding:6px 8px;font-size:.86rem">${gEsc(s.zh)}${warn}</td>
+      <td style="padding:6px 8px;color:var(--text-muted)">${gEsc(s.old)}</td>
+      <td style="padding:6px 8px"><input class="g-rt-vi" value="${gEsc(s.new)}"
+        style="width:100%;padding:5px 7px;border:1px solid var(--border);border-radius:6px;background:var(--surface2,#26262f);color:var(--text);font-size:.84rem${s.changed ? ';border-color:var(--accent,#6a9)' : ''}"></td>
+    </tr>`;
+  }).join('');
+  if ($('gRtAll')) $('gRtAll').checked = nChange > 0;
+  $('gRtModal').style.display = 'flex';
+}
+
+function gRtClose() { $('gRtModal').style.display = 'none'; _gRtItems = []; }
+
+function gRtToggleAll(on) {
+  // "Chọn tất cả mục có đổi": chỉ tick các dòng mà AI thật sự đổi bản dịch.
+  [...document.querySelectorAll('#gRtBody tr')].forEach(tr => {
+    const c = tr.querySelector('.g-rt-sel');
+    if (!c) return;
+    const it = _gRtItems.find(x => x.id === parseInt(tr.dataset.id, 10));
+    c.checked = on && !!(it && it.changed);
+  });
+}
+
+// Bước 2: áp dụng các mục đã tick — ghi qua route upsert (giữ trạng thái duyệt).
+async function gRtApply() {
+  const rows = [...document.querySelectorAll('#gRtBody tr')].filter(tr => {
+    const c = tr.querySelector('.g-rt-sel');
+    return c && c.checked;
+  });
+  if (!rows.length) { alert('Chưa tick mục nào để áp dụng.'); return; }
+  const btn = $('gRtApply');
+  btn.disabled = true; const lbl = btn.textContent; btn.textContent = 'Đang lưu…';
+  let ok = 0, fail = 0;
+  for (const tr of rows) {
+    const id = parseInt(tr.dataset.id, 10);
+    const it = _gRtItems.find(x => x.id === id);
+    const vi = tr.querySelector('.g-rt-vi').value.trim();
+    if (!it || !vi) { fail++; continue; }
+    try {
+      await gApi('/api/glossary/global', { id, zh: it.zh, vi });
+      ok++;
+    } catch (e) { fail++; }
+  }
+  btn.disabled = false; btn.textContent = lbl;
+  gRtClose();
+  gLoad();
+  alert(`Đã lưu ${ok} mục${fail ? `, ${fail} lỗi` : ''}.`);
 }
 
 async function gDedup() {
