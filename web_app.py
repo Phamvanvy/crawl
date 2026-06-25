@@ -1994,7 +1994,7 @@ def api_images_crop():
         print(f"  ⚠  Crop lỗi tạo thư mục đích {dst}: {exc}", flush=True)
         return jsonify({"error": f"Không tạo được thư mục đích: {exc}"}), 500
 
-    cropped, skipped, failed = 0, [], []
+    cropped, copied, skipped, failed = 0, 0, [], []
     for f in files:
         try:
             with Image.open(f) as im:
@@ -2004,7 +2004,14 @@ def api_images_crop():
                     arr = np.asarray(im.convert("RGB"))
                     bbox = _autotrim_bbox(arr)
                     if bbox is None:
-                        skipped.append(f"{f.name}: không có viền đồng màu để cắt")
+                        # Không cắt được nhưng ảnh đã được chọn → vẫn copy nguyên
+                        # bản sang đích (giữ nguyên bytes, không nén lại). Nếu
+                        # ghi đè tại chỗ thì khỏi copy vì file đã nằm sẵn ở đó.
+                        if not in_place:
+                            import shutil
+                            shutil.copy2(f, dst / f.name)
+                            copied += 1
+                        skipped.append(f"{f.name}: không có viền đồng màu — copy nguyên bản")
                         continue
                     x0, y0, x1, y1 = bbox
                     print(f"  ·  Crop {f.name}: cắt trên {y0} dưới {h - y1} "
@@ -2027,10 +2034,10 @@ def api_images_crop():
             print(f"  ⚠  Crop lỗi {msg}", flush=True)
     for sk in skipped:
         print(f"  ·  Crop bỏ qua {sk}", flush=True)
-    print(f"  ✔  Crop xong: {cropped} cắt · {len(skipped)} bỏ qua · "
-          f"{len(failed)} lỗi · {len(ignored)} loại", flush=True)
+    print(f"  ✔  Crop xong: {cropped} cắt · {copied} copy nguyên · "
+          f"{len(skipped)} bỏ qua · {len(failed)} lỗi · {len(ignored)} loại", flush=True)
     return jsonify({
-        "ok": True, "cropped": cropped,
+        "ok": True, "cropped": cropped, "copied": copied,
         "skipped": len(skipped), "skipped_detail": skipped[:20],
         "ignored": ignored[:20], "ignored_count": len(ignored),
         "failed": failed[:20], "fail_count": len(failed),
