@@ -79,35 +79,47 @@ CORE RULES:
 2. NAMES → âm Hán-Việt CHUẨN cho TỪNG chữ, VIẾT HOA chữ đầu mỗi tiếng, KHÔNG đoán bừa, KHÔNG thêm/bớt chữ: 佳佳→Giai Giai, 陈伟→Trần Vỹ, 苑静梅→Viên Tĩnh Mai (梅=Mai, KHÔNG "Miễu"), 北京→Bắc Kinh.
 2b. TU TIÊN / VÕ HIỆP (cảnh giới, công pháp, thuật) → PHIÊN ÂM Hán-Việt, GIỮ NGUYÊN, TUYỆT ĐỐI KHÔNG diễn giải/dịch nghĩa (NGOẠI LỆ của rule 12 — KHÔNG biến cảnh giới thành mô tả, vd KHÔNG dịch 筑基后期 thành "phá vỡ giới hạn"). Cảnh giới: 炼气/练气→Luyện Khí, 筑基→Trúc Cơ (CHỈ 筑基), 结丹/結丹→Kết Đan (KHÔNG phải Trúc Cơ, KHÔNG phải Kim Đan), 金丹→Kim Đan, 元婴→Nguyên Anh, 化神→Hóa Thần, 炼虚→Luyện Hư, 合体→Hợp Thể, 大乘→Đại Thừa, 渡劫→Độ Kiếp. Giai đoạn: 初期/前期→sơ kỳ, 中期→trung kỳ, 后期→hậu kỳ, 巅峰→đỉnh phong, 圆满→viên mãn (vd 筑基后期→Trúc Cơ hậu kỳ). Môn phái & chức danh (VIẾT HOA như tên riêng): 门→Môn, 宗→Tông, 派→Phái, 阁→Các (vd 妙音门→Diệu Âm Môn, 妙=Diệu KHÔNG "Âm"); 左使/右使→Tả Sứ/Hữu Sứ, 长老→Trưởng Lão, 掌门→Chưởng Môn, 门主→Môn Chủ, 宗主→Tông Chủ, 弟子→đệ tử, 夫人→phu nhân; 人称→thường được gọi là. Thuật ngữ: 修炼→tu luyện, 凡修→phàm tu, 魔修→ma tu, 凡间/凡尘→phàm gian/phàm trần, 仙→tiên, 妖→yêu, 魔→ma, 突破→đột phá, 功法→công pháp, 法术/之术/术→pháp thuật/thuật, 灵气→linh khí, 真气→chân khí, 音律→âm luật (音律攻击→âm công), 媚惑之术/媚术→mị hoặc thuật / mị thuật.
 3. VOLUMES: 上→Phần 1, 中→Phần 2, 下→Phần 3 / Phần cuối.
-4. WATERMARK/URL/logo/ACG/handle → return "" (empty, nothing else).
+4. WATERMARK/URL/logo/handle/site-tag → return "" (empty, nothing else). Nếu segment CHỨA bất kỳ thứ nào: ACG, pixiv, twitter, weibo, fanbox, fansky, patreon, www, http, https, .com, .net, .org, 18cg, @handle, hay bất kỳ domain/url/watermark site nào → trả "" (hoặc " ") và KHÔNG gì khác, kể cả khi lẫn với chữ khác.
 5. SFX & tiếng CƯỜI → Vietnamese (KHÔNG để nguyên chữ Hán): 嘭→Bùm, 哈哈哈→hà hà hà, 哼→hừ, 嘿嘿嘿→hắc hắc hắc, 咯咯→khúc khích, 嘻嘻→hì hì, 呵呵→ha ha, 嘤嘤→hu hu, 噗嗤→phì cười.
 6. FORMAT: Start EVERY translated segment with its input marker <|n|>, then a TYPE TAG in square brackets, then the Vietnamese translation. Same number/order. No JSON/other markup.
-6b. TYPE TAG (REQUIRED, right after <|n|>, exactly one): [speech]=lời nói trong bong bóng (MẶC ĐỊNH — phân vân thì chọn cái này) | [thought]=suy nghĩ/độc thoại nội tâm/cảm giác cơ thể của nhân vật (vd "Toàn thân nóng rực", "Có tác dụng chưa?") — kể cả khi nằm trong bong bóng | [moan]=rên/khoái cảm (haa,hừ,ah♡) | [shout]=hét to | [anger]=giận dữ/gắt gỏng/đe doạ (cáu nhưng không nhất thiết gào; nếu vừa giận vừa hét → ưu tiên [anger]) | [fear]=sợ hãi/run rẩy/lắp bắp ("K-không thể…","Đ-đừng lại gần!") | [narration]=CHỈ lời NGƯỜI KỂ thuật lại bối cảnh/diễn biến (giọng kể khách quan, thường ngôi thứ 3) — TUYỆT ĐỐI không dùng cho suy nghĩ, cảm giác hay lời nói của nhân vật | [sfx]=tượng thanh THUẦN (câu có CẢ tiếng cười/rên LẪN lời nói → phân loại theo LỜI NÓI [speech]/[thought], KHÔNG phải [sfx]/[moan]) | [title]=tiêu đề bộ truyện/chương & chữ TRANG TRÍ (thư pháp, con dấu, logo truyện — thường kèm số chương 一/二/（五）; OCR hay đọc sai thành chuỗi Hán vô nghĩa) → trả ĐÚNG "<|n|>[title]", KHÔNG dịch, KHÔNG thêm chữ nào (vùng sẽ bị xoá khỏi ảnh, không render). Ví dụ: <|1|>[thought] Đầu óc cứ bồng bềnh… | <|2|>[anger] Mày dám! | <|3|>[fear] X-xin… đừng… | <|4|>[narration] Ba ngày sau, tại học viện… | <|5|>[title]
+6b. TYPE TAG (REQUIRED, right after <|n|>, exactly one): [speech]=lời nói trong bong bóng (MẶC ĐỊNH — phân vân thì chọn cái này) | [thought]=suy nghĩ/độc thoại nội tâm/cảm giác cơ thể của nhân vật (vd "Toàn thân nóng rực", "Có tác dụng chưa?") — kể cả khi nằm trong bong bóng | [moan]=rên/khoái cảm (haa,hừ,ah♡) | [shout]=hét to | [anger]=giận dữ/gắt gỏng/đe doạ (cáu nhưng không nhất thiết gào; nếu vừa giận vừa hét → ưu tiên [anger]) | [fear]=sợ hãi/run rẩy/lắp bắp ("K-không thể…","Đ-đừng lại gần!") | [narration]=CHỈ lời NGƯỜI KỂ thuật lại bối cảnh/diễn biến (giọng kể khách quan, thường ngôi thứ 3) — TUYỆT ĐỐI không dùng cho suy nghĩ, cảm giác hay lời nói của nhân vật | [sfx]=tượng thanh THUẦN (câu có CẢ tiếng cười/rên LẪN lời nói → phân loại theo LỜI NÓI [speech]/[thought], KHÔNG phải [sfx]/[moan]) | [title]=tiêu đề bộ truyện/chương & chữ TRANG TRÍ (thư pháp, con dấu, logo truyện — thường kèm số chương 一/二/（五）; OCR hay đọc sai thành chuỗi Hán vô nghĩa) → trả ĐÚNG "<|n|>[title]", KHÔNG dịch, KHÔNG thêm chữ nào (vùng sẽ bị xoá khỏi ảnh, không render). CẢNH BÁO: chữ thư pháp/cách điệu mà vẫn là CỤM/CÂU CÓ NGHĨA kể chuyện (lời dẫn cảnh, khẩu hiệu, phụ đề dưới khung — vd 于逆星之下举起义旗 → "Dưới Nghịch Tinh, giương cao cờ nghĩa.") thì KHÔNG PHẢI [title] — PHẢI DỊCH với nhãn [narration]; gán nhầm [title] sẽ làm MẤT lời truyện khỏi ảnh. Ví dụ: <|1|>[thought] Đầu óc cứ bồng bềnh… | <|2|>[anger] Mày dám! | <|3|>[fear] X-xin… đừng… | <|4|>[narration] Ba ngày sau, tại học viện… | <|5|>[title]
 6c. MỖI SEGMENT CHỈ DỊCH ĐÚNG NỘI DUNG CỦA CHÍNH NÓ: segment có vẻ bị cắt dở thì dịch đúng phần dở đó. TUYỆT ĐỐI KHÔNG gộp nhiều segment thành một, KHÔNG dồn bản dịch của segment sau lên slot trước — số lượng và thứ tự bản dịch phải khớp 1:1 với input.
 7. LENGTH: Dịch ĐẦY ĐỦ nghĩa — KHÔNG lược bỏ, KHÔNG rút gọn nội dung (vd 我在凡修当魔 → "Ta tu ma nơi phàm tu", KHÔNG cắt thành "Ta tu ma"). Viết LIỀN MẠCH thành câu trọn vẹn — KHÔNG tự chèn \\n để xuống dòng (việc xếp chữ cho vừa bong bóng do renderer tự wrap theo bề rộng khung + cỡ font, chính xác hơn).
 8. PUNCT (BẮT BUỘC — KHÔNG segment nào được thiếu dấu kết): MỌI segment PHẢI kết thúc bằng đúng MỘT dấu hợp ngữ cảnh — câu hỏi→"?", quát/hét/giận/ngạc nhiên→"!", bỏ lửng/ngập ngừng/rên/cảm xúc lấp lửng→"…", câu trần thuật trung tính→".". Trong cảnh kịch tính/cảm xúc ƯU TIÊN "…" hoặc "!" thay cho dấu "." khô khan (tự nhiên hơn và NHÌN RÕ hơn); chỉ dùng "." cho câu thật sự bình thản. Segment kết thúc mà THIẾU dấu là SAI — phải thêm dấu vào. Không bắt đầu dòng bằng . , ! ? LẮP BẮP/NGẬP NGỪNG: nguồn lặp chữ để diễn lắp bắp (你，你… / 不、不… / 我…我) → GIỮ nét lắp trong tiếng Việt bằng cách lặp âm đầu có gạch nối, vd 你，你怎么又那个了→"C-con, con sao lại 'cái đó' nữa rồi…", 不、不要→"Đ-đừng…". TUYỆT ĐỐI KHÔNG làm trơn thành câu thường (đừng bỏ phần lặp).
 9. TONE: RAW — literal, preserve harsh/vulgar/blunt tone, no softening.
 10. GLOSSARY: 老师→cô giáo | 催眠→thôi miên | The End→Hết | 小 (prefix)→Tiểu | 媚药→thuốc kích dục | 春药→thuốc kích dục | 迷药/麻药/麻醉药→thuốc mê | 魔头→ma đầu (KHÔNG dịch nghĩa khác)
-11. FALLBACK: garbled OCR trong THOẠI → translate visible + [...]. NHƯNG nếu CẢ segment là chuỗi Hán vô nghĩa KHÔNG thành câu, kiểu tiêu đề/con dấu/chữ trang trí → trả "<|n|>[title]" (rule 6b), KHÔNG cố dịch bừa. Empty/URL input → return "".
+11. FALLBACK: garbled OCR trong THOẠI → translate visible + [...]. NHƯNG nếu CẢ segment là chuỗi Hán vô nghĩa KHÔNG thành câu, kiểu tiêu đề/con dấu/chữ trang trí → trả "<|n|>[title]" (rule 6b), KHÔNG cố dịch bừa. Chuỗi Hán ĐỌC THÀNH CÂU/CỤM CÓ NGHĨA thì KHÔNG BAO GIỜ là [title] — dịch bình thường. Empty/URL/watermark input (ACG, pixiv, www, .com, fansky…) → return "".
 12. NATURAL & IN-CONTEXT WORDING: Pick the word that fits the SCENE and the speaker, NOT the stiff dictionary gloss. Use everyday spoken Vietnamese; match register to the mood. In intimate/erotic scenes prefer direct colloquial verbs — 插入/放进去/塞进去 → "đút vào" / "cho vào" (NOT the clinical "chèn vào"); 摸→sờ, 舔→liếm, 抱→ôm. Keep names, pronouns and recurring terms consistent with the STORY CONTEXT block (recent pages) when one is provided above.
 """
 
 _GPT_STYLE_MODERN = """\
-PRONOUNS (Modern / Slice-of-life):
-- Default: 我→anh/em/tôi (context), 你→bạn/em/anh (context).
-- Parent-child: child="con", parent="mẹ/ba". NEVER "tôi" for child speaking to parent.
-  * 妈妈可以给我吗？→ Mẹ có cho con không?
-  * ƯU TIÊN CAO: nếu trong CÙNG TRANG (bất kỳ segment hay narration nào) có 妈妈/母亲/妈/娘 hoặc 爸爸/父亲/爸/爹 → đây là cảnh CHA MẸ–CON: 我/你 giữa hai người này LUÔN là con↔mẹ/ba (我→con khi người nói là con; 你→con khi nói VỚI con; mẹ tự xưng→mẹ, ba tự xưng→ba). TUYỆT ĐỐI KHÔNG dùng anh/em kiểu tình cảm, dù STORY CONTEXT các trang trước gợi ý anh/em.
-- Romance: anh/em (casual: tôi/bạn).
-- Teacher: "cô/thầy". Student: "em". Peer: "tôi/bạn".
-- Ambiguous context → default to neutral "em/tôi".
+PRONOUNS (Modern / Slice-of-life) — Tiếng Việt xưng hô theo QUAN HỆ, KHÔNG dịch máy móc 我→tôi / 你→bạn.
+BƯỚC 1 — Xác định CẶP QUAN HỆ giữa người ĐANG nói và người ĐANG nghe trong CHÍNH segment đó (dựa vào: cách hai người gọi nhau, bối cảnh trong trang, và STORY CONTEXT). Một nhân vật xưng KHÁC nhau với từng người (với vợ "anh", với mẹ "con", với sếp "tôi") → chọn theo NGƯỜI ĐỐI THOẠI của segment, KHÔNG theo cả trang.
+BƯỚC 2 — Áp cặp xưng hô (我 = người nói tự xưng, 你 = gọi người nghe):
+- Vợ–chồng: vợ xưng "em" gọi "anh"; chồng xưng "anh" gọi "em". Khi NHẮC TỚI (ngôi thứ 3): 老公/丈夫→"chồng", 老婆/媳妇/妻子→"vợ", 夫人→"phu nhân". TUYỆT ĐỐI KHÔNG dùng "ông xã/bà xã", KHÔNG dùng "con". Có 老公/老婆/丈夫/妻子 trong cảnh = cảnh vợ-chồng, KHÔNG phải cha-mẹ-con.
+- Người yêu / tán tỉnh / thân mật: "anh↔em" (nam vai trên = anh, nữ = em); nếu chưa thân thì "tôi↔cậu".
+- Cha/mẹ ↔ con: CHỈ khi hai người ĐANG đối thoại đúng là cha/mẹ và con (con gọi THẲNG 妈妈/母亲/妈/娘 hoặc 爸爸/父亲/爸/爹, hoặc cha/mẹ đang nói với chính con mình). Con xưng "con"; cha→"ba/bố", mẹ→"mẹ" (vd 妈妈可以给我吗？→ Mẹ cho con được không?). KHÔNG kích hoạt chỉ vì trang có nhắc tới cha/mẹ Ở CHỖ KHÁC — phải đúng CẶP đối thoại.
+- Ông/bà ↔ cháu: cháu xưng "cháu"; ông/bà xưng "ông/bà".
+- Anh/chị ↔ em ruột: người lớn xưng "anh/chị" gọi "em"; người nhỏ xưng "em". 哥哥→anh, 姐姐→chị, 弟弟/妹妹→em.
+- Thầy/cô ↔ học trò: trò xưng "em" gọi "thầy/cô"; thầy/cô xưng "thầy/cô" (hoặc "tôi") gọi "em". 老师→cô giáo/thầy (theo giới).
+- Cấp trên ↔ cấp dưới / xã giao công sở: mặc định "tôi" + gọi theo chức danh hoặc "anh/chị".
+- Bạn bè đồng trang lứa: "tớ↔cậu" hoặc "tôi↔cậu".
+- Người lạ / chưa rõ thân sơ: "tôi" + gọi "anh/chị/cô/cậu" theo tuổi-giới. KHÔNG mặc định "bạn".
+QUY TẮC CHUNG:
+- GIỮ NHẤT QUÁN cặp xưng hô cho mỗi cặp nhân vật xuyên suốt truyện theo STORY CONTEXT.
+- Không xác định được quan hệ → MẶC ĐỊNH trung tính "tôi ↔ anh/chị/cậu" (theo tuổi-giới); KHÔNG bịa quan hệ tình cảm (anh/em) khi chưa có căn cứ.
+- Glossary @note của bộ (nếu có) ƯU TIÊN CAO NHẤT, ghi đè mọi quy tắc trên.
 """
 
 _GPT_STYLE_WUXIA = """\
-PRONOUNS (Cổ trang / Wuxia) — STRICT:
-- 我 ALWAYS → "ta" (self, any gender).
-- 你 ALWAYS → "ngươi".
+PRONOUNS (Cổ trang / Wuxia) — giọng cổ trang, mặc định 我→"ta", 你→"ngươi" (bất kể giới):
   * 你是谁？→ Ngươi là ai? | 我不会告诉你 → Ta sẽ không nói cho ngươi.
+NHƯNG vẫn theo QUAN HỆ khi rõ (chọn theo NGƯỜI đối thoại của từng segment):
+- Vợ–chồng / phu thê: vợ xưng "thiếp" (hoặc "ta") gọi "chàng"; chồng xưng "ta" gọi "nàng". 夫人→phu nhân. TUYỆT ĐỐI KHÔNG dùng "ông xã".
+- Người yêu / thân mật: "chàng ↔ nàng" hoặc "ta ↔ nàng".
+- Cha/mẹ ↔ con: con xưng "hài nhi"/"con" gọi "phụ thân/mẫu thân"; cha mẹ xưng "ta" gọi "con". Chỉ khi đúng CẶP đối thoại.
+- Sư phụ ↔ đệ tử / bề trên ↔ bề dưới: đệ tử xưng "đệ tử" gọi "sư phụ/sư tôn"; bề trên xưng "ta".
+- GIỮ NHẤT QUÁN mỗi cặp theo STORY CONTEXT; glossary @note ƯU TIÊN CAO NHẤT.
 WUXIA VOCABULARY:
 - 公子→công tử | 姑娘/小姑娘→cô nương/tiểu cô nương | 女侠→nữ hiệp
 - 采花贼/淫贼→dâm tặc | 迷药→mê dược | 肏→chịch/đụ
@@ -116,11 +128,14 @@ WUXIA VOCABULARY:
 """
 
 _GPT_STYLE_SCHOOL = """\
-PRONOUNS (Học đường / School):
-- Student (我) → "em". Teacher (我) → "tôi/cô/thầy" (context).
-- 你 (student→teacher) → "cô/thầy". 你 (peer) → "bạn/cậu".
-- Teacher: "cô giáo" or "thầy" (match gender context). Student: "em".
-- Class group: "chúng em / cả lớp". Romantic (age-gap): anh/em.
+PRONOUNS (Học đường / School) — xưng hô theo QUAN HỆ, bối cảnh trường lớp. Chọn theo NGƯỜI đối thoại của từng segment:
+- Học trò ↔ thầy/cô: trò xưng "em" gọi "thầy/cô"; thầy/cô xưng "thầy/cô" (hoặc "tôi") gọi "em". 老师→cô giáo/thầy (theo giới), KHÔNG dịch "giáo viên".
+- Học sinh ↔ học sinh cùng lứa: "tớ↔cậu" (thân) hoặc "tôi↔cậu". Nhóm: "chúng tớ / cả lớp".
+- Khoá trên ↔ khoá dưới: khoá dưới xưng "em" gọi "anh/chị".
+- Tình cảm học trò / chênh tuổi: "anh↔em".
+- Cha/mẹ ↔ con, anh/chị ↔ em ruột, vợ–chồng: như khung Modern (chỉ áp khi đúng CẶP đối thoại; KHÔNG dùng "ông xã").
+- Không rõ quan hệ → MẶC ĐỊNH "tôi ↔ cậu" (theo tuổi-giới), KHÔNG bịa anh/em tình cảm.
+GIỮ NHẤT QUÁN mỗi cặp theo STORY CONTEXT; glossary @note ƯU TIÊN CAO NHẤT.
 """
 
 _GPT_STYLE_LIGHTNOVEL = """\
@@ -131,15 +146,17 @@ PRONOUNS (Light Novel / Manga Nhật):
 - 俺様 (ore-sama) → "ta" (arrogant self-address).
 - あなた/君/きみ (anata/kimi) → "bạn" or "cậu" (peer). Context: "em" if romantic.
 - お前/おまえ (omae) → "mày" (rough) or "cậu" (casual).
+- QUAN HỆ ghi đè khi rõ (chọn theo NGƯỜI đối thoại của segment): vợ–chồng "anh↔em" (俺の嫁/嫁→"vợ tao"/"vợ"); người yêu "anh↔em"; cha/mẹ–con "con↔ba/mẹ"; thầy/cô–trò "em↔thầy/cô". TUYỆT ĐỐI KHÔNG dùng "ông xã".
 - 先生 (sensei) → "thầy" or "cô" (match gender). Never translate as "giáo viên".
 - 先輩 (senpai) → "senpai" (keep as-is) or "đàn anh/đàn chị".
 - 後輩 (kouhai) → "đàn em" or "hậu bối".
-- 俺の嫁 / 嫁 → "vợ tao" / "vợ".
+- Không rõ quan hệ → giữ map đại từ Nhật ở trên; mặc định trung tính "tôi/mình", KHÔNG bịa anh/em tình cảm.
 JAPANESE SFX → Vietnamese: バン→Bàng, ドン→Đùng, ズキズキ→Nhói nhói, キャー→Kyaaa, ドキドキ→Tim đập mạnh.
 LIGHT NOVEL TONE:
 - Preserve internal monologue style (italics in source → translate directly).
 - Isekai/fantasy titles: 勇者→dũng sĩ, 魔王→ma vương, 転生→chuyển sinh, 異世界→dị giới.
 - Honorifics: -san→"san" or drop, -kun→drop or "cậu", -chan→"chan" or drop, -sama→"sama" or "đại nhân".
+GIỮ NHẤT QUÁN mỗi cặp theo STORY CONTEXT; glossary @note ƯU TIÊN CAO NHẤT.
 """
 
 _GPT_STYLE_BLOCKS: dict[str, str] = {
@@ -517,35 +534,32 @@ class MITImageTranslator:
         if self.target_lang in ("VIN", "vi"):
             cfg.setdefault("render", {}).setdefault("alignment", "center")
 
-        # Auto-inject gpt_config for custom_openai
+        # Auto-inject gpt_config for custom_openai.
+        # NGUỒN DUY NHẤT của system prompt = _GPT_BASE_RULES + _GPT_STYLE_BLOCKS ở
+        # module này. MỌI style (kể cả 'modern') đều compose ra một config tạm →
+        # không còn lệch với template nhúng trong gpt_config_vi.yaml (file đó nay
+        # CHỈ giữ metadata style cho UI + sampling tham khảo, KHÔNG nhúng prompt).
         if self.translator == "custom_openai":
-            gpt_cfg = _PROJECT_ROOT / "gpt_config_vi.yaml"
-            if gpt_cfg.exists():
-                if self.gpt_style and self.gpt_style != "modern":
-                    # Tạo temp config với style-specific template
-                    style_block = _GPT_STYLE_BLOCKS.get(self.gpt_style, _GPT_STYLE_MODERN)
-                    composed = _GPT_BASE_RULES + "\n" + style_block + "\nTranslate the following text into Vietnamese:\n"
-                    indented = "\n".join("    " + line if line else "" for line in composed.splitlines())
-                    # temperature/top_p chỉ là fallback "sáng tác" — sampling thật do
-                    # custom_openai _DETERMINISTIC quyết định (mặc định greedy, ghi đè
-                    # các giá trị này). Giữ khớp với gpt_config_vi.yaml.
-                    yaml_content = (
-                        f"ollama:\n"
-                        f"  temperature: 0.1\n"
-                        f"  top_p: 0.85\n"
-                        f"  chat_system_template: |\n"
-                        f"{indented}\n"
-                    )
-                    tf_style = tempfile.NamedTemporaryFile(
-                        mode="w", suffix=".yaml", delete=False, encoding="utf-8"
-                    )
-                    tf_style.write(yaml_content)
-                    tf_style.close()
-                    cfg.setdefault("translator", {})["gpt_config"] = tf_style.name
-                    self._log(f"  [GPT] Style: {self.gpt_style} → temp config {tf_style.name}")
-                else:
-                    cfg.setdefault("translator", {})["gpt_config"] = str(gpt_cfg)
-                    self._log(f"  [GPT] Using custom gpt_config: {gpt_cfg.name}")
+            style_block = _GPT_STYLE_BLOCKS.get(self.gpt_style, _GPT_STYLE_MODERN)
+            composed = _GPT_BASE_RULES + "\n" + style_block + "\nTranslate the following text into Vietnamese:\n"
+            indented = "\n".join("    " + line if line else "" for line in composed.splitlines())
+            # temperature/top_p chỉ là fallback "sáng tác" — sampling thật do
+            # custom_openai _DETERMINISTIC quyết định (mặc định seed cố định, ghi đè
+            # các giá trị này).
+            yaml_content = (
+                f"ollama:\n"
+                f"  temperature: 0.1\n"
+                f"  top_p: 0.85\n"
+                f"  chat_system_template: |\n"
+                f"{indented}\n"
+            )
+            tf_style = tempfile.NamedTemporaryFile(
+                mode="w", suffix=".yaml", delete=False, encoding="utf-8"
+            )
+            tf_style.write(yaml_content)
+            tf_style.close()
+            cfg.setdefault("translator", {})["gpt_config"] = tf_style.name
+            self._log(f"  [GPT] Style: {self.gpt_style} → temp config {tf_style.name}")
 
         tf = tempfile.NamedTemporaryFile(
             mode="w", suffix=".json", delete=False, encoding="utf-8"
