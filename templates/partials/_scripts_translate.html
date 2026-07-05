@@ -1037,6 +1037,7 @@ async function reSelectImage(im) {
                                                 erase_box: !!r.erase_box,
                                                 erase_flat: !!r.erase_flat,
                                                 flat_color: (typeof r.flat_color === 'string' ? r.flat_color : ''),
+                                                text_color: (typeof r.text_color === 'string' ? r.text_color : ''),
                                                 mask_dilate: (r.mask_dilate != null ? +r.mask_dilate : null),
                                                 rotate: +r.rotate || 0 }));
   reSetMode(data.mode === 'replace' ? 'replace' : 'merge');
@@ -1089,10 +1090,32 @@ function reRedraw() {
     const eflat = !!r.erase_flat;        // lấp khung bằng màu nền panel
     ctx.fillText((ipo ? '🧽 ' : (typed ? '✍ ' : '')) + (ebox ? '⬛ ' : '') + (eflat ? '▭ ' : '') + String(i + 1), x + 3, y + 13);
     if (typed) {
+      // Xem trước chữ Việt: WRAP theo bề rộng box (như bản render thật sẽ làm),
+      // KHÔNG cắt cứng ở 1 số ký tự cố định — trước đây .slice(0,24) hay cắt
+      // giữa từ (vd tiêu đề dài) khiến tưởng nhầm là bản dịch bị hụt chữ.
+      const maxW = Math.max(10, w - 6);
+      const words = r.text.trim().split(/\s+/);
+      const lines = [];
+      let cur = '';
+      for (const wd of words) {
+        const cand = cur ? cur + ' ' + wd : wd;
+        if (!cur || ctx.measureText(cand).width <= maxW) cur = cand;
+        else { lines.push(cur); cur = wd; }
+      }
+      if (cur) lines.push(cur);
+      const lineH = 14;
+      const maxLines = Math.max(1, Math.min(lines.length, Math.floor(h / lineH), 4));
+      const shown = lines.slice(0, maxLines);
+      if (lines.length > maxLines) {
+        let last = shown[shown.length - 1];
+        while (last.length > 1 && ctx.measureText(last + '…').width > maxW) last = last.slice(0, -1);
+        shown[shown.length - 1] = last + '…';
+      }
+      const barH = shown.length * lineH + 4;
       ctx.fillStyle = 'rgba(0,0,0,.5)';
-      ctx.fillRect(x, y + h - 16, w, 16);
+      ctx.fillRect(x, y + h - barH, w, barH);
       ctx.fillStyle = '#3ddc84';
-      ctx.fillText(r.text.slice(0, 24), x + 3, y + h - 4);
+      shown.forEach((ln, li) => ctx.fillText(ln, x + 3, y + h - barH + (li + 1) * lineH - 2));
     }
   });
   $('reCount').textContent = _reRegions.length + ' vùng';
@@ -1117,6 +1140,14 @@ function reSyncTextInput() {
   if (fauto) { fauto.disabled = !flatOn; fauto.checked = !manualCol; }
   if (fcol)  { fcol.disabled  = !flatOn; if (manualCol) fcol.value = r.flat_color; }
   if (fpick) { fpick.disabled = !flatOn; }
+  // Màu chữ: Auto (tự nhận màu chữ thật từ ảnh gốc) hay tự chọn — áp cho vùng gõ
+  // tay đang chọn (trừ khi "chỉ xoá", vùng đó không vẽ chữ nên không có màu chữ).
+  const tcauto = $('reTextColorAuto'), tcol = $('reTextColor'), tcpick = $('reTextColorPick');
+  const tcOn = has && !only;
+  const manualTC = tcOn && !!r.text_color;
+  if (tcauto) { tcauto.disabled = !tcOn; tcauto.checked = !manualTC; }
+  if (tcol)   { tcol.disabled = !tcOn; if (manualTC) tcol.value = r.text_color; }
+  if (tcpick) { tcpick.disabled = !tcOn; }
   // Khi "chỉ xoá": vô hiệu hoá ô chữ/font/cỡ/nghiêng (vùng này không vẽ chữ).
   if (inp)  { inp.disabled  = !has || only; inp.value  = has ? (r.text || '') : ''; }
   if (selF) { selF.disabled = !has || only; selF.value = has ? (r.font || '') : ''; }
@@ -1176,6 +1207,35 @@ async function reFlatPickColor() {
     const res = await new window.EyeDropper().open();
     if (res && res.sRGBHex) {
       _reRegions[_reSel].flat_color = res.sRGBHex;
+      reSyncTextInput();
+    }
+  } catch {}  // người dùng bấm Esc — bỏ qua
+}
+
+// Màu chữ cho vùng gõ tay: '' = tự nhận màu chữ thật từ ảnh gốc (auto, mặc định),
+// '#rrggbb' = người dùng tự chọn (ghi đè cho riêng vùng này).
+function reOnTextColorChange(val) {
+  if (_reSel >= 0 && _reSel < _reRegions.length) {
+    _reRegions[_reSel].text_color = String(val || '');
+    reSyncTextInput();  // bỏ tích "Màu chữ auto"
+  }
+}
+
+function reOnTextColorAutoChange(checked) {
+  if (_reSel >= 0 && _reSel < _reRegions.length) {
+    _reRegions[_reSel].text_color = checked ? '' : ($('reTextColor').value || '#ffffff');
+    reSyncTextInput();
+  }
+}
+
+// Hút màu chữ trực tiếp từ ảnh bằng EyeDropper API (Chrome/Edge ≥ 95).
+async function reTextColorPickColor() {
+  if (!(_reSel >= 0 && _reSel < _reRegions.length)) return;
+  if (!window.EyeDropper) { alert('Trình duyệt không hỗ trợ EyeDropper — hãy chọn màu bằng ô màu bên cạnh.'); return; }
+  try {
+    const res = await new window.EyeDropper().open();
+    if (res && res.sRGBHex) {
+      _reRegions[_reSel].text_color = res.sRGBHex;
       reSyncTextInput();
     }
   } catch {}  // người dùng bấm Esc — bỏ qua
@@ -1262,7 +1322,7 @@ function reInitCanvasEvents() {
         x: Math.min(_reDrag.x, p.x), y: Math.min(_reDrag.y, p.y),
         w: Math.abs(p.x - _reDrag.x), h: Math.abs(p.y - _reDrag.y),
       };
-      if (r.w > 0.005 && r.h > 0.005) { _reRegions.push({ ...r, text: '', font: '', font_size: 0, inpaint_only: false, erase_box: false, erase_flat: false, flat_color: '', mask_dilate: null, rotate: 0 }); _reSel = _reRegions.length - 1; }
+      if (r.w > 0.005 && r.h > 0.005) { _reRegions.push({ ...r, text: '', font: '', font_size: 0, inpaint_only: false, erase_box: false, erase_flat: false, flat_color: '', text_color: '', mask_dilate: null, rotate: 0 }); _reSel = _reRegions.length - 1; }
     } else {
       _reSel = reHitTest(p);   // click → select / deselect
     }

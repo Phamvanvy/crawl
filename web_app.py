@@ -1679,6 +1679,11 @@ def api_regions_save():
         # chữ — cho chữ SFX màu/viền mà mask theo nét tách không sạch.
         if r.get("erase_box"):
             box["erase_box"] = True
+        # text_color = màu chữ người dùng TỰ CHỌN cho riêng vùng này ('#rrggbb');
+        # vắng = tự nhận màu chữ thật từ ảnh gốc (xem _mit_backend._render_typed_regions).
+        tc = str(r.get("text_color") or "").strip().lstrip("#")
+        if re.fullmatch(r"[0-9a-fA-F]{6}", tc):
+            box["text_color"] = "#" + tc.lower()
         # font = tên file font trong fonts/ (chỉ basename, chống path traversal);
         # font_size = cỡ chữ px (6..200, 0/None = tự canh). Chỉ có ý nghĩa khi có text.
         font_name = str(r.get("font") or "").strip().replace("\\", "/").split("/")[-1]
@@ -1755,6 +1760,9 @@ def _sanitize_region(r):
         box["text"] = txt[:2000]
     if r.get("erase_box"):
         box["erase_box"] = True
+    tc = str(r.get("text_color") or "").strip().lstrip("#")
+    if re.fullmatch(r"[0-9a-fA-F]{6}", tc):
+        box["text_color"] = "#" + tc.lower()
     font_name = str(r.get("font") or "").strip().replace("\\", "/").split("/")[-1]
     if font_name and font_name.lower().endswith((".ttf", ".otf")):
         box["font"] = font_name[:80]

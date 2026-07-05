@@ -1055,10 +1055,20 @@ class MITImageTranslator:
                     fcol = (int(fc[4:6], 16), int(fc[2:4], 16), int(fc[0:2], 16))  # BGR
                 except ValueError:
                     fcol = None
+            # text_color: màu chữ NGƯỜI DÙNG tự chọn cho riêng vùng này (RGB, dùng thẳng
+            # cho PIL — khác flat_color ở trên vốn BGR cho numpy). Trống = để tự nhận
+            # màu chữ gốc từ ảnh (xem detected_colors bên dưới).
+            tcol = None
+            tc = str(r.get("text_color") or "").strip().lstrip("#")
+            if len(tc) == 6:
+                try:
+                    tcol = (int(tc[0:2], 16), int(tc[2:4], 16), int(tc[4:6], 16))  # RGB
+                except ValueError:
+                    tcol = None
             boxes.append((x0, y0, x1, y1, [[x0, y0], [x1, y0], [x1, y1], [x0, y1]],
                           str(r.get("text") or ""), font_name, font_px,
                           bool(r.get("inpaint_only")), rdil, rot, bool(r.get("erase_box")),
-                          bool(r.get("erase_flat")), fcol))
+                          bool(r.get("erase_flat")), fcol, tcol))
         if not boxes:
             return
 
@@ -1066,7 +1076,11 @@ class MITImageTranslator:
         #    chỉ xoá nét đó, giữ nền/halftone (bắt được cả chữ SFX màu). Vùng
         #    inpaint_only / "Xoá khung": xoá CẢ KHUNG (người dùng chủ động dọn sạch).
         mask = np.zeros((h, w), dtype=np.uint8)
-        for (x0, y0, x1, y1, _bbox, _text, _font, _fpx, _ipo, _rdil, _rot, _ebox, _eflat, _fcol) in boxes:
+        # Màu chữ THẬT nhận diện từ ảnh GỐC (trước khi inpaint xoá mất nét) — khoá
+        # theo index trong `boxes`. Dùng làm auto-color khi vùng không tự chọn màu
+        # riêng và không có Font color toàn cục ghi đè (xem vòng vẽ chữ bên dưới).
+        detected_colors: dict[int, tuple] = {}
+        for i, (x0, y0, x1, y1, _bbox, _text, _font, _fpx, _ipo, _rdil, _rot, _ebox, _eflat, _fcol, _tcol) in enumerate(boxes):
             roi = img[y0:y1, x0:x1]
             if roi.size == 0:
                 continue
@@ -1079,6 +1093,18 @@ class MITImageTranslator:
                 mask[y0:y1, x0:x1] = 255  # cả khung (chỉ-xoá, hoặc gõ tay bật "xoá cả khung")
                 continue
             sm = self._stroke_mask(roi)
+            # Nhận màu chữ THẬT: trung vị màu các pixel NÉT (sm) = màu chữ (kể cả
+            # neon/glow không phải đen/trắng thuần); vành ngoài box = màu viền tương
+            # phản (dùng làm stroke/shadow). Mask quá thưa (<8px nét) → bỏ, không đủ
+            # tin cậy để suy màu.
+            if _text.strip() and int((sm > 0).sum()) >= 8:
+                fg_px = roi[sm > 0]
+                fg_bgr = np.median(fg_px.reshape(-1, 3), axis=0)
+                bg_bgr = self._ring_bg_color(roi)
+                detected_colors[i] = (
+                    tuple(int(v) for v in fg_bgr[::-1]),   # BGR → RGB
+                    tuple(int(v) for v in bg_bgr[::-1]),
+                )
             # Dãn mask quanh nét: ít vòng = sát nét, đỡ "lỗ" lama phải đoán → bớt
             # loang sáng; nhiều vòng = xoá rộng/sạch hơn (siết mask riêng từng vùng).
             if _rdil > 0:
@@ -1106,11 +1132,24 @@ class MITImageTranslator:
 
         fg_col, bg_col = self._parse_font_color()
         img_pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-        for i, (_x0, _y0, _x1, _y1, bbox, text, font_name, font_px, _ipo, _rdil, _rot, _ebox, _eflat, _fcol) in enumerate(boxes):
+        for i, (_x0, _y0, _x1, _y1, bbox, text, font_name, font_px, _ipo, _rdil, _rot, _ebox, _eflat, _fcol, _tcol) in enumerate(boxes):
             if text.strip() and not _ipo:
+                # Ưu tiên màu: (1) màu chữ NGƯỜI DÙNG tự chọn cho riêng vùng này
+                # (_tcol) > (2) Font color TOÀN CỤC trong cài đặt (fg_col, áp mọi
+                # vùng — hành vi cũ, giữ nguyên khi người dùng đã chủ động set)
+                # > (3) màu chữ THẬT tự nhận từ ảnh gốc (detected_colors, mới) >
+                # (4) tự chọn đen/trắng theo độ sáng nền (render_text, cũ nhất).
+                if _tcol is not None:
+                    use_fg, use_bg = _tcol, bg_col
+                elif fg_col is not None:
+                    use_fg, use_bg = fg_col, bg_col
+                elif i in detected_colors:
+                    use_fg, use_bg = detected_colors[i]
+                else:
+                    use_fg, use_bg = None, None
                 img_pil = render_text(img_pil, bbox, text, _resolve_typed_font(font_name),
                                       strict_clip=True, font_scale=1.0, bbox_index=i,
-                                      text_color=fg_col, stroke_color=bg_col,
+                                      text_color=use_fg, stroke_color=use_bg,
                                       font_px=font_px, rotate=_rot)
 
         written = save_image_compressed(img_pil, image_path, self.image_quality)

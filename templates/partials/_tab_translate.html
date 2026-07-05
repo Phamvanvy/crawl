@@ -802,6 +802,18 @@ Nếu còn chữ mà không detect nổi, thử 0.45 kèm Detector=ctd và Gamma
           title="Hút màu trực tiếp từ ảnh (EyeDropper — cần Chrome/Edge)"
           style="padding:3px 8px;font-size:.78rem;flex:0 0 auto">💉 Hút màu</button>
         <span style="flex:0 0 auto;width:1px;align-self:stretch;background:var(--border)"></span>
+        <label class="re-pill" style="flex:0 0 auto;display:flex;align-items:center;gap:4px;cursor:pointer"
+          title="Tự NHẬN màu chữ THẬT từ ảnh gốc (kể cả neon/glow/gradient) thay vì chỉ chọn đen/trắng theo độ sáng nền. Bỏ tích để tự chọn màu chữ bằng ô màu / hút màu bên cạnh.">
+          <input id="reTextColorAuto" type="checkbox" checked disabled onchange="reOnTextColorAutoChange(this.checked)" />
+          🎨 Màu chữ auto
+        </label>
+        <input id="reTextColor" type="color" value="#ffffff" disabled oninput="reOnTextColorChange(this.value)"
+          title="Màu chữ (chỉ dùng khi bỏ 'Màu chữ auto')"
+          style="flex:0 0 auto;width:34px;height:26px;padding:0 2px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;cursor:pointer" />
+        <button id="reTextColorPick" class="btn btn-ghost" disabled onclick="reTextColorPickColor()"
+          title="Hút màu chữ trực tiếp từ ảnh (EyeDropper — cần Chrome/Edge)"
+          style="padding:3px 8px;font-size:.78rem;flex:0 0 auto">💉</button>
+        <span style="flex:0 0 auto;width:1px;align-self:stretch;background:var(--border)"></span>
         <span class="re-pill" style="flex:0 0 auto" title="Font cho vùng gõ tay đang chọn (chỉ áp khi vùng có chữ).">Font:</span>
         <select id="reFont" disabled onchange="reOnFontChange(this.value)"
           style="flex:0 0 auto;max-width:150px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:4px 6px;font-size:.8rem">

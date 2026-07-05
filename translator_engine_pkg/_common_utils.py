@@ -39,7 +39,7 @@ _WATERMARK_DOMAIN_RE = re.compile(
 
 # Watermark / brand names list
 _WATERMARK_KEYWORDS = [
-    "acg", "pixiv", "twitter", "fanbox", "patreon", "x.com", "18cg","https", "http", "www", "com", "net", "org",
+    "acg", "pixiv", "twitter", "fanbox", "patreon", "x.com", "18cg","https", "http", "www", "com", "net", "org", "pix",
 ]
 
 
