@@ -58,7 +58,15 @@ Patches applied:
        Quadrilaterals (OCR fills text) and paints them into the mask so the
        source text is inpainted. No-op / unchanged behavior when env var absent.
 
-  6. manga_translator/utils/generic.py
+  6. manga_translator/ocr/__init__.py
+     - OCR đọc vớt (fallback) qua env MIT_OCR_FALLBACK: 48px đọc chuẩn nhưng
+       loại hẳn vùng dưới ngưỡng prob (bỏ sót bong bóng khó), 48px_ctc bắt hết
+       nhưng hay đọc sai. dispatch() chạy model chính trước, rồi CHỈ vùng còn
+       text rỗng mới đưa cho model fallback đọc vớt; kết quả khôi phục đúng thứ
+       tự vùng gốc. prepare() tải sẵn model fallback. MIT_OCR_FALLBACK_PROB
+       (tuỳ chọn) siết ngưỡng riêng cho lượt vớt. Không set env → hành vi gốc.
+
+  7. manga_translator/utils/generic.py
      - Quadrilateral.get_transformed_region: guard against an empty crop when a
        textline's bbox clips entirely to the image border. Without it,
        cv2.warpPerspective fails the `_src.total() > 0` assertion and aborts the
@@ -155,6 +163,10 @@ def apply():
         (
             PATCHES_DIR / "manga_translator_detection_init.py",
             sp / "manga_translator" / "detection" / "__init__.py",
+        ),
+        (
+            PATCHES_DIR / "manga_translator_ocr_init.py",
+            sp / "manga_translator" / "ocr" / "__init__.py",
         ),
         (
             PATCHES_DIR / "manga_translator_utils_generic.py",

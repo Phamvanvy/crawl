@@ -478,8 +478,8 @@ Upscale giúp OCR nhận diện chữ nhỏ chính xác hơn nhưng tốn thêm 
                 <div class="grid-3">
                   <div class="field" style="margin-bottom:0">
                     <label><span class="tt-wrap">OCR model<span class="tt-icon">?</span><span class="tt-box">Model đọc chữ sau khi detect.
-• default / 48px — cân bằng, ĐỌC ĐƯỢC tiếng Trung/Nhật/Anh ★ (nên dùng cho nguồn TQ)
-• 48px_ctc — biến thể CTC
+• default / 48px — cân bằng, ĐỌC ĐƯỢC tiếng Trung/Nhật/Anh ★ (nên dùng cho nguồn TQ); TỰ KÈM 48px_ctc đọc vớt vùng 48px bỏ sót (không mất chữ, vùng 48px đọc được vẫn giữ nguyên)
+• 48px_ctc — biến thể CTC: bắt được hết chữ nhưng hay đọc sai (chỉ nên chọn thuần khi cần so sánh)
 • mocr — manga_ocr, train cho TIẾNG NHẬT; hợp manga Nhật / SFX kana, ĐỌC SAI nguồn tiếng Trung
 
 ⚠ Vấn đề SFX thường do DETECT (thử detector=yolomanga) chứ không phải OCR.</span></span></label>
