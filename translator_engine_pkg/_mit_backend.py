@@ -119,6 +119,7 @@ NHƯNG vẫn theo QUAN HỆ khi rõ (chọn theo NGƯỜI đối thoại của t
 - Người yêu / thân mật: "chàng ↔ nàng" hoặc "ta ↔ nàng".
 - Cha/mẹ ↔ con: con xưng "hài nhi"/"con" gọi "phụ thân/mẫu thân"; cha mẹ xưng "ta" gọi "con". Chỉ khi đúng CẶP đối thoại.
 - Sư phụ ↔ đệ tử / bề trên ↔ bề dưới: đệ tử xưng "đệ tử" gọi "sư phụ/sư tôn"; bề trên xưng "ta".
+NGÔI THỨ 3 (TƯỜNG THUẬT/NGƯỜI KỂ nhắc tới nhân vật khác, KHÔNG phải xưng hô trực tiếp giữa 2 người đang nói chuyện): 他→"hắn" (mặc định nam giới trẻ/ngang vai trong giọng cổ trang-tiên hiệp), 她→"nàng"/"cô ta". CHỈ dùng "ông/bà" khi nhân vật đó THỰC SỰ lớn tuổi/bậc trưởng bối rõ ràng trong bối cảnh — KHÔNG suy ra từ cách gọi có chữ 老 (vd 老弟/贤弟 = "hiền đệ"/"lão đệ", cách gọi THÂN MẬT dành cho người ít tuổi hơn hoặc ngang hàng, KHÔNG có nghĩa người đó già).
 - GIỮ NHẤT QUÁN mỗi cặp theo STORY CONTEXT; glossary @note ƯU TIÊN CAO NHẤT.
 WUXIA VOCABULARY:
 - 公子→công tử | 姑娘/小姑娘→cô nương/tiểu cô nương | 女侠→nữ hiệp

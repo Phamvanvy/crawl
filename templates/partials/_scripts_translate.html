@@ -293,6 +293,7 @@ async function tStart() {
   const model            = (backend === 'mit' && getVal('tMITTranslator') === 'custom_openai' && _mitOllamaModel)
                            ? _mitOllamaModel
                            : (getVal('tModel').trim() || 'qwen3:8b');
+  const vlm_model        = getVal('tVlmModel').trim() || 'qwen2.5vl:7b';
 
   const images = (typeof _tSelImages !== 'undefined') ? [..._tSelImages] : [];
 
@@ -317,7 +318,7 @@ async function tStart() {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({
-        input_dir, output_dir, images, model, use_gpu, src_lang, backend, translation_style,
+        input_dir, output_dir, images, model, vlm_model, use_gpu, src_lang, backend, translation_style,
         llm_api_type, llm_base_url,
         mit_translator, mit_target_lang,
         mit_detector, mit_inpainter, mit_inpaint_size, mit_inpaint_prec, mit_upscale, mit_upscaler, mit_det_size,
@@ -385,6 +386,7 @@ async function tLoadFailed(roundsLeft = 0) {
 
 async function tRetryFailed() {
   const model     = getVal('tModel').trim() || 'qwen3:8b';
+  const vlm_model = getVal('tVlmModel').trim() || 'qwen2.5vl:7b';
   const use_gpu   = $('tUseGpu').checked;
   const src_lang  = getVal('tSrcLang');
   const inpainter = getVal('tInpainter') || 'opencv';
@@ -406,7 +408,7 @@ async function tRetryFailed() {
     res  = await fetch('/api/translate/retry_failed', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ model, use_gpu, src_lang, inpainter }),
+      body:    JSON.stringify({ model, vlm_model, use_gpu, src_lang, inpainter }),
     });
     json = await res.json();
   } catch (e) {

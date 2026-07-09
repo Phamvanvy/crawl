@@ -20,7 +20,7 @@ from ._common_utils import (
     contains_cjk,
 )
 
-OLLAMA_BASE = "http://localhost:11434"
+OLLAMA_BASE = "http://localhost:8080"
 
 
 def _call_llm_api(

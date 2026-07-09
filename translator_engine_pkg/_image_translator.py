@@ -9,8 +9,9 @@ from collections import deque
 from pathlib import Path
 
 from ._ocr import (
-    _run_ocr, _find_speech_bubbles, has_chinese, has_japanese, has_english, _bubble_coverage,
+    _find_speech_bubbles, has_chinese, has_japanese, has_english, _bubble_coverage,
 )
+from ._vlm_ocr import _run_vlm_ocr
 from ._translate import (
     translate_batch, post_process_translation,
     comprehensive_post_processing,
@@ -21,6 +22,7 @@ from ._utils import (
     _looks_like_watermark,
 )
 from ._inpaint import inpaint_region
+from ._mit_inpaint_bridge import inpaint_regions_lama_large
 from ._render import render_text, _group_nearby_regions
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
@@ -30,10 +32,12 @@ class ImageTranslator:
     def __init__(
         self,
         model: str = "qwen3:8b",
+        vlm_model: str = "qwen2.5vl:7b",
         font_path: str | None = None,
         use_gpu: bool = True,
         src_lang: str = "zh",
         inpainter: str = "opencv",
+        mit_python_path: str | None = None,
         overwrite: bool = False,
         font_scale: float = 0.60,
         cpu_priority: str = "below_normal",
@@ -45,10 +49,12 @@ class ImageTranslator:
         on_progress=None,
     ):
         self.model        = model
+        self.vlm_model     = vlm_model or "qwen2.5vl:7b"
         self.font_path    = font_path
         self.use_gpu      = use_gpu
         self.src_lang     = src_lang if src_lang in ("zh", "en", "ja") else "zh"
-        self.inpainter    = inpainter if inpainter in ("opencv", "lama") else "opencv"
+        self.inpainter    = inpainter if inpainter in ("opencv", "lama", "lama_large") else "opencv"
+        self.mit_python_path = mit_python_path or None
         self.overwrite    = overwrite
         self.font_scale   = max(0.3, min(2.0, float(font_scale)))
         self.translation_style = translation_style if translation_style in ("modern", "wuxia", "school", "lightnovel") else "modern"
@@ -89,8 +95,15 @@ class ImageTranslator:
 
             bubbles = _find_speech_bubbles(img_orig)
             self._log(f"  [OCR] Phát hiện {len(bubbles)} bong bóng để OCR crop")
-            raw_results = _run_ocr(img_orig, gpu=self.use_gpu, src_lang=self.src_lang)
-            self._log(f"  [OCR] Phát hiện {len(raw_results)} vùng thô (full+crop)")
+            raw_results = _run_vlm_ocr(
+                img_orig,
+                model=self.vlm_model,
+                llm_base_url=self.llm_base_url,
+                llm_api_type=self.llm_api_type,
+                src_lang=self.src_lang,
+                on_log=self._log,
+            )
+            self._log(f"  [OCR] VLM ({self.vlm_model}) đọc được {len(raw_results)} vùng thô (full+crop)")
 
             watermark_boxes = [b for b, t, c in raw_results if _looks_like_watermark(t)]
             if watermark_boxes:
@@ -224,26 +237,40 @@ class ImageTranslator:
                 group_trans.append(all_trans[idx:idx + n])
                 idx += n
 
-            img = img_orig.copy()
+            # (bbox, dilate_ksize, dilate_iters, inpaint_radius) — gộp text + watermark
+            # thành 1 danh sách để lama_large có thể xoá cả ảnh trong 1 lượt subprocess.
+            regions: list[tuple] = []
             for grp in groups:
                 for bbox, _, _ in grp:
-                    img = inpaint_region(img, bbox, method=self.inpainter)
+                    regions.append((bbox, 5, 2, 6))
 
             if watermark_boxes:
                 wx1, wy1, wx2, wy2 = _bbox_xyxy(_union_bboxes(watermark_boxes))
                 wx1, wy1, wx2, wy2 = _rect_expand((wx1, wy1, wx2, wy2), img_orig.shape, pad=90)
                 union_wm = [[wx1, wy1], [wx2, wy1], [wx2, wy2], [wx1, wy2]]
-                img = inpaint_region(
-                    img, union_wm, method=self.inpainter,
-                    dilate_ksize=9, dilate_iters=4, inpaint_radius=12,
-                )
+                regions.append((union_wm, 9, 4, 12))
                 for bbox in watermark_boxes:
                     x1, y1, x2, y2 = _expand_bbox(bbox, img_orig.shape, pad=64)
                     logo_bbox = [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]
-                    img = inpaint_region(
-                        img, logo_bbox, method=self.inpainter,
-                        dilate_ksize=9, dilate_iters=4, inpaint_radius=10,
-                    )
+                    regions.append((logo_bbox, 9, 4, 10))
+
+            img = img_orig.copy()
+            if self.inpainter == "lama_large":
+                result = inpaint_regions_lama_large(
+                    img, [(b, dk, di) for b, dk, di, _ in regions],
+                    python_path=self.mit_python_path,
+                    use_gpu=self.use_gpu, on_log=self._log,
+                )
+                if result is not None:
+                    img = result
+                else:
+                    for bbox, dk, di, ir in regions:
+                        img = inpaint_region(img, bbox, method="opencv",
+                                              dilate_ksize=dk, dilate_iters=di, inpaint_radius=ir)
+            else:
+                for bbox, dk, di, ir in regions:
+                    img = inpaint_region(img, bbox, method=self.inpainter,
+                                          dilate_ksize=dk, dilate_iters=di, inpaint_radius=ir)
 
             img_pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
             for grp_idx, (grp, trans_list) in enumerate(zip(groups, group_trans)):

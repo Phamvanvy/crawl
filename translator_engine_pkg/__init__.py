@@ -17,21 +17,10 @@ for _k in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS",
 
 # ── Re-exports ────────────────────────────────────────────────────────────────
 from ._ocr import (
-    _get_paddle_reader,
-    _get_easyocr_reader,
-    _get_reader,
-    _reader_lock,
-    _paddle_readers,
-    _paddle_lock,
-    _easyocr_readers,
-    _easyocr_lock,
-    _preprocess_for_ocr,
-    _run_ocr_engine,
     _find_speech_bubbles,
     _rect_of_bbox,
     _iou_rect,
     _bubble_coverage,
-    _run_ocr,
     has_chinese,
     has_japanese,
     has_english,
@@ -39,6 +28,8 @@ from ._ocr import (
     _JA_RE,
     _EN_RE,
 )
+
+from ._vlm_ocr import _run_vlm_ocr
 
 from ._utils import (
     _URL_LIKE_RE,
@@ -53,6 +44,7 @@ from ._utils import (
 )
 
 from ._inpaint import inpaint_region
+from ._mit_inpaint_bridge import inpaint_regions_lama_large
 
 from ._translate import (
     OLLAMA_BASE,
@@ -87,15 +79,17 @@ from ._mit_backend import (
 
 __all__ = [
     # ocr
-    "has_chinese", "has_japanese", "has_english", "_run_ocr", "_run_ocr_engine",
+    "has_chinese", "has_japanese", "has_english",
     "_find_speech_bubbles", "_iou_rect", "_bubble_coverage",
     "_ZH_RE", "_JA_RE", "_EN_RE",
+    # vlm ocr
+    "_run_vlm_ocr",
     # utils
     "_looks_like_watermark", "_bbox_xyxy", "_union_bboxes",
     "_rect_expand", "_rect_intersects", "_expand_bbox",
     "check_lama_available",
     # inpaint
-    "inpaint_region",
+    "inpaint_region", "inpaint_regions_lama_large",
     # translate
     "OLLAMA_BASE", "check_ollama", "translate_batch",
     "_normalize_newlines", "_normalize_vietnamese",

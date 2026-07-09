@@ -470,16 +470,25 @@ function setCk(id, ok, val) {
   el.querySelector('.ci-val').textContent = val || '';
 }
 
+let _lastCheckData = null;
+
+function onInpainterChange() {
+  const lamaEl       = $('tInpainter');
+  const lamaLargeHnt = $('lamaLargeHint');
+  if (lamaEl && lamaLargeHnt) {
+    lamaLargeHnt.style.display = (lamaEl.value === 'lama_large' && !(_lastCheckData && _lastCheckData.mit)) ? '' : 'none';
+  }
+}
+
 async function runCheck() {
   let data;
   try {
     const res = await fetch('/api/translate/check');
     data = await res.json();
   } catch { return; }
+  _lastCheckData = data;
   setCk('ck-torch',     !!data.torch,      data.torch      || 'pip install torch');
   setCk('ck-cuda',      data.cuda,         data.gpu        || (data.cuda ? 'OK' : 'No GPU'));
-  setCk('ck-paddleocr', data.paddleocr,    data.paddleocr  ? 'OK' : 'pip install paddlepaddle paddleocr');
-  setCk('ck-easyocr',   data.easyocr,      data.easyocr    ? 'OK (fallback)' : 'optional');
   setCk('ck-ollama',    data.ollama,       data.ollama     ? 'running' : (data.ollama_error || 'not running'));
   setCk('ck-mit',       data.mit,          data.mit        ? (data.mit_python || 'OK') : (data.mit_error || 'mit_venv không tìm thấy'));
   if (data.mit && $('tBackendDefault').checked) {
@@ -493,10 +502,18 @@ async function runCheck() {
     lamaHnt.style.display = data.lama ? 'none' : '';
     if (!data.lama && lamaEl.value === 'lama') lamaEl.value = 'opencv';
   }
+  // lama_large (MIT) hint
+  const lamaLargeHnt = $('lamaLargeHint');
+  if (lamaEl && lamaLargeHnt) {
+    lamaLargeHnt.style.display = (lamaEl.value === 'lama_large' && !data.mit) ? '' : 'none';
+    if (!data.mit && lamaEl.value === 'lama_large') lamaEl.value = 'opencv';
+  }
   const sel = $('tModelSelect');
   while (sel.options.length > 1) sel.remove(1);
   const sel2 = $('tMITModelSelect');
   if (sel2) while (sel2.options.length > 1) sel2.remove(1);
+  const sel3 = $('tVlmModelSelect');
+  if (sel3) while (sel3.options.length > 1) sel3.remove(1);
   for (const m of (data.ollama_models || [])) {
     const opt = document.createElement('option');
     opt.value = opt.textContent = m;
@@ -505,6 +522,11 @@ async function runCheck() {
       const opt2 = document.createElement('option');
       opt2.value = opt2.textContent = m;
       sel2.appendChild(opt2);
+    }
+    if (sel3) {
+      const opt3 = document.createElement('option');
+      opt3.value = opt3.textContent = m;
+      sel3.appendChild(opt3);
     }
   }
 }

@@ -154,8 +154,6 @@
               <div class="check-grid" id="checkGrid">
                 <div class="check-item" id="ck-torch"><div class="ci-dot"></div><span class="ci-label">PyTorch</span><span class="ci-val">—</span></div>
                 <div class="check-item" id="ck-cuda"><div class="ci-dot"></div><span class="ci-label">CUDA</span><span class="ci-val">—</span></div>
-                <div class="check-item" id="ck-paddleocr"><div class="ci-dot"></div><span class="ci-label">PaddleOCR</span><span class="ci-val">—</span></div>
-                <div class="check-item" id="ck-easyocr"><div class="ci-dot"></div><span class="ci-label">EasyOCR</span><span class="ci-val">—</span></div>
                 <div class="check-item" id="ck-ollama"><div class="ci-dot"></div><span class="ci-label">Ollama</span><span class="ci-val">—</span></div>
                 <div class="check-item" id="ck-mit"><div class="ci-dot"></div><span class="ci-label">MIT</span><span class="ci-val">—</span></div>
               </div>
@@ -194,8 +192,8 @@
               <label class="backend-option">
                 <input type="radio" name="tBackend" id="tBackendDefault" value="default" checked onchange="onBackendChange()" />
                 <div class="backend-card">
-                  <span class="bc-icon">🔧</span>
-                  <span class="bc-label">OCR + Ollama</span>
+                  <span class="bc-icon">👁️</span>
+                  <span class="bc-label">VLM OCR + Ollama</span>
                   <span class="bc-sub" data-i18n="t.backend.auto.sub">Tự động · offline</span>
                 </div>
               </label>
@@ -248,8 +246,19 @@
               <div class="field-hint">llama.cpp: :8080 · LM Studio: :1234 · vLLM: :8000</div>
             </div>
             <div class="field">
-              <label>Model name</label>
-              <input type="text" id="tModel" value="" placeholder="Nhập qwen2.5-vl-7b-instruct"
+              <label data-i18n="t.vlm_model.label">Model OCR (Vision)</label>
+              <input type="text" id="tVlmModel" value="" placeholder="qwen2.5vl:7b"
+                style="margin-bottom:6px" />
+              <select id="tVlmModelSelect"
+                style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-family:inherit;font-size:.9rem;cursor:pointer"
+                onchange="if(this.value)setVal('tVlmModel',this.value)">
+                <option value="">— models —</option>
+              </select>
+              <div class="field-hint" data-i18n="t.vlm_model.hint">Model có khả năng nhìn ảnh (vision), vd qwen2.5vl:7b/32b — chỉ dùng để đọc chữ, không dịch</div>
+            </div>
+            <div class="field">
+              <label data-i18n="t.model.label">Model dịch (Translation)</label>
+              <input type="text" id="tModel" value="" placeholder="Nhập qwen3:8b"
                 style="margin-bottom:6px" />
               <select id="tModelSelect"
                 style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-family:inherit;font-size:.9rem;cursor:pointer"
@@ -260,12 +269,16 @@
             </div>
             <div class="field">
               <label data-i18n="t.inpainter.label">Inpainter (xóa chữ)</label>
-              <select id="tInpainter" class="field select">
+              <select id="tInpainter" class="field select" onchange="onInpainterChange()">
                 <option value="opencv" selected>OpenCV TELEA — nhanh, tốt cho nền đơn giản</option>
                 <option value="lama">LAMA (neural) — chất lượng cao, cần cài thêm ~200MB</option>
+                <option value="lama_large">lama_large ✦ (MIT) — chất lượng cao nhất, tái tạo halftone đẹp, cần mit_venv</option>
               </select>
               <div id="lamaHint" class="field-hint" style="display:none;color:var(--warn)">
                 ⚠ Chưa cài: <code class="code">pip install simple-lama-inpainting</code>
+              </div>
+              <div id="lamaLargeHint" class="field-hint" style="display:none;color:var(--warn)">
+                ⚠ Cần mit_venv (xem mục MIT ở "Kiểm tra hệ thống"). Chạy chậm hơn — mỗi ảnh khởi động 1 tiến trình riêng.
               </div>
             </div>
             <div class="field">

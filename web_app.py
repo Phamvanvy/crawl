@@ -566,7 +566,7 @@ def _t_queue_worker() -> None:
 
 @app.route("/api/translate/check")
 def api_translate_check():
-    """Kiểm tra dependencies: torch, paddleocr/easyocr, ollama."""
+    """Kiểm tra dependencies: torch, opencv, ollama."""
     result = {}
     # PyTorch / CUDA
     try:
@@ -578,18 +578,6 @@ def api_translate_check():
         result["torch"] = None
         result["cuda"]  = False
         result["gpu"]   = None
-    # PaddleOCR (preferred)
-    try:
-        import paddleocr  # noqa: F401
-        result["paddleocr"] = True
-    except ImportError:
-        result["paddleocr"] = False
-    # EasyOCR (fallback)
-    try:
-        import easyocr  # noqa: F401
-        result["easyocr"] = True
-    except ImportError:
-        result["easyocr"] = False
     # OpenCV
     try:
         import cv2  # noqa: F401
@@ -621,6 +609,7 @@ def api_translate_start():
     output_dir     = str(data.get("output_dir",     "")).strip()
     sel_images     = data.get("images") or []   # tên ảnh đã tích (rỗng = cả thư mục)
     model          = str(data.get("model",      "qwen2.5:7b")).strip() or "qwen2.5:7b"
+    vlm_model      = str(data.get("vlm_model",  "qwen2.5vl:7b")).strip() or "qwen2.5vl:7b"
     use_gpu        = bool(data.get("use_gpu", True))
     src_lang       = str(data.get("src_lang", "zh")).strip().lower()
     backend        = str(data.get("backend",       "default")).strip().lower()
@@ -683,7 +672,7 @@ def api_translate_start():
         image_quality = max(40, min(100, image_quality))
     except (TypeError, ValueError):
         image_quality = 95
-    if inpainter not in ("opencv", "lama"):
+    if inpainter not in ("opencv", "lama", "lama_large"):
         inpainter = "opencv"
     if src_lang not in ("zh", "en", "ja"):
         src_lang = "zh"
@@ -732,8 +721,8 @@ def api_translate_start():
              f"narrow_wide={mit_narrow_wide or '-'} narrow_fcap={mit_narrow_fcap or '-'} "
              f"verbose={mit_verbose} gpu={use_gpu}")
             if backend == "mit"
-            else (f"# Default   : lang={src_lang} model={model} inpainter={inpainter} "
-                  f"style={translation_style} font_scale={font_scale} gpu={use_gpu}"),
+            else (f"# Default   : lang={src_lang} model={model} vlm_model={vlm_model} "
+                  f"inpainter={inpainter} style={translation_style} font_scale={font_scale}"),
             f"# image_quality={image_quality} cpu_priority={cpu_priority}",
             "#" + "=" * 70,
             "",
@@ -801,13 +790,21 @@ def api_translate_start():
                 )
             else:
                 lang_label = "ZH→VI" if src_lang == "zh" else "JA→VI" if src_lang == "ja" else "EN→VI"
-                _t_push({"type": "log", "msg": f"Backend: default  Lang={lang_label}  Model={model}  GPU={use_gpu}  Inpainter={inpainter}"})
+                mit_python_path = None
+                if inpainter == "lama_large":
+                    mit_check_ip = te.check_mit()
+                    mit_python_path = mit_check_ip.get("python")
+                    if not mit_python_path:
+                        _t_push({"type": "log", "msg": f"  [WARN] lama_large cần mit_venv: {mit_check_ip.get('error')} — sẽ fallback OpenCV."})
+                _t_push({"type": "log", "msg": f"Backend: default (VLM OCR)  Lang={lang_label}  VLM={vlm_model}  Model dịch={model}  Inpainter={inpainter}"})
                 translator = te.ImageTranslator(
                     model=model,
+                    vlm_model=vlm_model,
                     font_path=_find_font(),
                     use_gpu=use_gpu,
                     src_lang=src_lang,
                     inpainter=inpainter,
+                    mit_python_path=mit_python_path,
                     overwrite=overwrite,
                     font_scale=font_scale,
                     cpu_priority=cpu_priority,
@@ -890,10 +887,11 @@ def api_translate_retry_failed():
 
     data        = request.get_json(silent=True) or {}
     model       = str(data.get("model",      "qwen2.5:7b")).strip() or "qwen2.5:7b"
+    vlm_model   = str(data.get("vlm_model",  "qwen2.5vl:7b")).strip() or "qwen2.5vl:7b"
     use_gpu     = bool(data.get("use_gpu", True))
     src_lang    = str(data.get("src_lang", "zh")).strip().lower()
     inpainter   = str(data.get("inpainter", "opencv")).strip()
-    if inpainter not in ("opencv", "lama"):
+    if inpainter not in ("opencv", "lama", "lama_large"):
         inpainter = "opencv"
     if src_lang not in ("zh", "en", "ja"):
         src_lang = "zh"
@@ -935,12 +933,18 @@ def api_translate_retry_failed():
                     _t_state["total"] = total
                 _t_push({"type": "progress", "done": done, "total": total})
 
+            mit_python_path = None
+            if inpainter == "lama_large":
+                mit_python_path = te.check_mit().get("python")
+
             translator = te.ImageTranslator(
                 model=model,
+                vlm_model=vlm_model,
                 font_path=_find_font(),
                 use_gpu=use_gpu,
                 src_lang=src_lang,
                 inpainter=inpainter,
+                mit_python_path=mit_python_path,
                 overwrite=True,
                 font_scale=font_scale,
                 cpu_priority=cpu_priority,
