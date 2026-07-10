@@ -13,26 +13,10 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from ._stroke_mask import build_combined_mask as _build_combined_mask
+
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _HELPER = _PROJECT_ROOT / "mit_inpaint_helper.py"
-
-
-def _build_combined_mask(shape, regions):
-    """regions: list of (bbox_4pts, dilate_ksize, dilate_iters) → mask uint8 gộp (255=inpaint)."""
-    import cv2
-    import numpy as np
-
-    h, w = shape[:2]
-    mask = np.zeros((h, w), dtype=np.uint8)
-    for bbox, dilate_ksize, dilate_iters in regions:
-        pts = np.array(bbox, dtype=np.int32)
-        region_mask = np.zeros((h, w), dtype=np.uint8)
-        cv2.fillPoly(region_mask, [pts], 255)
-        region_mask = cv2.dilate(
-            region_mask, np.ones((dilate_ksize, dilate_ksize), np.uint8), iterations=dilate_iters
-        )
-        mask = cv2.bitwise_or(mask, region_mask)
-    return mask
 
 
 def inpaint_regions_lama_large(
@@ -46,8 +30,8 @@ def inpaint_regions_lama_large(
     timeout: int = 600,
 ):
     """
-    Xoá mọi vùng trong `regions` (list of (bbox_4pts, dilate_ksize, dilate_iters))
-    bằng lama_large của MIT, gọi subprocess đúng 1 lần cho cả ảnh.
+    Xoá mọi vùng trong `regions` (list of (bbox_4pts, dilate_ksize, dilate_iters,
+    kind)) bằng lama_large của MIT, gọi subprocess đúng 1 lần cho cả ảnh.
     Trả về ảnh BGR đã inpaint, hoặc None nếu lỗi/không có mit_venv (caller nên
     fallback sang inpaint_region opencv khi None).
     """
@@ -63,7 +47,8 @@ def inpaint_regions_lama_large(
 
     import cv2
 
-    mask = _build_combined_mask(img.shape, regions)
+    mask, n_stroke, n_rect = _build_combined_mask(img, regions, on_log=log)
+    log(f"  [INPAINT] mask: {n_stroke} stroke / {n_rect} rect")
     td = tempfile.mkdtemp(prefix="mit_inp_")
     try:
         ip = Path(td) / "in.png"

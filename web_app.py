@@ -23,6 +23,28 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
         pass
 from pathlib import Path
 
+
+def _load_dotenv() -> None:
+    """Nạp file .env cạnh web_app.py (KEY=VALUE, # là chú thích) vào os.environ.
+    Dùng setdefault nên biến môi trường set từ ngoài luôn thắng .env; các giá
+    trị này cũng theo os.environ.copy() truyền xuống subprocess mit_venv."""
+    try:
+        text = (Path(__file__).resolve().parent / ".env").read_text(encoding="utf-8")
+    except OSError:
+        return
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key, val = key.strip(), val.strip().strip('"').strip("'")
+        if key:
+            os.environ.setdefault(key, val)
+
+
+# Nạp trước khi import translator_engine (nó setdefault env thread-limit lúc import)
+_load_dotenv()
+
 from flask import Flask, jsonify, render_template, request, send_file
 
 from crawler import crawl, retry_failed_downloads

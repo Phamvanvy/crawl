@@ -16,13 +16,34 @@ cùng shape với _run_ocr cũ để _image_translator.py không cần đổi lo
 
 import base64
 import json
+import os
 import re
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
 from ._ocr import _find_speech_bubbles, _iou_rect, _rect_of_bbox
 
 OLLAMA_BASE = "http://localhost:8080"
+
+# Retry khi call VLM lỗi mạng/HTTP (không retry lỗi parse — response hỏng
+# thì gọi lại cũng vậy). Backoff tuyến tính: 1.5s, 3s.
+_VLM_RETRIES = 2
+_VLM_RETRY_BACKOFF_S = 1.5
+
+
+def _ocr_workers() -> int:
+    """Số luồng gọi VLM song song cho crop pass (VLM_OCR_WORKERS, mặc định 3).
+
+    =1 → tuần tự như cũ. Server chỉ serve 1 request/lúc (Ollama mặc định)
+    thì các luồng chỉ xếp hàng, không hại; nhanh thật trên llama.cpp/vLLM
+    có parallel slots.
+    """
+    try:
+        return max(1, min(8, int(os.environ.get("VLM_OCR_WORKERS", "3"))))
+    except ValueError:
+        return 3
 
 _PAGE_PROMPT = (
     "You are an OCR engine reading a manga/manhwa/manhua page image "
@@ -63,39 +84,51 @@ def _call_vlm(
     llm_api_type: str = "ollama",
     timeout: int = 180,
 ) -> str:
-    """Gửi 1 ảnh + prompt cho VLM, trả về raw text response."""
+    """Gửi 1 ảnh + prompt cho VLM, trả về raw text response.
+
+    Retry _VLM_RETRIES lần khi lỗi mạng/HTTP (requests.RequestException).
+    # TODO: share ollama/openai_compat transport with _translate._call_llm_api
+    """
     b64 = _encode_jpeg_b64(img_array)
     base = (llm_base_url.rstrip("/") if llm_base_url else OLLAMA_BASE)
 
-    if llm_api_type == "openai_compat":
-        payload = {
-            "model": model,
-            "messages": [{
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
-                ],
-            }],
-            "stream": False,
-            "temperature": 0,
-        }
-        resp = requests.post(f"{base}/v1/chat/completions", json=payload, timeout=timeout)
-        resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
-    else:
-        payload = {
-            "model": model,
-            "prompt": prompt,
-            "images": [b64],
-            "stream": False,
-            "options": {"temperature": 0},
-        }
-        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        headers = {"Content-Type": "application/json; charset=utf-8"}
-        resp = requests.post(f"{base}/api/generate", data=body, headers=headers, timeout=timeout)
-        resp.raise_for_status()
-        return resp.json().get("response", "") or ""
+    last_exc = None
+    for attempt in range(_VLM_RETRIES + 1):
+        try:
+            if llm_api_type == "openai_compat":
+                payload = {
+                    "model": model,
+                    "messages": [{
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                        ],
+                    }],
+                    "stream": False,
+                    "temperature": 0,
+                }
+                resp = requests.post(f"{base}/v1/chat/completions", json=payload, timeout=timeout)
+                resp.raise_for_status()
+                return resp.json()["choices"][0]["message"]["content"]
+            else:
+                payload = {
+                    "model": model,
+                    "prompt": prompt,
+                    "images": [b64],
+                    "stream": False,
+                    "options": {"temperature": 0},
+                }
+                body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+                headers = {"Content-Type": "application/json; charset=utf-8"}
+                resp = requests.post(f"{base}/api/generate", data=body, headers=headers, timeout=timeout)
+                resp.raise_for_status()
+                return resp.json().get("response", "") or ""
+        except requests.RequestException as exc:
+            last_exc = exc
+            if attempt < _VLM_RETRIES:
+                time.sleep(_VLM_RETRY_BACKOFF_S * (attempt + 1))
+    raise last_exc
 
 
 _JSON_ARRAY_RE = re.compile(r"\[.*\]", re.DOTALL)
@@ -141,10 +174,14 @@ def _run_vlm_ocr(
     llm_api_type: str = "ollama",
     src_lang: str = "zh",
     on_log=None,
+    bubbles=None,
 ) -> list[tuple]:
     """
     OCR orchestration bằng VLM: toàn ảnh (detect + đọc) + crop từng bong bóng.
     Trả về list of (bbox_4pts, text, confidence) — cùng shape với _run_ocr cũ.
+
+    bubbles: list bong bóng đã detect sẵn (caller đã chạy _find_speech_bubbles
+    thì truyền vào để khỏi detect lại); None → tự detect.
     """
     log = on_log or (lambda msg: None)
     h, w = img_array.shape[:2]
@@ -163,18 +200,35 @@ def _run_vlm_ocr(
 
     bubble_errors = 0
     try:
-        bubbles = _find_speech_bubbles(img_array)
+        if bubbles is None:
+            bubbles = _find_speech_bubbles(img_array)
+        crops = []
         for x1, y1, x2, y2 in bubbles:
             crop = img_array[y1:y2, x1:x2]
             if crop.size == 0:
                 continue
+            crops.append(((x1, y1, x2, y2), crop))
+
+        def _ocr_one_crop(crop):
             try:
-                text = _call_vlm(crop, _CROP_PROMPT, model, llm_base_url, llm_api_type,
-                                  timeout=60).strip()
+                return _call_vlm(crop, _CROP_PROMPT, model, llm_base_url,
+                                 llm_api_type, timeout=60).strip()
             except Exception as exc:
+                return exc
+
+        workers = _ocr_workers()
+        if workers == 1 or len(crops) <= 1:
+            texts = [_ocr_one_crop(crop) for _, crop in crops]
+        else:
+            log(f"  [VLM] OCR {len(crops)} crop, {workers} luồng")
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                texts = list(ex.map(lambda c: _ocr_one_crop(c[1]), crops))
+
+        for ((x1, y1, x2, y2), _crop), text in zip(crops, texts):
+            if isinstance(text, Exception):
                 bubble_errors += 1
                 if bubble_errors == 1:
-                    log(f"  [VLM] Lỗi gọi model '{model}' (crop bong bóng): {exc}")
+                    log(f"  [VLM] Lỗi gọi model '{model}' (crop bong bóng): {text}")
                 continue
             if not text:
                 continue

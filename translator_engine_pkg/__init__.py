@@ -43,7 +43,7 @@ from ._utils import (
     _get_lama,
 )
 
-from ._inpaint import inpaint_region
+from ._inpaint import inpaint_region, inpaint_regions
 from ._mit_inpaint_bridge import inpaint_regions_lama_large
 
 from ._translate import (
@@ -89,7 +89,7 @@ __all__ = [
     "_rect_expand", "_rect_intersects", "_expand_bbox",
     "check_lama_available",
     # inpaint
-    "inpaint_region", "inpaint_regions_lama_large",
+    "inpaint_region", "inpaint_regions", "inpaint_regions_lama_large",
     # translate
     "OLLAMA_BASE", "check_ollama", "translate_batch",
     "_normalize_newlines", "_normalize_vietnamese",
