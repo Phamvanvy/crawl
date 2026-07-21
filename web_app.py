@@ -675,12 +675,15 @@ def api_translate_start():
     overwrite         = bool(data.get("overwrite",       False))
     cpu_priority      = str(data.get("cpu_priority",     "below_normal")).strip()
     translation_style = str(data.get("translation_style", "modern")).strip().lower()
+    translation_register = str(data.get("translation_register", "natural")).strip().lower()
     llm_base_url      = str(data.get("llm_base_url", "")).strip()
     llm_api_type      = str(data.get("llm_api_type", "ollama")).strip().lower()
     if cpu_priority not in ("normal", "below_normal", "idle"):
         cpu_priority = "below_normal"
     if translation_style not in ("modern", "wuxia", "school", "lightnovel"):
         translation_style = "modern"
+    if translation_register not in ("natural", "polite", "coarse"):
+        translation_register = "natural"
     if llm_api_type not in ("ollama", "openai_compat"):
         llm_api_type = "ollama"
     inpainter         = str(data.get("inpainter",        "opencv")).strip()
@@ -733,7 +736,7 @@ def api_translate_start():
             f"# Backend   : {backend}",
             f"# Ảnh chọn  : {len(images_override) if images_override else 'toàn bộ thư mục'}",
             (f"# MIT       : translator={mit_translator} target={mit_target_lang} "
-             f"style={translation_style} model={model} detector={mit_detector or 'auto'} "
+             f"style={translation_style} xungho={translation_register} model={model} detector={mit_detector or 'auto'} "
              f"inpainter={mit_inpainter} ocr={mit_ocr or 'auto'} ocr_prob={mit_ocr_prob or '-'} "
              f"upscale={mit_upscale or '-'} det_size={mit_det_size or '-'} "
              f"mask_dil={mit_mask_dil or '-'} unclip={mit_unclip or '-'} "
@@ -805,6 +808,7 @@ def api_translate_start():
                     overwrite=mit_overwrite,
                     cpu_priority=cpu_priority,
                     gpt_style=translation_style,
+                    gpt_register=translation_register,
                     image_quality=image_quality,
                     use_global_glossary=use_global_glossary,
                     on_log=on_log,

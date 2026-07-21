@@ -253,6 +253,7 @@ async function tStart() {
   const use_gpu          = $('tUseGpu').checked;
   const src_lang         = getVal('tSrcLang');
   const translation_style = getVal('tTranslationStyle') || 'modern';
+  const translation_register = getVal('tTranslationRegister') || 'natural';
   const llm_api_type      = getVal('tLlmApiType') || 'ollama';
   const llm_base_url      = (getVal('tLlmBaseUrl') || '').trim();
   const backend          = document.querySelector('input[name="tBackend"]:checked').value;
@@ -321,6 +322,7 @@ async function tStart() {
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({
         input_dir, output_dir, images, model, vlm_model, use_gpu, src_lang, backend, translation_style,
+        translation_register,
         llm_api_type, llm_base_url,
         mit_translator, mit_target_lang,
         mit_detector, mit_inpainter, mit_inpaint_size, mit_inpaint_prec, mit_upscale, mit_upscaler, mit_det_size,

@@ -158,6 +158,31 @@ _GPT_STYLE_BLOCKS: dict[str, str] = {
     "lightnovel": _GPT_STYLE_LIGHTNOVEL,
 }
 
+# ── Register / độ lịch sự xưng hô ────────────────────────────────────────────
+# CẮT NGANG thể loại (chọn KÈM _GPT_STYLE_BLOCKS): compose sau khối phong cách để
+# GHI ĐÈ cặp đại từ mặc định. "natural" = không ghi đè, để style tự quyết như cũ.
+_GPT_REGISTER_POLITE = """\
+XƯNG HÔ — GIỌNG LỊCH SỰ (GHI ĐÈ cặp đại từ mặc định ở khung phong cách trên):
+- Cặp trung tính khi quan hệ chưa rõ: ƯU TIÊN "tôi ↔ cậu" (nhã nhặn, tôn trọng). KHÔNG dùng "ta ↔ ngươi", TUYỆT ĐỐI KHÔNG "tao ↔ mày".
+- Đã xưng "tôi" thì gọi "cậu" (KHÔNG "ngươi"). Vẫn theo QUAN HỆ khi hiện rõ (anh/em, em↔thầy/cô, con↔ba/mẹ, cháu↔ông/bà…) nhưng chọn biến thể lịch sự.
+- Tránh đại từ thô/khinh (mày, tao, ngươi, hắn xấc, "con này"/"thằng kia") TRỪ KHI nhân vật RÕ RÀNG đang chửi rủa/khinh miệt trong chính cảnh đó.
+- Cặp tự xưng/gọi vẫn phải ĐỒNG HỆ. Glossary @note của bộ ƯU TIÊN CAO NHẤT, ghi đè khung này.
+"""
+
+_GPT_REGISTER_COARSE = """\
+XƯNG HÔ — GIỌNG THÔ TỤC / SUỒNG SÃ (GHI ĐÈ cặp đại từ mặc định ở khung phong cách trên):
+- Cặp trung tính khi quan hệ chưa rõ: ƯU TIÊN "ta ↔ ngươi". Cảnh gây hấn/chửi bới/khinh miệt/đe doạ → "tao ↔ mày".
+- KHÔNG dùng "tôi ↔ cậu" nhã nhặn TRỪ KHI nhân vật rõ ràng đang khách sáo/lịch thiệp.
+- Giữ giọng RAW, tục, gằn — KHÔNG làm mềm. Vẫn theo QUAN HỆ khi hiện rõ nhưng thiên biến thể suồng sã/thân mật thô.
+- Cặp tự xưng/gọi vẫn phải ĐỒNG HỆ (tao↔mày, ta↔ngươi) — KHÔNG trộn. Glossary @note của bộ ƯU TIÊN CAO NHẤT, ghi đè khung này.
+"""
+
+_GPT_REGISTER_BLOCKS: dict[str, str] = {
+    "natural": "",                    # không ghi đè — style tự quyết
+    "polite":  _GPT_REGISTER_POLITE,
+    "coarse":  _GPT_REGISTER_COARSE,
+}
+
 
 def _find_mit_python() -> str | None:
     """
@@ -286,6 +311,7 @@ class MITImageTranslator:
         overwrite: bool = False,
         cpu_priority: str = "below_normal",
         gpt_style: str = "",
+        gpt_register: str = "",
         image_quality: int = 95,
         use_global_glossary: bool = False,
         on_log=None,
@@ -325,6 +351,7 @@ class MITImageTranslator:
         self.skip_no_text          = skip_no_text
         self.overwrite             = overwrite
         self.gpt_style             = gpt_style if gpt_style in _GPT_STYLE_BLOCKS else "modern"
+        self.gpt_register          = gpt_register if gpt_register in _GPT_REGISTER_BLOCKS else "natural"
         self.cpu_priority = cpu_priority if cpu_priority in ("normal", "below_normal", "idle") else "below_normal"
         # Mức nén ảnh đầu ra vùng thủ công: 40–100. <100 = giảm dung lượng (PNG → JPEG nén).
         try:
@@ -533,7 +560,12 @@ class MITImageTranslator:
         # CHỈ giữ metadata style cho UI + sampling tham khảo, KHÔNG nhúng prompt).
         if self.translator == "custom_openai":
             style_block = _GPT_STYLE_BLOCKS.get(self.gpt_style, _GPT_STYLE_MODERN)
-            composed = _GPT_BASE_RULES + "\n" + style_block + "\nTranslate the following text into Vietnamese:\n"
+            # Register (độ lịch sự xưng hô) ghi đè SAU khối phong cách. "natural" → "".
+            register_block = _GPT_REGISTER_BLOCKS.get(self.gpt_register, "")
+            composed = _GPT_BASE_RULES + "\n" + style_block
+            if register_block:
+                composed += "\n" + register_block
+            composed += "\nTranslate the following text into Vietnamese:\n"
             indented = "\n".join("    " + line if line else "" for line in composed.splitlines())
             # temperature/top_p chỉ là fallback "sáng tác" — sampling thật do
             # custom_openai _DETERMINISTIC quyết định (mặc định seed cố định, ghi đè
@@ -551,7 +583,7 @@ class MITImageTranslator:
             tf_style.write(yaml_content)
             tf_style.close()
             cfg.setdefault("translator", {})["gpt_config"] = tf_style.name
-            self._log(f"  [GPT] Style: {self.gpt_style} → temp config {tf_style.name}")
+            self._log(f"  [GPT] Style: {self.gpt_style} · Xưng hô: {self.gpt_register} → temp config {tf_style.name}")
 
         tf = tempfile.NamedTemporaryFile(
             mode="w", suffix=".json", delete=False, encoding="utf-8"
