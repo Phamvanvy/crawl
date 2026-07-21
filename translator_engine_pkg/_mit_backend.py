@@ -89,26 +89,17 @@ CORE RULES:
 9. TONE: RAW — literal, preserve harsh/vulgar/blunt tone, no softening.
 10. GLOSSARY: 老师→cô giáo | 催眠→thôi miên | The End→Hết | 小 (prefix)→Tiểu | 媚药→thuốc kích dục | 春药→thuốc kích dục | 迷药/麻药/麻醉药→thuốc mê | 魔头→ma đầu (KHÔNG dịch nghĩa khác)
 11. FALLBACK: garbled OCR trong THOẠI → translate visible + [...]. NHƯNG nếu CẢ segment là chuỗi Hán vô nghĩa KHÔNG thành câu, kiểu con dấu/chữ trang trí VÔ NGHĨA → trả TRƠ "<|n|>[title]" (rule 6b), KHÔNG cố dịch bừa. Chuỗi Hán ĐỌC THÀNH CÂU/CỤM CÓ NGHĨA thì luôn PHẢI DỊCH — nếu là tên bộ/chương thì "[title] <bản dịch>" (rule 6b case a), còn lại dịch bình thường. Empty/URL/watermark input (ACG, pixiv, www, .com, fansky…) → return "".
-12. NATURAL & IN-CONTEXT WORDING: Pick the word that fits the SCENE and the speaker, NOT the stiff dictionary gloss. Use everyday spoken Vietnamese; match register to the mood. In intimate/erotic scenes prefer direct colloquial verbs — 插入/放进去/塞进去 → "đút vào" / "cho vào" (NOT the clinical "chèn vào"); 摸→sờ, 舔→liếm, 抱→ôm. Keep names, pronouns and recurring terms consistent with the STORY CONTEXT block (recent pages) when one is provided above.
+12. NATURAL & IN-CONTEXT WORDING: Pick the word that fits the SCENE and the speaker, NOT the stiff dictionary gloss. Use everyday spoken Vietnamese; match register to the mood. In intimate/erotic scenes prefer direct colloquial verbs — 插入/放进去/塞进去 → "đút vào" / "cho vào" (NOT the clinical "chèn vào"); 摸→sờ, 舔→liếm, 抱→ôm. Keep names, pronouns and recurring terms consistent with the STORY CONTEXT block (recent pages) when one is provided above. CẶP ĐẠI TỪ PHẢI ĐỒNG BỘ: đại từ TỰ XƯNG (我) và đại từ GỌI người nghe (你) luôn đi CÙNG MỘT HỆ — "tôi↔cậu", "ta↔ngươi", "anh↔em", "em↔anh/chị", "tớ↔cậu", "con↔ba/mẹ". TUYỆT ĐỐI KHÔNG trộn hệ ("ta↔cậu", "tôi↔ngươi", "anh↔cậu"… là SAI). ĐỘC THOẠI: segment [thought] (suy nghĩ/độc thoại nội tâm, KHÔNG có người nghe cụ thể) → TỰ XƯNG theo ĐÚNG HỆ nhân vật đó dùng khi đối thoại (đối thoại xưng "ta" → thought cũng "ta"; xưng "tôi" → "tôi"), TUYỆT ĐỐI KHÔNG dùng đại từ QUAN HỆ (anh/em/con/chàng/nàng…) vì không có đối tượng đối thoại để xưng.
 """
 
 _GPT_STYLE_MODERN = """\
-PRONOUNS (Modern / Slice-of-life) — Tiếng Việt xưng hô theo QUAN HỆ, KHÔNG dịch máy móc 我→tôi / 你→bạn.
-BƯỚC 1 — Xác định CẶP QUAN HỆ giữa người ĐANG nói và người ĐANG nghe trong CHÍNH segment đó (dựa vào: cách hai người gọi nhau, bối cảnh trong trang, và STORY CONTEXT). Một nhân vật xưng KHÁC nhau với từng người (với vợ "anh", với mẹ "con", với sếp "tôi") → chọn theo NGƯỜI ĐỐI THOẠI của segment, KHÔNG theo cả trang.
-BƯỚC 2 — Áp cặp xưng hô (我 = người nói tự xưng, 你 = gọi người nghe):
-- Vợ–chồng: vợ xưng "em" gọi "anh"; chồng xưng "anh" gọi "em". Khi NHẮC TỚI (ngôi thứ 3): 老公/丈夫→"chồng", 老婆/媳妇/妻子→"vợ", 夫人→"phu nhân". TUYỆT ĐỐI KHÔNG dùng "ông xã/bà xã", KHÔNG dùng "con". Có 老公/老婆/丈夫/妻子 trong cảnh = cảnh vợ-chồng, KHÔNG phải cha-mẹ-con.
-- Người yêu / tán tỉnh / thân mật: "anh↔em" (nam vai trên = anh, nữ = em); nếu chưa thân thì "tôi↔cậu".
-- Cha/mẹ ↔ con: CHỈ khi hai người ĐANG đối thoại đúng là cha/mẹ và con (con gọi THẲNG 妈妈/母亲/妈/娘 hoặc 爸爸/父亲/爸/爹, hoặc cha/mẹ đang nói với chính con mình). Con xưng "con"; cha→"ba/bố", mẹ→"mẹ" (vd 妈妈可以给我吗？→ Mẹ cho con được không?). KHÔNG kích hoạt chỉ vì trang có nhắc tới cha/mẹ Ở CHỖ KHÁC — phải đúng CẶP đối thoại. QUAN TRỌNG: 你妈妈/你妈/你母亲/你爸爸/你爸/你娘 = cha/mẹ CỦA NGƯỜI NGHE → chỉ là NGƯỜI THỨ BA được nhắc tới, KHÔNG biến NGƯỜI NÓI thành cha/mẹ. TUYỆT ĐỐI KHÔNG xưng "con/mẹ/bố" cho cặp nói–nghe chỉ vì trong câu có "你妈妈/你爸爸"; xưng hô cặp này theo QUAN HỆ THẬT của họ (thân mật/tình cảm → "anh↔em"; chưa rõ thân sơ → "tôi↔cậu") — KHÔNG mặc định cặp nào. Vd 刚好我让你见见你妈妈: dịch giữ đúng chủ ngữ người nói–người nghe, TUYỆT ĐỐI KHÔNG ép thành "ta cho con gặp mẹ con".
-- Ông/bà ↔ cháu: cháu xưng "cháu"; ông/bà xưng "ông/bà".
-- Anh/chị ↔ em ruột: người lớn xưng "anh/chị" gọi "em"; người nhỏ xưng "em". 哥哥→anh, 姐姐→chị, 弟弟/妹妹→em.
-- Thầy/cô ↔ học trò: trò xưng "em" gọi "thầy/cô"; thầy/cô xưng "thầy/cô" (hoặc "tôi") gọi "em". 老师→cô giáo/thầy (theo giới).
-- Cấp trên ↔ cấp dưới / xã giao công sở: mặc định "tôi" + gọi theo chức danh hoặc "anh/chị".
-- Bạn bè đồng trang lứa: "tớ↔cậu" hoặc "tôi↔cậu".
-- Người lạ / chưa rõ thân sơ: "tôi" + gọi "anh/chị/cô/cậu" theo tuổi-giới. KHÔNG mặc định "bạn".
-QUY TẮC CHUNG:
-- GIỮ NHẤT QUÁN cặp xưng hô cho mỗi cặp nhân vật xuyên suốt truyện theo STORY CONTEXT.
-- Không xác định được quan hệ → MẶC ĐỊNH trung tính "tôi ↔ anh/chị/cậu" (theo tuổi-giới); KHÔNG bịa quan hệ tình cảm (anh/em) khi chưa có căn cứ.
-- Glossary @note của bộ (nếu có) ƯU TIÊN CAO NHẤT, ghi đè mọi quy tắc trên.
+PRONOUNS (Modern / Slice-of-life) — ĐỂ MODEL TỰ CHỌN xưng hô tự nhiên như người Việt nói; chỉ vài chốt tối thiểu:
+- ⚑ CẶP PHẢI KHỚP (quan trọng nhất): tự xưng 我 và cách gọi 你 phải CÙNG HỆ, KHÔNG trộn. Cặp trung tính khi quan hệ chưa rõ — ƯU TIÊN "ta ↔ ngươi", sau đó "tôi ↔ cậu". Đã tự xưng "ta" thì gọi "ngươi" (KHÔNG "cậu"); đã xưng "tôi" thì gọi "cậu" (KHÔNG "ngươi"). Vd 你干什么啊！竟然主动给我口 → "Ngươi làm gì vậy! Còn chủ động hầu miệng cho TA nữa!" (SAI: "ngươi… cho tôi" hoặc "cậu… cho ta").
+- KHÔNG dịch máy móc 我→tôi / 你→bạn. Chọn đại từ hợp giọng nhân vật & cảm nhận cảnh.
+- CHỈ dùng đại từ QUAN HỆ (anh/em, con↔ba/mẹ, ông/bà↔cháu, anh/chị↔em, thầy/cô↔trò…) khi quan hệ HIỆN RÕ ngay trong cảnh đó. Chưa rõ → cặp trung tính đồng bộ (ưu tiên "ta ↔ ngươi", hoặc "tôi ↔ cậu"). KHÔNG bịa quan hệ tình cảm hay cha–con khi thiếu căn cứ.
+- Nhắc TỚI người thân ở ngôi thứ 3 (你妈妈, 他老婆…) KHÔNG biến người nói/nghe thành vai đó.
+- Giữ nhất quán cho mỗi nhân vật một khi đã rõ.
+- Glossary @note của bộ (nếu có) ƯU TIÊN CAO NHẤT, ghi đè mọi điều trên.
 """
 
 _GPT_STYLE_WUXIA = """\

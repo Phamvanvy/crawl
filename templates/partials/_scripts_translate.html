@@ -148,10 +148,10 @@ function mitPreset(mode) {
     setSel('tMITInpainter', 'lama_large');
     setSel('tMITUpscale',   '2');        // ★ MẤU CHỐT: upscale ×2 mở khóa detect SFX
     setSel('tMITUpscaler',  'waifu2x');  // waifu2x giữ halftone (KHÔNG dùng esrgan cho manga)
-    setSel('tMITInpaintSize', '2560');   // ảnh đã ×2 → inpaint res cao cho nét
+    setSel('tMITInpaintSize', '3072');   // ảnh đã ×2 → inpaint res cao cho nét
     setSel('tMITInpaintPrec', '');
     setSel('tMITDetSize',  '2560');
-    set('tMITMaskDil',  '10');           // dilation nhẹ phủ kín viền chữ/SFX
+    set('tMITMaskDil',  '50');           // dilation phủ kín viền chữ/SFX nét dày
     set('tMITUnclip',   '1.4');
     set('tMITBoxThr',   '0.1');          // nhạy: bắt SFX/chữ nghệ thuật
     set('tMITTextThr',  '0.1');
@@ -159,10 +159,12 @@ function mitPreset(mode) {
     chk('tMITDetInvert', true);          // đảo màu: bắt chữ sáng trên nền tối
     chk('tMITDetRotate', false);
     chk('tMITDetAutoRotate', false);
-    setSel('tMITOcr', '48px_ctc');
-    set('tMITOcrProb',  '0.5');          // box/text thr thấp → lọc OCR đọc bậy
-    set('tMITFontOfs',  '-10');          // offset ÂM: thu chữ cho khớp bubble nhỏ
-    document.getElementById('tMITFontOfsVal') && (document.getElementById('tMITFontOfsVal').textContent = '-10');
+    setSel('tMITOcr', '48px');           // 48px (TQ/NH/Anh) — tự bật fallback ctc vớt vùng sót
+    set('tMITOcrProb',  '0.1');          // box/text thr thấp → giữ vùng chữ nhạt/SFX
+    set('tMITNarrowWide', '');           // Tắt nối ngang vùng hẹp
+    set('tMITNarrowFontCap', '');        // Trần cỡ chữ: tự nhiên
+    set('tMITFontOfs',  '-1');           // offset ÂM nhẹ: thu chữ cho khớp bubble
+    document.getElementById('tMITFontOfsVal') && (document.getElementById('tMITFontOfsVal').textContent = '-1');
     set('tMITFontMin',  '');
     set('tMITFontFixed','');
     set('tMITFontColor','');
